@@ -4,3 +4,4 @@ config.json
 *.part
 moves.json
 matches.json
+renames.json

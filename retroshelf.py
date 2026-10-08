@@ -13,6 +13,7 @@ Plain text with no * or ? matches anywhere in the name; with wildcards the patte
   # comment       -> ignored
 Double-click a game in either pane to flip it manually (beats everything, including played-game protection).
 Right-click a game to pick its LaunchBox entry by hand when the automatic match is missing or wrong.
+Rename… brings file names in line with a template (default: No-Intro order), with a preview and undo.
 Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and move together.
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
@@ -204,6 +205,144 @@ DUPES = "Region dupes (keep 1 per title)"
 PARTIAL_EXT = (".part", ".crdownload", ".tmp")
 
 
+# ---------- renaming ----------
+DEFAULT_TEMPLATE = "{title} ({region}) ({lang}) ({rev}) {tags}"  # No-Intro order
+RENAME_FIELDS = {
+    "title": "name without tags or set number", "region": "USA, Europe …", "lang": "En,Fr,Es …",
+    "rev": "Rev 1, v1.1 …", "tags": "every other tag, brackets kept", "lbname": "LaunchBox name (else title)",
+}
+ANY_TAG_RE = re.compile(r"[\(\[][^\)\]]*[\)\]]")
+LANG_RE = re.compile(r"[A-Z][a-z](?:[+-][A-Z][a-z])*(?:,\s*[A-Z][a-z](?:[+-][A-Z][a-z])*)*")
+REV_RE = re.compile(r"Rev\s*[\w.]+|v\d[\w.]*|Version\s*[\w.]+", re.I)
+REF_EXT = (".cue", ".m3u", ".gdi")  # text files that name the game's other files
+
+
+def split_ext(name):
+    """('Mr. Driller (USA)', '') rather than ('Mr', '. Driller (USA)') for folders and extensionless names."""
+    stem, ext = os.path.splitext(name)
+    return (stem, ext) if re.fullmatch(r"\.[A-Za-z0-9_+-]{1,10}", ext) else (name, "")
+
+
+def name_fields(stem, lb_name=None):
+    s = PREFIX_RE.sub("", stem)
+    f = {"title": TAG_RE.sub("", s).strip(), "region": "", "lang": "", "rev": ""}
+    other = []
+    for tag in ANY_TAG_RE.findall(s):
+        inner = tag[1:-1].strip()
+        if tag[0] == "(" and not f["region"] and all(p.strip() in KNOWN_REGIONS for p in inner.split(",")):
+            f["region"] = ", ".join(p.strip() for p in inner.split(","))
+        elif tag[0] == "(" and not f["lang"] and LANG_RE.fullmatch(inner):
+            f["lang"] = inner
+        elif not f["rev"] and REV_RE.fullmatch(inner):
+            f["rev"] = inner
+        else:
+            other.append(tag)
+    f["tags"] = " ".join(other)
+    f["lbname"] = lb_name or f["title"]
+    return f
+
+
+def render_name(template, fields):
+    """Fill template; empty () / [] are dropped and characters other filesystems reject are cleaned out."""
+    unknown = set(re.findall(r"\{(\w*)\}", template)) - fields.keys()
+    if unknown:
+        raise ValueError("unknown field " + ", ".join("{%s}" % u for u in sorted(unknown)))
+    out = re.sub(r"\{(\w+)\}", lambda m: fields[m.group(1)], template)
+    out = re.sub(r"\(\s*\)|\[\s*\]", "", out)
+    out = re.sub(r"\s*:\s*", " - ", out)
+    out = re.sub(r'[<>"/\\|?*\x00-\x1f]', "", out)
+    return re.sub(r"^[\s-]+|[\s-]+$", "", " ".join(out.split()))
+
+
+def plan_renames(units, template):
+    """units: [(key, [paths], LaunchBox name or None)] -> rows {key, old, new, status}; status is "rename",
+    "same", or why it's skipped. A conflict anywhere in a multi-file game skips the whole game."""
+    rows = []
+    for key, paths, lb_name in units:
+        for p in paths:
+            name = os.path.basename(p)
+            row = {"key": key, "old": p, "new": p, "status": "same"}
+            rows.append(row)
+            if name.lower().endswith(PARTIAL_EXT):
+                row["status"] = "partial download"
+                continue
+            stem, ext = split_ext(name)
+            parts = "".join(" " + m.strip() for m in PART_RE.findall(stem))
+            try:
+                base = render_name(template, name_fields(PART_RE.sub("", stem).strip(), lb_name))
+            except ValueError as e:
+                row["status"] = str(e)
+                continue
+            if not base:
+                row["status"] = "empty name"
+                continue
+            row["new"] = os.path.join(os.path.dirname(p), base + parts + ext)
+            if row["new"] != p:
+                row["status"] = "rename"
+    sources = {os.path.normcase(r["old"]) for r in rows if r["status"] == "rename"}
+    seen = Counter(os.path.normcase(r["new"]).lower() for r in rows)
+    for r in rows:
+        if r["status"] != "rename":
+            continue
+        if seen[os.path.normcase(r["new"]).lower()] > 1:
+            r["status"] = "two games get this name"
+        elif os.path.lexists(r["new"]) and os.path.normcase(r["new"]) not in sources and \
+                not os.path.samefile(r["new"], r["old"]):
+            r["status"] = "name already taken"
+    bad = {r["key"] for r in rows if r["status"] not in ("rename", "same")}
+    for r in rows:
+        if r["key"] in bad and r["status"] == "rename":
+            r["status"] = "skipped with the rest of its game"
+    return rows
+
+
+def apply_renames(pairs):
+    """Rename [(old, new)] in two steps through hidden temp names, so swaps and chains can't collide.
+    -> (pairs done, error messages). Then fixes .cue/.m3u references to the renamed files."""
+    staged, failed = [], []
+    for i, (old, new) in enumerate(pairs):
+        tmp = os.path.join(os.path.dirname(old), f".retroshelf-rename-{os.getpid()}-{i}")
+        try:
+            os.rename(old, tmp)
+            staged.append((old, new, tmp))
+        except OSError as e:
+            failed.append(f"{os.path.basename(old)}: {e}")
+    done = []
+    for old, new, tmp in staged:
+        try:
+            if os.path.lexists(new):
+                raise OSError("name already taken")
+            os.rename(tmp, new)
+            done.append([old, new])
+        except OSError as e:
+            failed.append(f"{os.path.basename(old)}: {e}")
+            try:
+                os.rename(tmp, old)
+            except OSError as e2:
+                failed.append(f"{os.path.basename(old)} is left as {tmp}: {e2}")
+    by_name = {os.path.basename(o): os.path.basename(n) for o, n in done}
+    for _, new in done:
+        if new.lower().endswith(REF_EXT):
+            try:
+                fix_refs(new, by_name)
+            except OSError as e:
+                failed.append(f"{os.path.basename(new)} (updating file names inside): {e}")
+    return done, failed
+
+
+def fix_refs(path, by_name):
+    """Swap old file names for new ones inside a .cue / .m3u / .gdi."""
+    if not by_name:
+        return
+    with open(path, encoding="utf-8", errors="surrogateescape", newline="") as f:
+        text = f.read()
+    rx = re.compile("|".join(re.escape(n) for n in sorted(by_name, key=len, reverse=True)))
+    new = rx.sub(lambda m: by_name[m.group(0)], text)
+    if new != text:
+        with open(path, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+            f.write(new)
+
+
 def wildcard_re(pat, icase):
     if "*" not in pat and "?" not in pat:
         pat = f"*{pat}*"  # plain text means "name contains this"
@@ -293,7 +432,7 @@ class App:
         root.geometry("1600x950")
 
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
-                    "region_priority": DEFAULT_PRIORITY}
+                    "region_priority": DEFAULT_PRIORITY, "rename_templates": {}}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -529,6 +668,7 @@ class App:
         ttk.Button(flt, text="Clear list", command=self.clear_list).pack(side="left", padx=(4, 16))
         ttk.Button(flt, text="Reset flips", command=self.reset_manual).pack(side="left")
         ttk.Button(flt, text="Rescan", command=self.rescan).pack(side="left", padx=(4, 0))
+        ttk.Button(flt, text="Rename…", command=self.rename_dialog).pack(side="left", padx=(16, 0))
 
         # footer: status left, move controls right (packed before the panes so it never gets squeezed out)
         foot = ttk.Frame(outer, padding=(0, 10, 0, 0))
@@ -1338,6 +1478,214 @@ class App:
         if self.units[key]["extra"]:
             parts.append("Installed data:  " + "  ·  ".join(self.units[key]["extra"]))
         self.status.config(text="  ·  ".join(parts))
+
+    # ---------- renaming ----------
+    def renames_log(self):
+        return os.path.join(APP_DIR, "renames.json")
+
+    def _read_renames(self):
+        try:
+            with open(self.renames_log(), encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return []
+
+    def _write_renames(self, batches):
+        with open(self.renames_log(), "w", encoding="utf-8") as f:
+            json.dump(batches, f, indent=1, ensure_ascii=False)
+
+    def _after_rename(self, done):
+        """Carry double-click flips over to the games' new names, then rescan."""
+        new_key = {}
+        for old, new in done:
+            k = self.file_to_unit.get(os.path.basename(old))
+            if k:
+                new_key[k] = unit_key(os.path.basename(new))
+        self.manual = {new_key.get(k, k): v for k, v in self.manual.items()}
+        self.rescan()
+
+    def rename_dialog(self):
+        if not self.units:
+            messagebox.showinfo("No games", "Pick a system with games first.")
+            return
+        selected = set(self.keep_tv.selection()) | set(self.move_tv.selection())
+        scopes = [("All games", list(self.units)), ("Keeping list", list(self.kept)),
+                  ("Selected rows", [k for k in self.units if k in selected])]
+        win = tk.Toplevel(self.root)
+        win.title(f"Rename files — {self.system}")
+        win.transient(self.root)
+        win.geometry("1100x720")
+        win.configure(bg=ttk.Style().lookup("TFrame", "background"))
+        body = ttk.Frame(win, padding=16)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="Rename files to a pattern", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(body, text="Only the ROM files are renamed, plus the file names inside .cue / .m3u files so "
+                             "multi-disc games keep working. ES-DE sees renamed games as new: play counts, "
+                             "favorites, scraped text and media stay under the old names until you rescrape.",
+                  style="Muted.TLabel", wraplength=1040, justify="left").pack(anchor="w", pady=(2, 10))
+
+        row = ttk.Frame(body)
+        row.pack(fill="x")
+        ttk.Label(row, text="Pattern").pack(side="left", padx=(0, 8))
+        template = tk.StringVar(value=self.cfg["rename_templates"].get(self.system, DEFAULT_TEMPLATE))
+        entry = ttk.Entry(row, textvariable=template, font=(self.mono, 10))
+        entry.pack(side="left", fill="x", expand=True)
+        scope = tk.IntVar(value=2 if scopes[2][1] else 0)
+        for i, (label, keys) in enumerate(scopes):
+            ttk.Radiobutton(row, text=f"{label} ({len(keys):,})", variable=scope, value=i,
+                            state="normal" if keys else "disabled",
+                            command=lambda: refresh()).pack(side="left", padx=(12, 0))
+        ttk.Label(body, text="Fields:  " + "   ".join(f"{{{k}}} {v}" for k, v in RENAME_FIELDS.items())
+                             + ".   Disc / Track parts and the extension are always kept.",
+                  style="Muted.TLabel", wraplength=1040, justify="left").pack(anchor="w", pady=(6, 8))
+
+        foot = ttk.Frame(body, padding=(0, 12, 0, 0))
+        foot.pack(side="bottom", fill="x")
+        inner = ttk.Frame(body)
+        inner.pack(fill="both", expand=True)
+        tv = ttk.Treeview(inner, columns=("new", "status"), selectmode="none")
+        for col, text, width in (("#0", "Now", 420), ("new", "Becomes", 420), ("status", "", 190)):
+            tv.heading(col, text=text, anchor="w")
+            tv.column(col, width=width, anchor="w", stretch=col != "status")
+        sb = ttk.Scrollbar(inner, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sb.set)
+        tv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        tv.tag_configure("bad", foreground="#e8a33d")
+
+        summary = ttk.Label(foot, style="Muted.TLabel")
+        summary.pack(side="left")
+        show_same = tk.BooleanVar(value=False)
+        state = {"rows": [], "after": None}
+
+        def refresh():
+            state["after"] = None
+            lb_names = {}
+            if self.platform:
+                m = lb.Matcher(self.platform)
+                lb_names = {k: m.games[gid]["n"] for k, gid in self.lb_links.items() if gid in m.games}
+            keys = list(self.units) if scope.get() == 0 else [k for k in scopes[scope.get()][1] if k in self.units]
+            state["rows"] = rows = plan_renames(
+                [(k, self.units[k]["paths"], lb_names.get(k)) for k in keys], template.get())
+            tv.delete(*tv.get_children())
+            for i, r in enumerate(rows):
+                if r["status"] == "same" and not show_same.get():
+                    continue
+                ok = r["status"] in ("rename", "same")
+                tv.insert("", "end", iid=str(i), text=os.path.basename(r["old"]),
+                          values=(os.path.basename(r["new"]) if ok else "", "" if ok else r["status"]),
+                          tags=() if ok else ("bad",))
+            n = Counter("rename" if r["status"] == "rename" else "same" if r["status"] == "same" else "skip"
+                        for r in rows)
+            summary.config(text=f"{n['rename']:,} files to rename  ·  {n['same']:,} already match  ·  "
+                                f"{n['skip']:,} skipped")
+            apply_btn.config(state="normal" if n["rename"] else "disabled")
+
+        def on_type(*_):
+            if state["after"]:
+                win.after_cancel(state["after"])
+            state["after"] = win.after(250, refresh)
+
+        def apply():
+            pairs = [(r["old"], r["new"]) for r in state["rows"] if r["status"] == "rename"]
+            if not messagebox.askyesno("Rename files", f"Rename {len(pairs):,} files? You can undo this later "
+                                                       "with Undo….", parent=win):
+                return
+            self.cfg["rename_templates"][self.system] = template.get()
+            self.save_cfg()
+            done, failed = apply_renames(pairs)
+            if done:
+                batches = self._read_renames()
+                batches.append({"time": datetime.datetime.now().isoformat(timespec="seconds"),
+                                "system": self.system, "template": template.get(), "renames": done})
+                try:
+                    self._write_renames(batches)
+                except OSError as e:
+                    failed.append(f"rename log (undo won't know about this run): {e}")
+            self._after_rename(done)
+            refresh()
+            if failed:
+                messagebox.showerror(f"Renamed {len(done)} files, {len(failed)} problems", "\n".join(failed[:30]),
+                                     parent=win)
+            else:
+                messagebox.showinfo("Renamed", f"Renamed {len(done):,} files.", parent=win)
+
+        apply_btn = ttk.Button(foot, text="Rename", style="Accent.TButton", command=apply)
+        apply_btn.pack(side="right")
+        ttk.Button(foot, text="Close", command=win.destroy).pack(side="right", padx=(0, 6))
+        ttk.Button(foot, text="Undo…", command=lambda: self.undo_renames_dialog(win, refresh)).pack(side="right",
+                                                                                                   padx=(0, 16))
+        ttk.Checkbutton(foot, text="Show unchanged", variable=show_same, command=refresh).pack(side="right",
+                                                                                                padx=(0, 16))
+        template.trace_add("write", on_type)
+        win.bind("<Escape>", lambda e: win.destroy())
+        refresh()
+        entry.focus_set()
+
+    def undo_renames_dialog(self, parent, on_done):
+        batches = self._read_renames()
+        win = tk.Toplevel(parent)
+        win.title("Undo renames")
+        win.transient(parent)
+        win.configure(bg=ttk.Style().lookup("TFrame", "background"))
+        body = ttk.Frame(win, padding=16)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="Put old file names back", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(body, text=f"Every rename run is logged in {self.renames_log()}. Undo newer runs first if the "
+                             "same games were renamed more than once.", style="Muted.TLabel", wraplength=640,
+                  justify="left").pack(anchor="w", pady=(2, 10))
+        foot = ttk.Frame(body, padding=(0, 12, 0, 0))
+        foot.pack(side="bottom", fill="x")
+        tv = ttk.Treeview(body, columns=("system", "template", "left"), selectmode="extended", height=10)
+        for col, text, width, anchor in (("#0", "When", 170, "w"), ("system", "System", 90, "w"),
+                                         ("template", "Pattern", 220, "w"), ("left", "Still renamed", 130, "e")):
+            tv.heading(col, text=text, anchor=anchor)
+            tv.column(col, width=width, anchor=anchor, stretch=col == "template")
+        tv.pack(fill="both", expand=True)
+
+        def fill():
+            tv.delete(*tv.get_children())
+            for i in range(len(batches) - 1, -1, -1):
+                b = batches[i]
+                left = sum(os.path.lexists(n) for _, n in b["renames"])
+                tv.insert("", "end", iid=str(i), text=b["time"].replace("T", "  "),
+                          values=(b["system"], b["template"], f"{left} / {len(b['renames'])} files"))
+        fill()
+
+        def undo():
+            sel = sorted((int(i) for i in tv.selection()), reverse=True)  # newest first undoes in order
+            if not sel:
+                return
+            back, failed = [], []
+            for i in sel:
+                pairs = [(n, o) for o, n in batches[i]["renames"] if os.path.lexists(n)]
+                done, errs = apply_renames(pairs)
+                back += done
+                failed += errs
+                undone = {o for _, o in done}
+                left = [[o, n] for o, n in batches[i]["renames"] if os.path.lexists(n) and o not in undone]
+                if left:
+                    batches[i]["renames"] = left
+                else:
+                    del batches[i]
+            try:
+                self._write_renames(batches)
+            except OSError as e:
+                failed.append(f"rename log: {e}")
+            fill()
+            self._after_rename(back)
+            on_done()
+            if failed:
+                messagebox.showerror(f"Undid {len(back)} renames, {len(failed)} problems", "\n".join(failed[:30]),
+                                     parent=win)
+            else:
+                messagebox.showinfo("Undone", f"Put back {len(back)} file names.", parent=win)
+
+        ttk.Button(foot, text="Undo selected", style="Accent.TButton", command=undo).pack(side="right")
+        ttk.Button(foot, text="Close", command=win.destroy).pack(side="right", padx=(0, 6))
+        if not batches:
+            ttk.Label(foot, text="Nothing logged yet.", style="Muted.TLabel").pack(side="left")
+        win.bind("<Escape>", lambda e: win.destroy())
 
     # ---------- manual LaunchBox match ----------
     def _row_menu(self, tv, e):
