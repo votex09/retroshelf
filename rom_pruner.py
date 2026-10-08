@@ -15,7 +15,7 @@ Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and 
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see nps.py).
 """
-import json, os, queue, re, shutil, sys, threading
+import datetime, json, os, queue, re, shutil, sys, threading
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 import tkinter as tk
@@ -531,6 +531,7 @@ class App:
         foot.pack(side="bottom", fill="x")
         ttk.Button(foot, text="Move files", style="Accent.TButton", command=self.execute).pack(side="right")
         ttk.Button(foot, text="Export list…", command=self.export).pack(side="right", padx=(0, 6))
+        ttk.Button(foot, text="Restore…", command=self.restore_dialog).pack(side="right", padx=(0, 6))
         ttk.Button(foot, text="Change…", command=self.browse_holding).pack(side="right", padx=(0, 16))
         self.hold_lbl = ttk.Label(foot, style="Muted.TLabel")
         self.hold_lbl.pack(side="right", padx=(0, 6))
@@ -547,6 +548,8 @@ class App:
         self.move_lbl, self.move_tv = self._pane(panes, "Move.TLabel", pad=(8, 0))
         self.keep_tv.bind("<Double-Button-1>", lambda e: self.flip(self.keep_tv, True))
         self.move_tv.bind("<Double-Button-1>", lambda e: self.flip(self.move_tv, False))
+        for tv in (self.keep_tv, self.move_tv):
+            tv.bind("<<TreeviewSelect>>", lambda e, tv=tv: self._show_selected(tv))
 
     def _pane(self, panes, label_style, pad=(0, 8)):
         f = ttk.Frame(panes, padding=(pad[0], 0, pad[1], 0))
@@ -1153,6 +1156,9 @@ class App:
             size = sum(self.units[k]["size"] for k in keys)
             extra = f"  ·  {len(shown)} shown" if q else ""
             lbl.config(text=f"{title}   {len(keys):,} games  ·  {human(size)}{extra}")
+        self.render_status()
+
+    def render_status(self):
         nfiles = sum(len(u["paths"]) for u in self.units.values())
         self.status.config(text=f"{len(self.units):,} games ({nfiles:,} files)  ·  {len(self.manual)} flipped (orange)"
                                 f"  ·  double-click to flip  ·  click a column to sort")
@@ -1181,7 +1187,7 @@ class App:
             return
         os.makedirs(dest_dir, exist_ok=True)
         base = os.path.dirname(os.path.realpath(self.cfg["roms_root"]).rstrip("/"))
-        moved, failed = 0, []
+        moved, failed, done = 0, [], []
         for k in self.to_move:
             for p in self.units[k]["paths"] + self.units[k]["extra"]:
                 if p in self.units[k]["extra"]:  # keep the path under retrodeck/ so it can be moved back by hand
@@ -1195,15 +1201,138 @@ class App:
                     if os.path.exists(target):
                         raise OSError("already exists in holding folder")
                     shutil.move(p, target)
+                    done.append([p, target])
                     moved += 1
                 except OSError as e:
                     failed.append(f"{os.path.basename(p)}: {e}")
+        if done:
+            self._log_moves({"time": datetime.datetime.now().isoformat(timespec="seconds"), "system": self.system,
+                             "dest": self.dest.get(), "games": len(self.to_move), "size": size, "moves": done})
         self.manual = {}
         self.rescan()
         if failed:
             messagebox.showerror(f"Moved {moved} files, {len(failed)} failed", "\n".join(failed[:30]))
         else:
             messagebox.showinfo("Done", f"Moved {moved} files to {dest_dir}/")
+
+    # ---------- move log / restore ----------
+    def moves_log(self):
+        return os.path.join(self.holding_root(), "moves.json")
+
+    def _read_moves(self):
+        try:
+            with open(self.moves_log(), encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return []
+
+    def _write_moves(self, batches):
+        os.makedirs(self.holding_root(), exist_ok=True)
+        tmp = self.moves_log() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(batches, f, indent=1)
+        os.replace(tmp, self.moves_log())
+
+    def _log_moves(self, batch):
+        try:
+            self._write_moves(self._read_moves() + [batch])
+        except OSError as e:
+            messagebox.showwarning("Move log not saved", f"Restore won't know about this move:\n{e}")
+
+    def restore_dialog(self):
+        batches = self._read_moves()
+        win = tk.Toplevel(self.root)
+        win.title("Restore moved games")
+        win.transient(self.root)
+        win.configure(bg=ttk.Style().lookup("TFrame", "background"))
+        body = ttk.Frame(win, padding=16)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="Put moved games back", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(body, text=f"Every Move files run is logged in {self.moves_log()}. Restoring moves the files "
+                             "(and any RPCS3 / Vita3K data that went with them) back where they came from.",
+                  style="Muted.TLabel", wraplength=640, justify="left").pack(anchor="w", pady=(2, 10))
+        foot = ttk.Frame(body, padding=(0, 12, 0, 0))
+        foot.pack(side="bottom", fill="x")
+        tv = ttk.Treeview(body, columns=("system", "dest", "games", "left"), selectmode="extended", height=10)
+        for col, text, width, anchor in (("#0", "When", 170, "w"), ("system", "System", 90, "w"),
+                                         ("dest", "Moved to", 140, "w"), ("games", "Games", 110, "e"),
+                                         ("left", "Still in holding", 130, "e")):
+            tv.heading(col, text=text, anchor=anchor)
+            tv.column(col, width=width, anchor=anchor, stretch=col == "#0")
+        tv.pack(fill="both", expand=True)
+
+        def fill():
+            tv.delete(*tv.get_children())
+            for i in range(len(batches) - 1, -1, -1):
+                b = batches[i]
+                left = sum(os.path.exists(t) for _, t in b["moves"])
+                tv.insert("", "end", iid=str(i), text=b["time"].replace("T", "  "),
+                          values=(b["system"], b["dest"], f"{b['games']}  ({human(b['size'])})",
+                                  f"{left} / {len(b['moves'])} files"))
+        fill()
+
+        def restore():
+            sel = sorted((int(i) for i in tv.selection()), reverse=True)  # newest first undoes in order
+            if not sel:
+                return
+            back, failed = 0, []
+            for i in sel:
+                remaining = []
+                for src, target in reversed(batches[i]["moves"]):
+                    if not os.path.exists(target):
+                        continue  # deleted from the holding folder since; nothing to bring back
+                    try:
+                        if os.path.exists(src):
+                            raise OSError("something is already at the original path")
+                        os.makedirs(os.path.dirname(src), exist_ok=True)
+                        shutil.move(target, src)
+                        back += 1
+                        prune_empty(os.path.dirname(target), self.holding_root())
+                    except OSError as e:
+                        failed.append(f"{os.path.basename(src)}: {e}")
+                        remaining.append([src, target])
+                if remaining:
+                    batches[i]["moves"] = remaining[::-1]
+                else:
+                    del batches[i]
+            try:
+                self._write_moves(batches)
+            except OSError as e:
+                failed.append(f"move log: {e}")
+            fill()
+            self.rescan()
+            if failed:
+                messagebox.showerror(f"Restored {back} files, {len(failed)} failed", "\n".join(failed[:30]),
+                                     parent=win)
+            else:
+                messagebox.showinfo("Restored", f"Put {back} files back.", parent=win)
+
+        ttk.Button(foot, text="Restore selected", style="Accent.TButton", command=restore).pack(side="right")
+        ttk.Button(foot, text="Close", command=win.destroy).pack(side="right", padx=(0, 6))
+        if not batches:
+            ttk.Label(foot, text="Nothing logged yet.", style="Muted.TLabel").pack(side="left")
+        win.bind("<Escape>", lambda e: win.destroy())
+
+    def _show_selected(self, tv):
+        """Status line: where a launcher entry's installed data lives (PS3 shortcuts, .psvita files)."""
+        sel = tv.selection()
+        u = self.units.get(sel[0]) if len(sel) == 1 else None
+        if u and u["extra"]:
+            self.status.config(text="Installed data:  " + "  ·  ".join(u["extra"]))
+        else:
+            self.render_status()
+
+
+def prune_empty(folder, stop):
+    """Remove folder and its parents while they're empty, never going above stop."""
+    stop = os.path.realpath(stop)
+    folder = os.path.realpath(folder)
+    while folder.startswith(stop + os.sep):
+        try:
+            os.rmdir(folder)
+        except OSError:
+            return
+        folder = os.path.dirname(folder)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,16 @@
 """NoPayStation window for ROM Pruner: search the NPS lists, queue packages, download and install them."""
-import datetime, os, queue, shutil, threading
+import datetime, os, queue, re, shutil, threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
+import launchbox as lb
 import nps
+import scraper
 
 REGION_CHOICES = ["All regions"] + list(nps.REGIONS)
+PARALLEL_DOWNLOADS = 2
+OWNED = ("Installed", "Have as ROM", "Have (other region)")
+REGION_TAG = re.compile(r"\((?:[^)]*\b)?(?:USA|Europe|Japan|World|Asia|Korea|Australia)\b")
 
 
 def human(n):
@@ -26,15 +31,25 @@ class NpsWindow:
         self.running = self.cancel = False
         self.installed_any = False
         self.sort_by = ("name", False)
+        self._index_library()
 
         win = self.win = tk.Toplevel(app.root)
         win.title(f"NoPayStation — {app.fullname or self.system}")
         win.transient(app.root)
-        win.geometry("1150x820")
+        win.geometry("1150x860")
         win.configure(bg=ttk.Style().lookup("TFrame", "background"))
         self._build()
         win.protocol("WM_DELETE_WINDOW", self.close)
         self.load_kind()
+
+    def _index_library(self):
+        """What's already here: title ids the emulator has, and loose titles of the ROMs in this system's folder."""
+        self.owned_ids = nps.owned_ids(self.system, self.roms_root)
+        self.rom_titles = {}  # title key -> [ROM key]
+        # shortcut / .psvita entries are a specific installed title id (shown as Installed), never another region
+        self.launchers = {k for k, u in self.app.units.items() if u.get("extra")}
+        for key in self.app.units:
+            self.rom_titles.setdefault(nps.title_key(key), []).append(key)
 
     # ---------- UI ----------
     def _build(self):
@@ -47,15 +62,19 @@ class NpsWindow:
         self.age_lbl = ttk.Label(head, style="Muted.TLabel")
         self.age_lbl.pack(side="right", padx=(0, 8))
         ttk.Label(body, text=self._install_note(), style="Muted.TLabel", wraplength=1080,
-                  justify="left").pack(anchor="w", pady=(2, 10))
+                  justify="left").pack(anchor="w", pady=(2, 0))
+        fw = nps.firmware_problem(self.system, self.roms_root)
+        if fw:
+            ttk.Label(body, text="⚠ " + fw, style="Move.TLabel", wraplength=1080, justify="left").pack(
+                anchor="w", pady=(6, 0))
 
-        flt = ttk.Frame(body)
+        flt = ttk.Frame(body, padding=(0, 10, 0, 0))
         flt.pack(fill="x")
         self.kind = tk.StringVar(value=next(iter(self.kinds)))
         kind_cb = ttk.Combobox(flt, textvariable=self.kind, values=list(self.kinds), state="readonly", width=10)
         kind_cb.pack(side="left")
         kind_cb.bind("<<ComboboxSelected>>", lambda e: self.load_kind())
-        self.region = tk.StringVar(value="US" if "US" in nps.REGIONS else REGION_CHOICES[0])
+        self.region = tk.StringVar(value="US")
         reg_cb = ttk.Combobox(flt, textvariable=self.region, values=REGION_CHOICES, state="readonly", width=12)
         reg_cb.pack(side="left", padx=(6, 0))
         reg_cb.bind("<<ComboboxSelected>>", lambda e: self.render())
@@ -65,8 +84,12 @@ class NpsWindow:
         search = ttk.Entry(flt, textvariable=self.query)
         search.pack(side="left", fill="x", expand=True)
         search.focus_set()
+        self.only_mine = tk.BooleanVar(value=False)
+        if self.system in ("ps3", "psvita"):
+            ttk.Checkbutton(flt, text="Only for my games", variable=self.only_mine,
+                            command=self.render).pack(side="left", padx=(12, 0))
         self.hide_installed = tk.BooleanVar(value=False)
-        ttk.Checkbutton(flt, text="Hide installed", variable=self.hide_installed,
+        ttk.Checkbutton(flt, text="Hide ones I have", variable=self.hide_installed,
                         command=self.render).pack(side="left", padx=(12, 0))
 
         # footer first, packed to the bottom, so the panes can never squeeze it out
@@ -78,6 +101,9 @@ class NpsWindow:
         ttk.Button(foot, text="Change…", command=self.browse_dir).pack(side="left")
         self.keep_pkg = tk.BooleanVar(value=self.app.cfg.get("nps_keep_pkg", False))
         ttk.Checkbutton(foot, text="Keep .pkg after install", variable=self.keep_pkg,
+                        command=self._save_opts).pack(side="left", padx=(16, 0))
+        self.do_scrape = tk.BooleanVar(value=self.app.cfg.get("nps_scrape", True))
+        ttk.Checkbutton(foot, text="Scrape new games (LaunchBox)", variable=self.do_scrape,
                         command=self._save_opts).pack(side="left", padx=(16, 0))
         self.start_btn = ttk.Button(foot, text="Start", style="Accent.TButton", command=self.start)
         self.start_btn.pack(side="right")
@@ -95,15 +121,17 @@ class NpsWindow:
         self.res_lbl.pack(anchor="w", pady=(0, 4))
         row = ttk.Frame(top)
         row.pack(side="bottom", fill="x", pady=(6, 0))
-        ttk.Label(row, text="Double-click or Enter to queue · ctrl / shift-click for several",
-                  style="Muted.TLabel").pack(side="left")
+        self.hint = ttk.Label(row, text="Double-click or Enter to queue · ctrl / shift-click for several",
+                              style="Muted.TLabel")
+        self.hint.pack(side="left")
         ttk.Button(row, text="Add to queue", command=self.enqueue).pack(side="right")
         self.res_tv = self._tree(top, (("id", "Title ID", 95, "w"), ("region", "Region", 70, "w"),
-                                       ("size", "Size", 90, "e"), ("status", "Status", 110, "w")))
+                                       ("size", "Size", 90, "e"), ("status", "Status", 150, "w")))
         for col in ("#0", "id", "region", "size"):
             self.res_tv.heading(col, command=lambda c=col: self.sort(c))
         self.res_tv.bind("<Double-Button-1>", lambda e: self.enqueue())
         self.res_tv.bind("<Return>", lambda e: self.enqueue())
+        self.res_tv.bind("<<TreeviewSelect>>", lambda e: self._show_have())
         panes.add(top, weight=3)
 
         bot = ttk.Frame(panes, padding=(0, 10, 0, 0))
@@ -129,12 +157,14 @@ class NpsWindow:
         tv.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
         tv.tag_configure("installed", foreground=self.app.colors["keep"])
+        tv.tag_configure("have", foreground=self.app.colors["manual"])
         return tv
 
     def _install_note(self):
         return {
             "PS3": "Packages are decrypted straight into RPCS3's dev_hdd0/game, the license (.rap) goes to exdata, "
-                   "and games get a shortcut in roms/ps3 so ES-DE lists them.",
+                   "and games get a shortcut in roms/ps3 so ES-DE lists them. Updates come from Sony's update "
+                   "server for the games RPCS3 already has.",
             "PSV": "Packages are installed by Vita3K (license included), and games get a .psvita entry in "
                    "roms/psvita. Updates aren't offered: NPS has no license for them and Vita3K needs one.",
             "PSP": "The game's EBOOT.PBP is pulled out of the package into roms/psp; PPSSPP plays it directly. "
@@ -155,20 +185,23 @@ class NpsWindow:
 
     def _save_opts(self):
         self.app.cfg["nps_keep_pkg"] = self.keep_pkg.get()
+        self.app.cfg["nps_scrape"] = self.do_scrape.get()
         self.app.save_cfg()
 
     # ---------- lists ----------
     def _in_thread(self, work, done):
-        """Run work() off the UI thread, then done(result or exception) on it."""
-        box = queue.Queue()
+        """Run work(say) off the UI thread, then done(result or exception) on it. say(text) updates the status."""
+        box, said = queue.Queue(), queue.Queue()
 
         def run():
             try:
-                box.put(work())
+                box.put(work(said.put))
             except Exception as e:
                 box.put(e)
 
         def poll():
+            while not said.empty():
+                self.status.config(text=said.get())
             try:
                 done(box.get_nowait())
             except queue.Empty:
@@ -181,16 +214,21 @@ class NpsWindow:
         if kind in self.rows:
             self.render()
             return
-        self.status.config(text=f"Loading {self.console} {kind} list …")
+        updates = self.kinds[kind] is None
+        self.status.config(text="Checking Sony's update server …" if updates else
+                           f"Loading {self.console} {kind} list …")
 
         def done(res):
             if isinstance(res, Exception):
                 self.status.config(text=f"Couldn't load the list: {res}")
                 return
             self.rows[kind] = res
-            self.status.config(text="")
+            self.status.config(text=f"{len(res)} updates found for {len(self.owned_ids)} games" if updates else "")
             self.render()
-        self._in_thread(lambda: nps.load_list(self.system, kind), done)
+        if updates:
+            self._in_thread(lambda say: nps.load_updates(self.roms_root, say), done)
+        else:
+            self._in_thread(lambda say: nps.load_list(self.system, kind), done)
 
     def refresh_lists(self):
         if self.running:
@@ -203,7 +241,7 @@ class NpsWindow:
                 return
             self.rows = {}
             self.load_kind()
-        self._in_thread(lambda: [nps.fetch_list(n) for n in self.kinds.values()], done)
+        self._in_thread(lambda say: [nps.fetch_list(n) for n in self.kinds.values() if n], done)
 
     # ---------- results ----------
     def _debounce(self):
@@ -217,43 +255,80 @@ class NpsWindow:
         self.sort_by = (col, not desc if c == col else col == "size")
         self.render()
 
+    def _have(self, row):
+        """ROM keys in this system's folder that look like the same game (ordinary ROMs, e.g. a CHD of a PSN title)."""
+        if row["kind"] not in ("Games", "Demos"):
+            return []
+        return self.rom_titles.get(nps.title_key(row["name"]), [])
+
     def _status_of(self, row):
         if id(row) in self.job_state:
             return self.job_state[id(row)]
-        return "Installed" if os.path.exists(nps.install_target(row, self.roms_root)) else ""
+        if nps.is_installed(row, self.roms_root):
+            return "Installed"
+        have = self._have(row)
+        if have:
+            region = nps.REGIONS.get(row["region"], row["region"])
+            # untagged files (Ape_Quest.cso) count as a match; installed launchers never do (other title id)
+            tagged = [k for k in have if REGION_TAG.search(k) or k in self.launchers]
+            return "Have as ROM" if len(tagged) < len(have) or any(
+                k not in self.launchers and (f"({region}" in k or f", {region}" in k) for k in tagged) \
+                else "Have (other region)"
+        return ""
+
+    def _show_have(self):
+        sel = self.res_tv.selection()
+        have = self._have(self.shown[int(sel[0])]) if len(sel) == 1 else []
+        self.hint.config(text=("You have: " + "  ·  ".join(have[:3])) if have else
+                         "Double-click or Enter to queue · ctrl / shift-click for several")
 
     def render(self):
         self._after = None
-        rows = self.rows.get(self.kind.get())
+        kind = self.kind.get()
+        rows = self.rows.get(kind)
         if rows is None:
             return
         words = self.query.get().lower().split()
         region = self.region.get()
+        mine = self.only_mine.get() or kind == "Updates"
         shown = [r for r in rows
-                 if (region not in nps.REGIONS or r["region"] == region)
+                 if (region not in nps.REGIONS or r["region"] == region or kind == "Updates")
+                 and (not mine or r["id"] in self.owned_ids)
                  and all(w in f"{r['name']} {r['id']}".lower() for w in words)]
         status = {id(r): self._status_of(r) for r in shown}
         if self.hide_installed.get():
-            shown = [r for r in shown if status[id(r)] != "Installed"]
+            shown = [r for r in shown if status[id(r)] not in OWNED]
         col, desc = self.sort_by
-        shown.sort(key=lambda r: r[col] if col != "name" else r["name"].lower(), reverse=desc)
+        if kind == "Updates" and col == "name":  # keep each game's updates in install order
+            shown.sort(key=lambda r: (r["name"].split("  ·  ")[0].lower(), nps.ver(r["version"])), reverse=desc)
+        else:
+            shown.sort(key=lambda r: r[col] if col != "name" else r["name"].lower(), reverse=desc)
         self.shown = shown
         tv = self.res_tv
         tv.delete(*tv.get_children())
         for i, r in enumerate(shown):
+            st = status[id(r)]
             name = r["name"] + (f"  ·  {r['subtype']}" if r["subtype"] and r["subtype"] != "PSP" else "")
             tv.insert("", "end", iid=str(i), text=name,
-                      values=(r["id"], nps.REGIONS.get(r["region"], r["region"]), human(r["size"]), status[id(r)]),
-                      tags=("installed",) if status[id(r)] == "Installed" else ())
+                      values=(r["id"], nps.REGIONS.get(r["region"], r["region"]), human(r["size"]), st),
+                      tags=("installed",) if st == "Installed" else ("have",) if st in OWNED else ())
         age = nps.list_age(self.system)
         self.age_lbl.config(text=f"Lists from {datetime.datetime.fromtimestamp(age):%Y-%m-%d}" if age else "")
-        self.res_lbl.config(text=f"{len(shown):,} of {len(rows):,} {self.kind.get().lower()}")
+        self.res_lbl.config(text=f"{len(shown):,} of {len(rows):,} {kind.lower()}")
+        self._show_have()
 
     # ---------- queue ----------
     def enqueue(self):
+        picked = [self.shown[int(iid)] for iid in self.res_tv.selection()]
+        if self.kind.get() == "Updates":
+            # PS3 updates usually aren't cumulative: pull in every older one the game is still missing, in order
+            ids = {r["id"] for r in picked}
+            newest = {i: max(nps.ver(r["version"]) for r in picked if r["id"] == i) for i in ids}
+            picked = sorted((r for r in self.rows["Updates"] if r["id"] in ids
+                             and nps.ver(r["version"]) <= newest[r["id"]] and not nps.is_installed(r, self.roms_root)),
+                            key=lambda r: (r["id"], nps.ver(r["version"])))
         added = 0
-        for iid in self.res_tv.selection():
-            r = self.shown[int(iid)]
+        for r in picked:
             if r in self.jobs:
                 continue
             self.jobs.append(r)
@@ -309,40 +384,107 @@ class NpsWindow:
                 "Low disk space", f"About {human(need)} is needed but only {human(free)} is free in\n{dl_dir}\n\n"
                                   "Start anyway?", parent=self.win):
             return
+        scrape = None
+        if self.do_scrape.get() and self.app.platform and lb.has_details():
+            scrape = (self.app.platform, self.app.gamelist_path(), not scraper.es_de_running())
         self.running, self.cancel = True, False
         self.start_btn.config(text="Stop")
-        keep = self.keep_pkg.get()
-        msgs = self.msgs
+        self.dl_bytes, self.dl_total = {}, sum(r["size"] for r in pending) or 1
+        self.bar.config(maximum=self.dl_total, value=0)
+        threading.Thread(target=self._work, args=(pending, dl_dir, self.keep_pkg.get(), scrape), daemon=True).start()
+        self.poll()
 
-        def work():
-            for row in pending:
-                if self.cancel:
-                    break
+    def _work(self, pending, dl_dir, keep, scrape):
+        """Downloads run PARALLEL_DOWNLOADS at a time; installs run one by one in queue order (updates need it)."""
+        msgs, cancelled = self.msgs, lambda: self.cancel
+        ready = [threading.Event() for _ in pending]
+        ok = [False] * len(pending)
+        todo, lock = iter(range(len(pending))), threading.Lock()
+
+        def downloader():
+            while not self.cancel:
+                with lock:
+                    i = next(todo, None)
+                if i is None:
+                    return
+                row = pending[i]
                 msgs.put(("job", row, "Downloading"))
-                pkg = nps.pkg_path(row, dl_dir)
                 try:
-                    ok = nps.download(row, pkg, lambda d, t: msgs.put(("prog", row, "Downloading", d, t)),
-                                      lambda: self.cancel)
-                    if not ok:
-                        msgs.put(("job", row, "Queued"))
-                        break
-                    msgs.put(("job", row, "Installing"))
-                    ok = nps.install(row, pkg, self.roms_root, lambda m: msgs.put(("log", m)),
-                                     lambda d, t: msgs.put(("prog", row, "Installing", d, t)), lambda: self.cancel)
-                    if not ok:
-                        msgs.put(("job", row, "Queued"))
-                        break
-                    if not keep:
-                        os.unlink(pkg)
-                    msgs.put(("job", row, "Done"))
-                    msgs.put(("installed",))
+                    ok[i] = nps.download(row, nps.pkg_path(row, dl_dir),
+                                         lambda d, t: msgs.put(("prog", row, "Downloading", d, t)), cancelled)
+                    msgs.put(("job", row, "Downloaded, waiting to install" if ok[i] else "Queued"))
                 except Exception as e:
                     msgs.put(("job", row, f"Failed: {str(e).splitlines()[0]}"))
                     msgs.put(("log", f"{row['name']}: {e}"))
-            msgs.put(("end",))
+                ready[i].set()
 
-        threading.Thread(target=work, daemon=True).start()
-        self.poll()
+        threads = [threading.Thread(target=downloader, daemon=True) for _ in range(PARALLEL_DOWNLOADS)]
+        for t in threads:
+            t.start()
+        new_entries = []
+        for i, row in enumerate(pending):
+            while not ready[i].wait(0.2):
+                if not any(t.is_alive() for t in threads):
+                    break
+            if not ok[i]:
+                continue
+            if self.cancel:  # downloaded but not installed yet: the .pkg stays, Start picks it up again
+                msgs.put(("job", row, "Queued"))
+                continue
+            pkg = nps.pkg_path(row, dl_dir)
+            msgs.put(("job", row, "Installing"))
+            try:
+                if not nps.install(row, pkg, self.roms_root, lambda m: msgs.put(("log", m)),
+                                   lambda d, t: msgs.put(("prog", row, "Installing", d, t)), cancelled):
+                    msgs.put(("job", row, "Queued"))
+                    continue
+                if not keep:
+                    os.unlink(pkg)
+                msgs.put(("job", row, "Done"))
+                msgs.put(("installed",))
+                if row.get("entry") and row["kind"] in ("Games", "Demos"):
+                    new_entries.append(row)
+            except Exception as e:
+                msgs.put(("job", row, f"Failed: {str(e).splitlines()[0]}"))
+                msgs.put(("log", f"{row['name']}: {e}"))
+        for t in threads:
+            t.join()
+        if scrape and new_entries and not self.cancel:
+            self._scrape(new_entries, *scrape)
+        msgs.put(("end",))
+
+    def _scrape(self, rows, platform, gamelist, do_text):
+        msgs = self.msgs
+        # LaunchBox keeps PSP minis on their own platform; try it after the system's own one
+        platforms = [platform] + [p for p in ("Sony PSP Minis",) if self.console == "PSP" and p in lb.platforms()]
+        matchers = {p: lb.Matcher(p) for p in platforms}
+        jobs = {p: [] for p in platforms}
+        for r in rows:
+            title = re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", "", r["name"]).strip()
+            for p, m in matchers.items():
+                gid, _, _ = m.match(title)
+                if gid:
+                    jobs[p].append((r["entry"], gid, (nps.REGIONS.get(r["region"], r["region"]),)))
+                    break
+        for m in matchers.values():
+            m.save()
+        matched = sum(len(j) for j in jobs.values())
+        if not matched:
+            msgs.put(("scraped", "no LaunchBox match for the new games, nothing scraped"))
+            return
+        media = [k for k, (_, _, default) in scraper.MEDIA.items() if default]
+        images = text = 0
+        try:
+            for p, j in jobs.items():
+                if j:
+                    s = scraper.scrape(j, p, self.system, self.roms_root, gamelist, do_text, media,
+                                       lambda t_, d, t: msgs.put(("log", f"Scraping: {t_}")), lambda: self.cancel)
+                    images, text = images + s["images"], text + s["text"]
+            msgs.put(("scraped", f"scraped {matched} of {len(rows)} new games: {images} images"
+                                 + (f", {text} text fields" if do_text else
+                                    " (text skipped while RetroDECK runs: scrape again after closing it)")))
+        except Exception as e:
+            msgs.put(("scraped", f"scraping failed: {e}"))
 
     def poll(self):
         try:
@@ -350,26 +492,32 @@ class NpsWindow:
                 m = self.msgs.get_nowait()
                 if m[0] == "job":
                     self._set_job(m[1], m[2])
-                    self.bar.config(value=0, mode="determinate")
                     self.status.config(text=f"{m[2]}: {m[1]['name']}")
                 elif m[0] == "prog":
                     _, row, what, d, t = m
+                    if what == "Downloading":
+                        self.dl_bytes[id(row)] = d
+                        self.bar.config(value=sum(self.dl_bytes.values()))
                     if t:
-                        self.bar.config(maximum=t, value=d)
                         self._set_job(row, f"{what}  {d * 100 // t}%  ({human(d)} / {human(t)})")
                 elif m[0] == "log":
                     self.status.config(text=m[1])
+                elif m[0] == "scraped":
+                    self.scraped = m[1]
                 elif m[0] == "installed":
                     self.installed_any = True
                 elif m[0] == "end":
                     self.running = False
                     self.start_btn.config(state="normal", text="Start")
+                    self.bar.config(value=self.bar.cget("maximum") if not self.cancel else self.bar.cget("value"))
                     done = sum(self.job_state.get(id(r)) == "Done" for r in self.jobs)
                     failed = sum(self.job_state.get(id(r), "").startswith("Failed") for r in self.jobs)
                     self.status.config(text=("Stopped. " if self.cancel else "") +
                                        f"{done} installed, {failed} failed" +
-                                       ("  ·  partial downloads resume next time" if self.cancel else ""))
-                    self.cancel = False
+                                       ("  ·  partial downloads resume next time" if self.cancel else "") +
+                                       (f"  ·  {self.scraped}" if getattr(self, "scraped", None) else ""))
+                    self.cancel, self.scraped = False, None
+                    self.owned_ids = nps.owned_ids(self.system, self.roms_root)
                     self.render_queue()
                     self.render()
                     return

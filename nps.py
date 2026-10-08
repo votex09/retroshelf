@@ -1,11 +1,13 @@
 """NoPayStation: browse the NPS lists, download PS3 / PS Vita / PSP packages and install them for RetroDECK.
 
-PS3  -> pkg decrypted here into RPCS3's dev_hdd0/game/<id>/, rap copied to exdata, .desktop shortcut in roms/ps3
+PS3  -> pkg decrypted here into RPCS3's dev_hdd0/game/<id>/, rap copied to exdata, .desktop shortcut in roms/ps3;
+        updates for installed games come from Sony's update server (NPS doesn't list PS3 updates)
 PSV  -> Vita3K --pkg/--zrif (headless), <name>.psvita in roms/psvita holding the title id
 PSP  -> pkg decrypted here, USRDIR/CONTENT/EBOOT.PBP written as roms/psp/<name>.pbp (PPSSPP plays it as-is)
 PSX is left out on purpose: PS1 Classics come out as encrypted PBPs that DuckStation / Beetle refuse to load.
 """
-import csv, hashlib, io, os, re, shutil, struct, subprocess, urllib.request
+import csv, hashlib, os, re, shutil, ssl, struct, subprocess, urllib.error, urllib.request
+import xml.etree.ElementTree as ET
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(APP_DIR, "cache", "nps")
@@ -16,12 +18,14 @@ FLATPAK_CONFIG = os.path.expanduser(f"~/.var/app/{FLATPAK}/config")
 
 # ES-DE system -> (NPS console, {type label: TSV name})
 CONSOLES = {
-    "ps3": ("PS3", {"Games": "PS3_GAMES", "DLC": "PS3_DLCS", "Demos": "PS3_DEMOS"}),
+    "ps3": ("PS3", {"Games": "PS3_GAMES", "DLC": "PS3_DLCS", "Demos": "PS3_DEMOS", "Updates": None}),
     "psvita": ("PSV", {"Games": "PSV_GAMES", "DLC": "PSV_DLCS", "Demos": "PSV_DEMOS"}),
     "psp": ("PSP", {"Games": "PSP_GAMES"}),
 }
 FULL_NAMES = {"ps3": "Sony PlayStation 3", "psvita": "Sony PlayStation Vita", "psp": "Sony PlayStation Portable"}
 REGIONS = {"US": "USA", "EU": "Europe", "JP": "Japan", "ASIA": "Asia", "INT": "World"}
+CID_REGIONS = {"UP": "US", "EP": "EU", "JP": "JP", "HP": "ASIA", "KP": "ASIA"}  # content id prefix -> NPS region
+PS3_UPDATE_URL = "https://a0.ww.np.dl.playstation.net/tpl/np/{0}/{0}-ver.xml"
 PSP_SKIP_TYPES = {"PC Engine", "NeoGeo"}  # need the PSP's built-in emulators, which PPSSPP doesn't have
 
 PS3_KEY = bytes.fromhex("2E7B71D7C9C9A14EA3221F188828B8F8")
@@ -81,8 +85,121 @@ def load_list(system, kind):
 
 def list_age(system):
     """mtime of the oldest cached list for this system, or None if any is missing."""
-    times = [os.path.getmtime(tsv_path(n)) for n in CONSOLES[system][1].values() if os.path.exists(tsv_path(n))]
-    return min(times) if len(times) == len(CONSOLES[system][1]) else None
+    names = [n for n in CONSOLES[system][1].values() if n]
+    times = [os.path.getmtime(tsv_path(n)) for n in names if os.path.exists(tsv_path(n))]
+    return min(times) if len(times) == len(names) else None
+
+
+def title_key(name):
+    """Loose title for spotting the same game across NPS names and ROM file names:
+    'Ape_Academy_2.cso' and 'Ape Academy 2 (MINIS)' both give 'ape academy 2'."""
+    name = re.sub(r"\.(chd|cso|iso|pbp|desktop|psvita|zip|7z)$", "", name, flags=re.I)
+    name = re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", "", re.sub(r"^[a-z]?\d{3,4} - ", "", name, flags=re.I))
+    name = re.sub(r"^(.*), (the|a|an)\b", r"\2 \1", name.replace("_", " "), flags=re.I)
+    name = re.sub(r"[™®©]", "", name).lower().replace("&", " and ")
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", name).split())
+
+
+# ---------- PS3 updates ----------
+def read_sfo(path):
+    """PARAM.SFO -> {key: value}"""
+    with open(path, "rb") as f:
+        d = f.read()
+    if d[:4] != b"\0PSF":
+        return {}
+    keys_at, data_at, count = struct.unpack("<III", d[8:20])
+    out = {}
+    for i in range(count):
+        koff, fmt, length, _, doff = struct.unpack("<HHIII", d[20 + i * 16:36 + i * 16])
+        key = d[keys_at + koff:d.index(b"\0", keys_at + koff)].decode("ascii", "replace")
+        raw = d[data_at + doff:data_at + doff + length]
+        out[key] = struct.unpack("<I", raw[:4])[0] if fmt == 0x0404 else raw.split(b"\0")[0].decode("utf-8", "replace")
+    return out
+
+
+def ver(v):
+    try:
+        return tuple(int(x) for x in str(v).split("."))
+    except ValueError:
+        return (0,)
+
+
+def installed_version(roms_root, title_id):
+    """APP_VER of an installed PS3 game (updates bump it), or None."""
+    try:
+        sfo = read_sfo(os.path.join(rpcs3_hdd0(roms_root), "game", title_id, "PARAM.SFO"))
+    except OSError:
+        return None
+    return sfo.get("APP_VER") or sfo.get("VERSION")
+
+
+def load_updates(roms_root, progress=lambda m: None):
+    """Ask Sony's update server about every PS3 game RPCS3 knows (installed or disc) -> update rows, oldest first."""
+    ctx = ssl._create_unverified_context()  # Sony signs this host with its own CA
+    rows = []
+    ids = sorted(owned_ids("ps3", roms_root))
+    for n, tid in enumerate(ids, 1):
+        progress(f"Checking updates {n} / {len(ids)}: {tid}")
+        req = urllib.request.Request(PS3_UPDATE_URL.format(tid), headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+                root = ET.fromstring(r.read())
+        except Exception:
+            continue  # 404 / empty body = no updates
+        for pkg in root.iter("package"):
+            url = pkg.get("url") or ""
+            if not url.startswith("http"):
+                continue
+            cid = re.search(r"/([A-Z]{2}\d{4}-[A-Z]{4}\d{5}_\d\d-[A-Z0-9]{16})", url)
+            title = re.sub(r"\s+v?\d+\.\d+$", "", (pkg.findtext("paramsfo/TITLE") or tid).strip())
+            rows.append({
+                "system": "ps3", "console": "PS3", "kind": "Updates", "id": tid,
+                "region": CID_REGIONS.get(cid.group(1)[:2], "") if cid else "",
+                "name": f"{title}  ·  update {pkg.get('version')}", "url": url,
+                "content_id": f"{cid.group(1) if cid else tid}-{pkg.get('version')}",
+                "size": int(pkg.get("size") or 0), "sha256": "", "sha1": (pkg.get("sha1sum") or "").lower(),
+                "rap": "NOT REQUIRED", "zrif": "", "subtype": "", "version": pkg.get("version") or "0",
+            })
+    return rows
+
+
+# ---------- what's there ----------
+def owned_ids(system, roms_root):
+    """Title ids the emulator already has: PS3 installed games + disc games RPCS3 registered; Vita installed apps."""
+    ids = set()
+    if system == "ps3":
+        game = os.path.join(rpcs3_hdd0(roms_root), "game")
+        try:
+            ids |= {d for d in os.listdir(game) if re.fullmatch(r"[A-Z]{4}\d{5}", d)
+                    and os.path.exists(os.path.join(game, d, "PARAM.SFO"))}
+        except OSError:
+            pass
+        try:
+            with open(os.path.join(FLATPAK_CONFIG, "rpcs3", "games.yml"), encoding="utf-8") as f:
+                ids |= set(re.findall(r"^([A-Z]{4}\d{5}):", f.read(), re.M))
+        except OSError:
+            pass
+    elif system == "psvita":
+        try:
+            ids |= set(os.listdir(os.path.join(vita3k_pref(roms_root), "ux0", "app")))
+        except OSError:
+            pass
+    return ids
+
+
+def firmware_problem(system, roms_root):
+    """A short warning if the emulator's firmware is missing, else None."""
+    if system == "ps3":
+        flash = rpcs3_vfs("/dev_flash/") or os.path.join(retrodeck_root(roms_root), "storage", "rpcs3", "dev_flash")
+        if not os.path.exists(os.path.join(flash, "vsh", "module", "vsh.self")):
+            return ("RPCS3 has no PS3 firmware installed, so games won't boot. Get PS3UPDAT.PUP from "
+                    "playstation.com and install it in RPCS3 (File → Install Firmware).")
+    elif system == "psvita":
+        ext = os.path.join(vita3k_pref(roms_root), "vs0", "sys", "external")
+        if not (os.path.isdir(ext) and os.listdir(ext)):
+            return ("Vita3K has no PS Vita firmware installed, so games won't boot. Get PSVUPDAT.PUP (and the "
+                    "font package PSP2UPDAT.PUP) from playstation.com and install them in Vita3K.")
+    return None
 
 
 # ---------- paths ----------
@@ -90,18 +207,21 @@ def retrodeck_root(roms_root):
     return os.path.dirname(os.path.realpath(roms_root).rstrip("/"))
 
 
-def rpcs3_hdd0(roms_root):
-    """RPCS3's dev_hdd0, read from its vfs.yml (RetroDECK points it into retrodeck/storage)."""
+def rpcs3_vfs(mount):
+    """Host folder RPCS3 maps a device to (e.g. "/dev_hdd0/"), from its vfs.yml, or None."""
     try:
         with open(os.path.join(FLATPAK_CONFIG, "rpcs3", "vfs.yml"), encoding="utf-8") as f:
             vfs = dict(re.findall(r"^(\S+): (.*)$", f.read(), re.M))
-        emu = vfs.get("$(EmulatorDir)", "").strip('"')
-        hdd0 = vfs.get("/dev_hdd0/", "").strip('"').replace("$(EmulatorDir)", emu)
-        if hdd0:
-            return hdd0.rstrip("/")
     except OSError:
-        pass
-    return os.path.join(retrodeck_root(roms_root), "storage", "rpcs3", "dev_hdd0")
+        return None
+    emu = vfs.get("$(EmulatorDir)", "").strip('"')
+    path = vfs.get(mount, "").strip('"').replace("$(EmulatorDir)", emu)
+    return path.rstrip("/") or None
+
+
+def rpcs3_hdd0(roms_root):
+    """RPCS3's dev_hdd0 (RetroDECK points it into retrodeck/storage)."""
+    return rpcs3_vfs("/dev_hdd0/") or os.path.join(retrodeck_root(roms_root), "storage", "rpcs3", "dev_hdd0")
 
 
 def vita3k_pref(roms_root):
@@ -125,6 +245,13 @@ def rom_name(row):
     return f"{safe_name(row['name'])} ({REGIONS.get(row['region'], row['region'])})"
 
 
+def is_installed(row, roms_root):
+    if row["kind"] == "Updates":
+        have = installed_version(roms_root, row["id"])
+        return have is not None and ver(have) >= ver(row["version"])
+    return os.path.exists(install_target(row, roms_root))
+
+
 def install_target(row, roms_root):
     """The file or folder whose existence means this row is installed."""
     if row["console"] == "PS3":
@@ -143,37 +270,49 @@ def pkg_path(row, dl_dir):
 
 
 # ---------- download ----------
+def file_hash(path, algo, skip_tail=0):
+    h, left = hashlib.new(algo), os.path.getsize(path) - skip_tail
+    with open(path, "rb") as f:
+        while left > 0 and (b := f.read(min(CHUNK, left))):
+            h.update(b)
+            left -= len(b)
+    return h.hexdigest()
+
+
 def download(row, dest, progress, cancelled):
-    """Resumable download into dest (via dest.part), SHA256-checked when NPS has a hash. progress(done, total)."""
+    """Resumable download into dest (via dest.part), hash-checked when one is known. progress(done, total).
+    NPS gives SHA256 of the whole file; Sony's update XML gives SHA1 of all but the 32-byte PKG footer."""
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     if os.path.exists(dest):
         return True
     part = dest + ".part"
-    sha = hashlib.sha256()
     have = os.path.getsize(part) if os.path.exists(part) else 0
-    if have:
-        with open(part, "rb") as f:
-            while b := f.read(CHUNK):
-                sha.update(b)
     headers = {"User-Agent": USER_AGENT}
     if have:
         headers["Range"] = f"bytes={have}-"
-    with urllib.request.urlopen(urllib.request.Request(row["url"], headers=headers), timeout=60) as r:
-        if have and r.status != 206:  # server ignored the range: start over
-            have, sha = 0, hashlib.sha256()
-        total = have + int(r.headers.get("Content-Length") or 0)
-        with open(part, "ab" if have else "wb") as f:
-            done = have
-            while b := r.read(1 << 20):
-                if cancelled():
-                    return False
-                f.write(b)
-                sha.update(b)
-                done += len(b)
-                progress(done, total)
-    if row["sha256"] and sha.hexdigest() != row["sha256"]:
+    try:
+        r = urllib.request.urlopen(urllib.request.Request(row["url"], headers=headers), timeout=60)
+    except urllib.error.HTTPError as e:
+        if not (have and e.code == 416):  # 416 = the .part is already complete; go straight to the hash check
+            raise
+        r = None
+    if r:
+        with r:
+            if have and r.status != 206:  # server ignored the range: start over
+                have = 0
+            total = have + int(r.headers.get("Content-Length") or 0)
+            with open(part, "ab" if have else "wb") as f:
+                done = have
+                while b := r.read(1 << 20):
+                    if cancelled():
+                        return False
+                    f.write(b)
+                    done += len(b)
+                    progress(done, total)
+    algo, want, tail = ("sha1", row["sha1"], 32) if row.get("sha1") else ("sha256", row["sha256"], 0)
+    if want and file_hash(part, algo, tail) != want:
         os.unlink(part)
-        raise OSError("SHA256 mismatch, download was corrupt (deleted, try again)")
+        raise OSError(f"{algo.upper()} mismatch, download was corrupt (deleted, try again)")
     os.replace(part, dest)
     return True
 
@@ -305,8 +444,11 @@ def install_ps3(row, pkg_file, roms_root, log, progress, cancelled):
         log("License (.rap) installed")
 
     game_id = pkg.install_dir or pkg.title_id
-    if row["kind"] != "DLC" and not ps3_shortcut(roms_root, game_id):
-        shortcut = os.path.join(roms_root, "ps3", rom_name(row) + ".desktop")
+    existing = ps3_shortcut(roms_root, game_id)
+    if existing:
+        row["entry"] = os.path.join(roms_root, "ps3", existing)
+    elif row["kind"] in ("Games", "Demos"):
+        shortcut = row["entry"] = os.path.join(roms_root, "ps3", rom_name(row) + ".desktop")
         os.makedirs(os.path.dirname(shortcut), exist_ok=True)
         with open(shortcut, "w", encoding="utf-8") as f:
             f.write("[Desktop Entry]\nEncoding=UTF-8\nVersion=1.0\nType=Application\nTerminal=false\n"
@@ -383,6 +525,7 @@ def install_psp(row, pkg_file, roms_root, log, progress, cancelled):
             return False
     finally:
         pkg.close()
+    row["entry"] = dest
     log(f"Added roms/psp/{os.path.basename(dest)}")
     return True
 
@@ -411,6 +554,7 @@ def install_psv(row, pkg_file, roms_root, log, progress, cancelled):
         os.makedirs(os.path.dirname(entry), exist_ok=True)
         with open(entry, "w", encoding="utf-8") as f:
             f.write(row["id"])
+        row["entry"] = entry
         log(f"Added roms/psvita/{os.path.basename(entry)}")
     return True
 
