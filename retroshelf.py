@@ -9,7 +9,7 @@ Patterns: one per line, case-insensitive by default. Only * and ? are wildcards,
 Plain text with no * or ? matches anywhere in the name; with wildcards the pattern must match the whole name.
   mario           -> move anything containing "mario"
   *(Demo)*        -> move matches
-  !*Mario*        -> keep matches, even if a preset/pattern/list/rating hit them
+  !*Mario*        -> keep matches, even if a preset/pattern/rating hit them
   # comment       -> ignored
 Double-click a game in either pane to flip it manually (beats everything, including played-game protection).
 Right-click a game to pick its LaunchBox entry by hand when the automatic match is missing or wrong.
@@ -64,17 +64,18 @@ PATTERN_HELP = [
     ("0002*\n*.part\n*(USA)*(Rev ?)*", "As soon as a line has * or ?, it must match the whole name. "
                                         "0002* = starts with 0002, *.part = ends with .part."),
     ("!kart\n!*(USA)*", "Lines starting with ! are keep rules: matching games stay, even if a preset, pattern, "
-                        "list, rating, genre or region would move them."),
+                        "rating, genre or region would move them."),
     ("# comment", "Lines starting with # are ignored. Blank lines are ignored too."),
 ]
 PATTERN_NOTES = (
     "Patterns are checked against the game name and each of its file names (with extension), so .nds, .zip "
     "or .cue work. Case is ignored unless you untick Ignore case.\n"
     "Priority, highest first: double-click flips  ›  Protect played games  ›  ! keep rules  ›  everything else "
-    "that moves a game (presets, patterns, list, ratings, genres, regions)."
+    "that moves a game (presets, patterns, ratings, genres, regions)."
 )
 CONFIG = os.path.join(APP_DIR, "config.json")
 DESTS = ["to_delete", "review_low_value"]
+HEAD_PAD = 4  # px left/right inside column headings, matching the theme's cell text inset
 NON_GAME_EXT = {".txt", ".nfo", ".md", ".pdf", ".htm", ".html", ".xml", ".json", ".dat", ".jpg", ".jpeg",
                 ".png", ".gif", ".bmp", ".webp", ".mp4", ".py", ".sh", ".log", ".ini", ".cfg", ".directory"}
 
@@ -355,6 +356,8 @@ def wildcard_re(pat, icase):
 
 
 def human(n):
+    if n >= 1 << 40:
+        return f"{n / (1 << 40):.2f} TB"
     return f"{n / 1073741824:.2f} GB" if n >= 1073741824 else f"{n / 1048576:.1f} MB"
 
 
@@ -441,7 +444,8 @@ class App:
         root.geometry("1600x950")
 
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
-                    "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True}
+                    "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True,
+                    "system_state": {}}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -456,7 +460,6 @@ class App:
         self.lb_kind = {}        # key -> "exact" | "fuzzy" | "manual" (manual may also mean "no match")
         self.played = set()
         self.preset_hits = {}
-        self.list_names = set()
         self.manual = {}
         self.after_id = None
         self.sort_by = ("#0", False)
@@ -468,6 +471,7 @@ class App:
         self._build()
         self.apply_theme()
         self.load_roms_root(self.cfg["roms_root"])
+        root.protocol("WM_DELETE_WINDOW", self._close)
         if self.cfg["check_updates"]:
             root.after(1500, lambda: self.check_updates(quiet=True))
 
@@ -494,7 +498,11 @@ class App:
         sv_ttk.set_theme(theme)
         c = self.colors = PALETTE[theme]
         st = ttk.Style()
-        st.configure("Treeview", rowheight=28)
+        st.configure("Treeview", rowheight=28, indent=0)
+        # flat lists only: drop the expand-arrow slot so first-column text lines up with its heading
+        st.layout("Treeview.Item", [("Treeitem.padding", {"sticky": "nswe", "children": [
+            ("Treeitem.image", {"side": "left", "sticky": ""}), ("Treeitem.text", {"sticky": "nswe"})]})])
+        st.configure("Treeview.Heading", padding=(HEAD_PAD, 2))
         st.configure("Muted.TLabel", foreground=c["muted"])
         st.configure("Title.TLabel", font="SunValleySubtitleFont")
         st.configure("Section.TLabel", font="SunValleyBodyStrongFont")
@@ -634,6 +642,7 @@ class App:
                     messagebox.showerror("Update failed", str(res2), parent=win)
                     return
                 status.config(text="Restarting…")
+                self.save_state()
                 self.save_cfg()
                 win.after(300, updater.restart)
 
@@ -696,8 +705,14 @@ class App:
         self.lb_btn = ttk.Button(bar, text="Download LaunchBox data", command=self.update_lb)
         self.lb_btn.grid(row=0, column=8, padx=(6, 0))
         ttk.Button(bar, text="Scrape metadata…", command=self.scrape_dialog).grid(row=0, column=9, padx=(6, 0))
-        self.sys_info = ttk.Label(outer, style="Muted.TLabel", padding=(0, 6, 0, 0))
-        self.sys_info.pack(fill="x")
+        info = ttk.Frame(outer, padding=(0, 6, 0, 0))
+        info.pack(fill="x")
+        self.sys_info = ttk.Label(info, style="Muted.TLabel")
+        self.sys_info.pack(side="left", fill="x", expand=True)
+        self.disk_bar = ttk.Progressbar(info, length=140, mode="determinate", maximum=100)
+        self.disk_bar.pack(side="right", padx=(8, 0))
+        self.disk_lbl = ttk.Label(info, style="Muted.TLabel")
+        self.disk_lbl.pack(side="right")
 
         # filter cards
         top = ttk.Frame(outer, padding=(0, 10, 0, 0))
@@ -796,17 +811,13 @@ class App:
         self.pat_hint.bind("<Button-1>", lambda e: self.pat_text.focus_set())
         self._toggle_hint()
 
-        # search + list tools
+        # search + tools
         flt = ttk.Frame(outer, padding=(0, 12, 0, 0))
         flt.pack(fill="x")
         ttk.Label(flt, text="Search").pack(side="left")
         self.view_filter = tk.StringVar()
         self.view_filter.trace_add("write", lambda *_: self.render())
         ttk.Entry(flt, textvariable=self.view_filter).pack(side="left", fill="x", expand=True, padx=(8, 16))
-        self.list_lbl = ttk.Label(flt, text="List: none", style="Muted.TLabel")
-        self.list_lbl.pack(side="left", padx=(0, 6))
-        ttk.Button(flt, text="Load list…", command=self.load_list).pack(side="left")
-        ttk.Button(flt, text="Clear list", command=self.clear_list).pack(side="left", padx=(4, 16))
         ttk.Button(flt, text="Reset flips", command=self.reset_manual).pack(side="left")
         ttk.Button(flt, text="Rescan", command=self.rescan).pack(side="left", padx=(4, 0))
         ttk.Button(flt, text="Rename…", command=self.rename_dialog).pack(side="left", padx=(16, 0))
@@ -1006,7 +1017,7 @@ class App:
         if path:
             self.cfg["holding_root"] = path
             self.save_cfg()
-            self.hold_lbl.config(text=self.holding_root())
+            self.show_holding()
 
     def load_roms_root(self, path):
         self.roms_var.set(path)
@@ -1028,7 +1039,8 @@ class App:
                 fullname = fullname if name == d and fullname else nps.FULL_NAMES.get(d, "?")
                 labels.append(f"{d} — {fullname} ({n})")
         self.system_cb["values"] = labels
-        self.hold_lbl.config(text=self.holding_root())
+        self.show_holding()
+        self.show_disk()
         if not self.system_codes:
             self.sys_info.config(text="No systems with ROMs found — pick your roms folder with Browse…")
             return
@@ -1036,6 +1048,7 @@ class App:
         self.load_system(sys_code)
 
     def load_system(self, system):
+        self.save_state()  # the system being left, including edits a pending refresh hasn't seen yet
         self.system = system
         self.cfg["system"] = system
         self.save_cfg()
@@ -1050,8 +1063,7 @@ class App:
             self.nps_btn.grid()
         else:
             self.nps_btn.grid_remove()
-        self.manual, self.list_names = {}, set()
-        self.list_lbl.config(text="List: none")
+        self.restore_state()
         self._refresh_platform_choices()
         self.rescan()
 
@@ -1243,7 +1255,38 @@ class App:
             self._scan()
         finally:
             self.root.config(cursor="")
+        self.show_disk()
         self.refresh()
+
+    def show_disk(self):
+        """Free space on the drive the roms folder is on; under 10% free turns the text orange."""
+        try:
+            du = shutil.disk_usage(self.cfg["roms_root"])
+        except OSError:
+            self.disk_lbl.config(text="")
+            self.disk_bar.pack_forget()
+            return
+        used = 100 * (du.total - du.free) / du.total if du.total else 0
+        self.disk_lbl.config(text=f"ROMs drive: {human(du.free)} free of {human(du.total)}",
+                             style="Move.TLabel" if used > 90 else "Muted.TLabel")
+        self.disk_bar.config(value=used)
+        if not self.disk_bar.winfo_ismapped():
+            self.disk_bar.pack(side="right", padx=(8, 0), before=self.disk_lbl)
+
+    def show_holding(self):
+        """Footer shows the last two folders only, so a long path can't push the status text under the buttons."""
+        parts = os.path.normpath(self.holding_root()).split(os.sep)
+        self.hold_lbl.config(text=os.sep.join(parts[-2:]) if len(parts) <= 3 else "…/" + "/".join(parts[-2:]))
+
+    def holding_on_same_drive(self):
+        """True when the holding folder (or where it will be created) shares a filesystem with roms."""
+        p = self.holding_root()
+        while not os.path.exists(p) and os.path.dirname(p) != p:
+            p = os.path.dirname(p)
+        try:
+            return os.stat(p).st_dev == os.stat(self.cfg["roms_root"]).st_dev
+        except OSError:
+            return False
 
     def _scan(self):
         self.units, self.file_to_unit = {}, {}
@@ -1301,36 +1344,81 @@ class App:
             self.rat_info.config(text=f"Matched {matched}/{len(keys)}, {rated} rated"
                                       + (f", {picked} by hand" if picked else ""))
 
+        # keep genre / region picks across rescans; right after a system switch, use the ones saved for it
+        pending = getattr(self, "_pending_sel", None)
+        self._pending_sel = None
+        keep_genres, keep_regions = pending or (
+            [self.genre_names[i] for i in self.genre_lb.curselection()] if hasattr(self, "genre_names") else [],
+            [self.region_names[i] for i in self.region_lb.curselection()] if hasattr(self, "region_names") else [])
+
         gcount = Counter(x for g in self.ratings.values() for x in g["g"])
         self.genre_names = [g for g, _ in gcount.most_common()]
         self.genre_lb.delete(0, "end")
-        for g in self.genre_names:
+        for i, g in enumerate(self.genre_names):
             self.genre_lb.insert("end", f"{g} ({gcount[g]})")
+            if g in keep_genres:
+                self.genre_lb.selection_set(i)
 
         self.regions = {k: regions_of(k) or ("(none)",) for k in keys}
         rcount = Counter(r for rs in self.regions.values() for r in rs)
         self.region_names = [r for r, _ in rcount.most_common()]
         self.region_lb.delete(0, "end")
-        for r in self.region_names:
+        for i, r in enumerate(self.region_names):
             self.region_lb.insert("end", f"{r} ({rcount[r]})")
+            if r in keep_regions:
+                self.region_lb.selection_set(i)
 
-    # ---------- lists / manual ----------
-    def load_list(self):
-        path = filedialog.askopenfilename(initialdir=APP_DIR, filetypes=[("Text", "*.txt"), ("All", "*")])
-        if not path:
+    # ---------- per-system state ----------
+    def _state(self):
+        return {
+            "patterns": self.pat_text.get("1.0", "end").rstrip("\n"), "icase": self.icase.get(),
+            "presets": [p for p, v in self.preset_vars.items() if v.get()],
+            "protect_played": self.protect_played.get(),
+            "use_rating": self.use_rating.get(), "rating_max": self.rating_max.get(),
+            "min_votes": self.min_votes.get(), "use_unrated": self.use_unrated.get(),
+            "genres": [self.genre_names[i] for i in self.genre_lb.curselection()],
+            "regions": [self.region_names[i] for i in self.region_lb.curselection()],
+            "region_mode": self.region_mode.get(),
+            "flips": self.manual,
+        }
+
+    def save_state(self):
+        """Patterns, filters and flips are kept per system in config.json, so each one opens as it was left."""
+        if not getattr(self, "system", None) or getattr(self, "_restoring", False):
             return
-        with open(path, encoding="utf-8") as f:
-            names = {ln.strip() for ln in f if ln.strip() and not ln.startswith("#")}
-        hits = {self.file_to_unit.get(n, n) for n in names}
-        self.list_names |= hits & self.units.keys()
-        missing = len(hits - self.units.keys())
-        self.list_lbl.config(text=f"List: {len(self.list_names)} games ({missing} names not found)")
-        self.refresh()
+        try:
+            state = self._state()
+        except (tk.TclError, ValueError, IndexError):
+            return  # a half-typed spinbox value: the next refresh saves
+        if self.cfg["system_state"].get(self.system) != state:
+            self.cfg["system_state"][self.system] = state
+            self.save_cfg()
 
-    def clear_list(self):
-        self.list_names = set()
-        self.list_lbl.config(text="List: none")
-        self.refresh()
+    def restore_state(self):
+        st = self.cfg["system_state"].get(self.system, {})
+        self._restoring = True
+        try:
+            self.pat_text.delete("1.0", "end")
+            self.pat_text.insert("1.0", st.get("patterns", ""))
+            self.pat_text.edit_reset()
+            self._toggle_hint()
+            self.icase.set(st.get("icase", True))
+            for p, v in self.preset_vars.items():
+                v.set(p in st.get("presets", []))
+            self.protect_played.set(st.get("protect_played", True))
+            self.use_rating.set(st.get("use_rating", False))
+            self.rating_max.set(st.get("rating_max", 2.5))
+            self.min_votes.set(st.get("min_votes", 3))
+            self.use_unrated.set(st.get("use_unrated", False))
+            self.region_mode.set(st.get("region_mode", REGION_MODES[0]))
+            self.manual = dict(st.get("flips", {}))
+            self._pending_sel = (st.get("genres", []), st.get("regions", []))  # applied once _scan lists them
+        finally:
+            self._restoring = False
+
+    def _close(self):
+        self.save_state()
+        self.root.destroy()
 
     def reset_manual(self):
         self.manual = {}
@@ -1379,8 +1467,6 @@ class App:
                     f"dupe of {PREFIX_RE.sub('', self.preset_hits[p][key])}" if p == DUPES else p.split(" (")[0]
                     for p in active if key in self.preset_hits[p]
                 ]
-                if key in self.list_names:
-                    reasons.append("list")
                 reasons += [p for p, rx in moves if any(rx.match(n) for n in names)]
                 g = self.ratings.get(key)
                 if use_rating and g and g["r"] is not None and g["v"] >= min_votes and g["r"] < rating_max:
@@ -1400,6 +1486,7 @@ class App:
             self.why[key] = why
             (self.to_move if hit else self.kept).append(key)
         self.render()
+        self.save_state()
 
     # ---------- display ----------
     def _label(self, key):
@@ -1452,7 +1539,7 @@ class App:
     def render_status(self):
         nfiles = sum(len(u["paths"]) for u in self.units.values())
         self.status.config(text=f"{len(self.units):,} games ({nfiles:,} files)  ·  {len(self.manual)} flipped (orange)"
-                                f"  ·  double-click to flip  ·  click a column to sort")
+                                f"  ·  double-click to flip")
 
     # ---------- output ----------
     def export(self):
@@ -1473,8 +1560,10 @@ class App:
         installed = [k for k in self.to_move if self.units[k]["extra"]]
         extra_note = (f"\n\n{len(installed)} of them are installed in RPCS3 / Vita3K: their game data and licenses "
                       f"move too, into {dest_dir}/installed/ (saves stay put).") if installed else ""
+        space_note = ("\n\nThe holding folder is on the same drive as your ROMs, so this frees no disk space "
+                      "until you delete the files from there.") if self.holding_on_same_drive() else ""
         if not messagebox.askyesno("Confirm move", f"Move {len(self.to_move)} games ({nfiles} files, {human(size)}) "
-                                                   f"into\n{dest_dir}/ ?{extra_note}"):
+                                                   f"into\n{dest_dir}/ ?{extra_note}{space_note}"):
             return
         os.makedirs(dest_dir, exist_ok=True)
         base = os.path.dirname(os.path.realpath(self.cfg["roms_root"]).rstrip("/"))

@@ -13,12 +13,14 @@ undone.
 
 **Prune your library**
 - Two side-by-side lists, *Keeping* and *Moving*, that update live as you change filters.
+- Shows how much space is free on the drive your ROMs are on.
 - Presets: junk (demos, betas, protos, kiosk, unlicensed), sports, kids / licensed tie-ins, and region duplicates
   (keeps one copy per game, using a region priority you can reorder).
-- Name patterns with `*` / `?` wildcards, `!` keep rules, and lists loaded from a text file.
+- Name patterns with `*` / `?` wildcards and `!` keep rules.
 - Filter by LaunchBox rating, vote count, genre and region.
 - Played games are protected by default (play counts from ES-DE's `gamelist.xml`).
 - Double-click any game to flip it by hand.
+- Each system remembers its patterns, filters and flips, so it opens the way you left it.
 - Multi-file games (cue/bin, multi-disc + m3u) are treated as one game and moved together.
 - **Restore…** puts moved games back, including RPCS3 / Vita3K data that went with them.
 
@@ -84,7 +86,7 @@ These files live next to `retroshelf.py` and are never part of the repository:
 
 | File / folder | What it holds |
 | --- | --- |
-| `config.json` | Settings: folders, theme, region priority, rename patterns |
+| `config.json` | Settings: folders, theme, region priority, rename patterns, each system's filters and flips |
 | `moves.json` | Log of moved games, used by **Restore…** |
 | `renames.json` | Log of renames, used by **Undo…** in the rename dialog |
 | `matches.json` | LaunchBox matches you picked by hand |
