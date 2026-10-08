@@ -9,6 +9,8 @@ artwork, gives your files consistent names, and installs PS3 / PS Vita / PSP gam
 Nothing is deleted unless you ask: pruned games are moved to a holding folder outside `roms`, every move and
 rename can be undone, and games only go for good when you delete them from the holding folder.
 
+![RetroShelf main window with a SNES library, Chrono Trigger's details, filters, and the games to keep and move](docs/screenshots/main.png)
+
 ## Features
 
 **Prune your library**
@@ -51,6 +53,23 @@ rename can be undone, and games only go for good when you delete them from the h
 - Shows which games you already have; can list available updates for installed PS3 games.
 - Parallel, resumable downloads. Right-click the queue to retry failed jobs.
 - PS3 packages are installed into RPCS3, PS Vita packages through Vita3K, PSP packages into your `roms` folder.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/holding.png" alt="Holding folder window with a moved game's cover and
+      description"><br><sub><b>Holding folder</b>: review moved games, put them back or delete them for good.</sub></td>
+    <td width="50%"><img src="docs/screenshots/rename.png" alt="Rename preview turning set-numbered names into
+      No-Intro names"><br><sub><b>Rename files</b>: preview No-Intro style names before anything changes.</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/light.png" alt="Main window in light mode with a genre filter
+      active"><br><sub><b>Light mode</b>, with a genre filter moving the fighting games.</sub></td>
+  </tr>
+</table>
+
+<sub>Screenshots use a small demo library; artwork and descriptions come from the LaunchBox Games Database.</sub>
 
 ## Requirements
 
