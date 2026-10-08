@@ -1494,6 +1494,12 @@ class App:
         with open(self.renames_log(), "w", encoding="utf-8") as f:
             json.dump(batches, f, indent=1, ensure_ascii=False)
 
+    def _carry_over(self, done, failed):
+        """ES-DE media + gamelist follow the renamed files. -> short summary for the result message."""
+        media, entries, problems = scraper.carry_over(done, self.system, self.cfg["roms_root"], self.gamelist_path())
+        failed += problems
+        return f"\n\nES-DE: renamed {media:,} media files and {entries:,} gamelist entries."
+
     def _after_rename(self, done):
         """Carry double-click flips over to the games' new names, then rescan."""
         new_key = {}
@@ -1519,9 +1525,9 @@ class App:
         body = ttk.Frame(win, padding=16)
         body.pack(fill="both", expand=True)
         ttk.Label(body, text="Rename files to a pattern", style="Section.TLabel").pack(anchor="w")
-        ttk.Label(body, text="Only the ROM files are renamed, plus the file names inside .cue / .m3u files so "
-                             "multi-disc games keep working. ES-DE sees renamed games as new: play counts, "
-                             "favorites, scraped text and media stay under the old names until you rescrape.",
+        ttk.Label(body, text="ES-DE media and gamelist.xml entries are renamed along with each game, so play "
+                             "counts, favorites, scraped text and images stay with it. File names inside .cue / .m3u "
+                             "files are updated too, so multi-disc games keep working.",
                   style="Muted.TLabel", wraplength=1040, justify="left").pack(anchor="w", pady=(2, 10))
 
         row = ttk.Frame(body)
@@ -1594,6 +1600,7 @@ class App:
             self.cfg["rename_templates"][self.system] = template.get()
             self.save_cfg()
             done, failed = apply_renames(pairs)
+            esde = self._carry_over(done, failed) if done else ""
             if done:
                 batches = self._read_renames()
                 batches.append({"time": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -1605,10 +1612,10 @@ class App:
             self._after_rename(done)
             refresh()
             if failed:
-                messagebox.showerror(f"Renamed {len(done)} files, {len(failed)} problems", "\n".join(failed[:30]),
-                                     parent=win)
+                messagebox.showerror(f"Renamed {len(done)} files, {len(failed)} problems",
+                                     "\n".join(failed[:30]) + esde, parent=win)
             else:
-                messagebox.showinfo("Renamed", f"Renamed {len(done):,} files.", parent=win)
+                messagebox.showinfo("Renamed", f"Renamed {len(done):,} files.{esde}", parent=win)
 
         apply_btn = ttk.Button(foot, text="Rename", style="Accent.TButton", command=apply)
         apply_btn.pack(side="right")
@@ -1662,6 +1669,9 @@ class App:
                 done, errs = apply_renames(pairs)
                 back += done
                 failed += errs
+                if done:  # ES-DE media + gamelist follow the names back
+                    failed += scraper.carry_over(done, batches[i]["system"], self.cfg["roms_root"],
+                                                 find_gamelist(self.cfg["roms_root"], batches[i]["system"]))[2]
                 undone = {o for _, o in done}
                 left = [[o, n] for o, n in batches[i]["renames"] if os.path.lexists(n) and o not in undone]
                 if left:

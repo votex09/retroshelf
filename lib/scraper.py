@@ -137,6 +137,64 @@ def save_gamelist(path, tops):
     os.replace(tmp, path)
 
 
+def carry_over(pairs, system, roms_root, gamelist):
+    """After ROM renames [(old path, new path)]: rename the game's ES-DE media and gamelist <path> to match, so
+    play counts, favorites, metadata and images follow the game. Files named for the new name already are left
+    alone. -> (media files renamed, gamelist entries updated, problems). The gamelist is skipped while ES-DE runs,
+    since it rewrites gamelist.xml when it quits."""
+    stems = {}
+    for old, new in pairs:
+        o, n = os.path.basename(old), os.path.basename(new)
+        stems[o] = n  # folders-as-games keep their full name in media
+        stems[os.path.splitext(o)[0]] = os.path.splitext(n)[0]
+    problems, media = [], 0
+    mdir = os.path.join(media_root(roms_root), system)
+    for mtype in sorted(os.listdir(mdir)) if os.path.isdir(mdir) else []:
+        folder = os.path.join(mdir, mtype)
+        if not os.path.isdir(folder):
+            continue
+        for f in os.listdir(folder):
+            stem, ext = os.path.splitext(f)
+            if stem not in stems:
+                continue
+            src, dst = os.path.join(folder, f), os.path.join(folder, stems[stem] + ext)
+            try:
+                if os.path.lexists(dst):
+                    raise OSError("the new name already has this image")
+                os.rename(src, dst)
+                media += 1
+            except OSError as e:
+                problems.append(f"{mtype}/{f}: {e}")
+
+    entries = 0
+    if gamelist and os.path.exists(gamelist):
+        if es_de_running():
+            return media, 0, problems + ["gamelist.xml not updated: close RetroDECK / ES-DE and undo + redo, or "
+                                         "rescrape text"]
+        rel = {os.path.basename(o): n for o, n in pairs}
+        try:
+            tops, root = read_gamelist(gamelist)
+            for g in root.iter("game"):
+                el = g.find("path")
+                path = (el.text or "").strip() if el is not None else ""
+                old = os.path.basename(path.rstrip("/"))
+                if old not in rel:
+                    continue
+                new = os.path.basename(rel[old])
+                el.text = path.rstrip("/")[:-len(old)] + new + path[len(path.rstrip("/")):]
+                name = g.find("name")
+                if name is not None and (name.text or "").strip() == os.path.splitext(old)[0]:
+                    name.text = os.path.splitext(new)[0]  # ES-DE's placeholder name for unscraped games
+                entries += 1
+            if entries:
+                shutil.copy2(gamelist, f"{gamelist}.bak-{datetime.datetime.now():%Y%m%d-%H%M%S}")
+                save_gamelist(gamelist, tops)
+        except (OSError, ET.ParseError) as e:
+            problems.append(f"gamelist.xml: {e}")
+            entries = 0
+    return media, entries, problems
+
+
 def write_gamelist(path, entries, log):
     """entries: {rom file name: {field: value}}. Adds missing <game>s and fills empty fields only."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
