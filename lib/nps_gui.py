@@ -153,6 +153,7 @@ class NpsWindow:
         self.q_lbl.pack(anchor="w", pady=(0, 4))
         self.q_tv = self._tree(bot, (("size", "Size", 90, "e"), ("status", "Status", 260, "w")), height=5)
         self.q_tv.bind("<Delete>", lambda e: self.dequeue())
+        self.q_tv.bind("<Button-3>", self._queue_menu)
         panes.add(bot, weight=1)
 
         self.win.bind("<Escape>", lambda e: self.close())
@@ -365,6 +366,35 @@ class NpsWindow:
                 self.job_state.pop(id(r), None)
         self.render_queue()
         self.render()
+
+    def _failed(self, rows):
+        return [r for r in rows if self.job_state.get(id(r), "").startswith("Failed")]
+
+    def _queue_menu(self, e):
+        row = self.q_tv.identify_row(e.y)
+        if row and row not in self.q_tv.selection():
+            self.q_tv.selection_set(row)
+        picked = [self.jobs[int(iid)] for iid in self.q_tv.selection()]
+        failed, all_failed = self._failed(picked), self._failed(self.jobs)
+        removable = [r for r in picked if self.job_state.get(id(r), "") in ("Queued", "Done")] + failed
+        menu = tk.Menu(self.win, tearoff=0)
+        menu.add_command(label=f"Retry ({len(failed)})" if len(failed) > 1 else "Retry",
+                         state="normal" if failed else "disabled", command=lambda: self.retry(failed))
+        menu.add_command(label=f"Retry all failed ({len(all_failed)})", state="normal" if all_failed else "disabled",
+                         command=lambda: self.retry(all_failed))
+        menu.add_separator()
+        menu.add_command(label="Remove", state="normal" if removable else "disabled", command=self.dequeue)
+        menu.tk_popup(e.x_root, e.y_root)
+
+    def retry(self, rows):
+        """Failed jobs go back to Queued; an already-downloaded .pkg is reused, so they go straight to installing."""
+        for r in rows:
+            self._set_job(r, "Queued")
+        self.render_queue()
+        self.render()
+        self.status.config(text=f"{len(rows)} queued again" +
+                                ("  ·  they run after the current batch, press Start then" if self.running
+                                 else "  ·  press Start"))
 
     def render_queue(self):
         tv = self.q_tv
