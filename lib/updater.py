@@ -100,6 +100,10 @@ def apply():
                 if not target.startswith(os.path.realpath(new) + os.sep):
                     raise RuntimeError(f"refusing odd path in the download: {name}")
             z.extractall(new)
+            for info in z.infolist():  # zipfile drops permissions; retroshelf.sh must stay executable
+                mode = (info.external_attr >> 16) & 0o777
+                if mode and not info.is_dir():
+                    os.chmod(os.path.join(new, info.filename), mode)
         tops = os.listdir(new)
         src = os.path.join(new, tops[0]) if len(tops) == 1 else new
         if not os.path.isfile(os.path.join(src, "retroshelf.py")):

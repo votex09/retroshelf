@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#323a52"/>
+      <stop offset="1" stop-color="#1b2030"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+
+  <!-- cartridge -->
+  <g>
+    <rect x="38" y="78" width="46" height="104" rx="7" fill="#e5534b"/>
+    <rect x="38" y="78" width="46" height="12" rx="6" fill="#c63f38"/>
+    <rect x="45" y="100" width="32" height="44" rx="4" fill="#f6efe2"/>
+    <rect x="45" y="100" width="32" height="12" rx="4" fill="#ffd166"/>
+    <rect x="50" y="160" width="22" height="6" rx="3" fill="#c63f38"/>
+  </g>
+  <!-- tall case -->
+  <g>
+    <rect x="90" y="58" width="28" height="124" rx="5" fill="#f2b134"/>
+    <rect x="96" y="72" width="16" height="64" rx="3" fill="#fff4d6"/>
+    <rect x="96" y="148" width="16" height="6" rx="3" fill="#c98d1c"/>
+  </g>
+  <!-- disc case -->
+  <g>
+    <rect x="124" y="88" width="40" height="94" rx="6" fill="#2ec4b6"/>
+    <circle cx="144" cy="128" r="14" fill="#e9fffb"/>
+    <circle cx="144" cy="128" r="4" fill="#2ec4b6"/>
+  </g>
+  <!-- leaning case -->
+  <g transform="rotate(-16 214 182)">
+    <rect x="186" y="70" width="28" height="112" rx="5" fill="#8b6cf0"/>
+    <rect x="192" y="84" width="16" height="56" rx="3" fill="#e4dcff"/>
+  </g>
+
+  <!-- shelf -->
+  <rect x="26" y="180" width="204" height="16" rx="4" fill="#d39552"/>
+  <rect x="26" y="192" width="204" height="10" rx="4" fill="#a96f37"/>
+  <rect x="52" y="202" width="12" height="18" rx="3" fill="#8a5a2b"/>
+  <rect x="192" y="202" width="12" height="18" rx="3" fill="#8a5a2b"/>
+</svg>

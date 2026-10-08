@@ -18,6 +18,7 @@ Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and 
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
 Updates come from GitHub: checked at startup (can be turned off) or with Check for updates (see lib/updater.py).
+Add to app menu (or --install-desktop) installs a .desktop entry; retroshelf.sh is a launcher for Steam / file managers.
 """
 import datetime, json, os, queue, re, shutil, sys, threading
 import xml.etree.ElementTree as ET
@@ -35,6 +36,7 @@ import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import nps_gui  # noqa: E402
 import scraper  # noqa: E402
+import desktop  # noqa: E402
 import updater  # noqa: E402
 
 UI_FONTS = ["Inter", "Segoe UI", "Noto Sans", "Cantarell", "Ubuntu", "DejaVu Sans"]
@@ -431,6 +433,11 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title("RetroShelf")
+        try:  # default=True: dialogs and the NoPayStation window get it too
+            self.icons = [tk.PhotoImage(file=os.path.join(APP_DIR, "assets", f"icon-{n}.png")) for n in (256, 64, 32)]
+            root.iconphoto(True, *self.icons)
+        except tk.TclError:
+            pass
         root.geometry("1600x950")
 
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
@@ -510,6 +517,16 @@ class App:
         self.cfg["theme"] = "dark" if self.dark_var.get() else "light"
         self.save_cfg()
         self.apply_theme()
+
+    def install_desktop(self):
+        try:
+            path = desktop.install()
+        except OSError as e:
+            messagebox.showerror("Couldn't add to app menu", str(e))
+            return
+        self.menu_btn.pack_forget()
+        messagebox.showinfo("Added to app menu", f"RetroShelf is now in your app menu.\n\n{path}\n\nIf you move "
+                                                 "the RetroShelf folder, click Add to app menu again.")
 
     # ---------- updates ----------
     def check_updates(self, quiet=False):
@@ -651,6 +668,9 @@ class App:
                         command=self.toggle_theme).pack(side="right")
         self.update_btn = ttk.Button(head, text="Check for updates", command=self.check_updates)
         self.update_btn.pack(side="right", padx=(0, 16))
+        if not desktop.is_installed():
+            self.menu_btn = ttk.Button(head, text="Add to app menu", command=self.install_desktop)
+            self.menu_btn.pack(side="right", padx=(0, 6))
 
         # source bar
         bar = ttk.Frame(outer, padding=(0, 10, 0, 0))
@@ -1930,4 +1950,7 @@ def prune_empty(folder, stop):
 
 
 if __name__ == "__main__":
-    App(tk.Tk()).root.mainloop()
+    if "--install-desktop" in sys.argv[1:]:
+        print(f"Added RetroShelf to the app menu: {desktop.install()}")
+        sys.exit()
+    App(tk.Tk(className="retroshelf")).root.mainloop()
