@@ -44,6 +44,29 @@ ESDE_TO_LB = {
 }
 
 
+# LaunchBox splits some consoles' games over extra platforms; matching and scraping look there too
+PLATFORM_EXTRAS = {"Sony PSP": ["Sony PSP Minis"]}
+MATCH_VERSION = 2  # bump when matching rules change, so memoised matches are redone
+SCENE_JUNK = {"us", "usa", "eur", "eu", "europe", "jpn", "jp", "japan", "uk", "pal", "ntsc", "patched", "final",
+              "fixed", "undub", "translated", "eng", "english", "psp", "iso", "cso"}
+
+
+def scene_variants(title):
+    """Cleaner spellings of scene-style names ('Fate_Unlimited_Codes_USA', 'NarutoShippudenKizunaDriveUS',
+    'Disgaea_Infinite_USA_PSP-BAHAMUT'), tried only when the name as written has no exact match."""
+    s = re.sub(r"[ _]PSP-\w+$", "", title).replace("_", " ")
+    out = []
+    for v in (s, re.sub(r"(?<=[a-z])(?=[A-Z])", " ", s)):  # second one also splits CamelCase
+        v = re.sub(r"(?<=[A-Z]{2})(?:USA|US|EUR|JPN)$|(?<=[a-z])(?:USA|US|EUR|JPN)$", "", v)
+        words = v.split()
+        while len(words) > 1 and words[-1].lower().strip("[]()") in SCENE_JUNK:
+            words.pop()
+        v = " ".join(words)
+        if v and v != title and v not in out:
+            out.append(v)
+    return out
+
+
 def pnorm(s):
     return re.sub(r"[^a-z0-9]", "", s.lower())
 
@@ -177,11 +200,14 @@ def has_details():
 
 
 def load_details(platform):
-    try:
-        with gzip.open(os.path.join(CACHE, safe(platform) + ".details.json.gz"), "rt", encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError, EOFError):
-        return {}
+    out = {}
+    for plat in [platform] + PLATFORM_EXTRAS.get(platform, []):
+        try:
+            with gzip.open(os.path.join(CACHE, safe(plat) + ".details.json.gz"), "rt", encoding="utf-8") as f:
+                out = {**json.load(f), **out}  # the main platform wins if an id were ever in both
+        except (OSError, ValueError, EOFError):
+            pass
+    return out
 
 
 def load_manual():
@@ -207,6 +233,21 @@ def set_manual(platform, title, gid, clear=False):
         json.dump(data, f, indent=1, ensure_ascii=False)
 
 
+def copy_manual(platform, titles):
+    """titles: {old title: new title} after files are renamed, so hand-picked matches follow the games. The old
+    title keeps its pick too (other versions of the game may still use it)."""
+    data = load_manual()
+    plat = data.get(platform, {})
+    changed = False
+    for old, new in titles.items():
+        if old in plat and new not in plat:
+            plat[new] = plat[old]
+            changed = True
+    if changed:
+        with open(MANUAL, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1, ensure_ascii=False)
+
+
 class Matcher:
     """Maps ROM titles (tags already stripped) to LaunchBox games for one platform. Memoises to cache/matches/.
     Manual picks from matches.json win over automatic matching."""
@@ -216,19 +257,26 @@ class Matcher:
         path = os.path.join(CACHE, safe(platform) + ".json")
         self.ok = bool(meta) and os.path.exists(path)
         self.games, self.index, self.memo, self.alts = {}, {}, {}, {}
+        self.spelling = {}  # normalised key -> the LaunchBox name (main or alternate) it came from
         self.manual = load_manual().get(platform, {})
         if not self.ok:
             return
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        self.games = data["games"]
-        for gid, g in self.games.items():
-            self.index.setdefault(norm(g["n"]), gid)
-        for gid, name in data["alts"]:
-            self.index.setdefault(norm(name), gid)
-            self.alts.setdefault(gid, []).append(name)
+        for plat in [platform] + PLATFORM_EXTRAS.get(platform, []):  # main platform first: its names win
+            try:
+                with open(os.path.join(CACHE, safe(plat) + ".json"), encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                continue
+            for gid, g in data["games"].items():
+                self.games.setdefault(gid, g)
+                self.index.setdefault(norm(g["n"]), gid)
+                self.spelling.setdefault(norm(g["n"]), g["n"])
+            for gid, name in data["alts"]:
+                self.index.setdefault(norm(name), gid)
+                self.spelling.setdefault(norm(name), name)
+                self.alts.setdefault(gid, []).append(name)
         self.keys = list(self.index)
-        self.stamp = meta["updated"]
+        self.stamp = f"{meta['updated']}|v{MATCH_VERSION}"
         self.memo_path = os.path.join(APP_DIR, "cache", "matches", safe(platform) + ".json")
         try:
             with open(self.memo_path, encoding="utf-8") as f:
@@ -250,16 +298,32 @@ class Matcher:
             if gid in self.games:  # else the pick left the LaunchBox DB; fall back to automatic matching
                 return gid, self.games[gid], "manual"
         if title not in self.memo:
-            n = norm(title)
-            gid, kind = self.index.get(n), "exact"
-            if not gid:
+            tries = [title] + scene_variants(title)
+            gid = next((self.index[norm(t)] for t in tries if norm(t) in self.index), None)
+            kind = "exact" if gid else None
+            for t in tries if not gid else []:
+                n = norm(t)
                 m = difflib.get_close_matches(n, self.keys, n=1, cutoff=0.9)
-                ok = m and set(re.findall(r"\d+", m[0])) == set(re.findall(r"\d+", n))
-                gid, kind = (self.index[m[0]], "fuzzy") if ok else (None, None)
+                if m and set(re.findall(r"\d+", m[0])) == set(re.findall(r"\d+", n)):
+                    gid, kind = self.index[m[0]], "fuzzy"
+                    break
             self.memo[title] = [gid, kind]
             self.dirty = True
         gid, kind = self.memo[title]
         return (gid, self.games[gid], kind) if gid else (None, None, None)
+
+    def proper_name(self, title, gid):
+        """How LaunchBox spells this game for this file: the main or alternate name the (cleaned-up) title matched,
+        so 'GTI_Club_-_World_City_Race_US' keeps its US title instead of the Japanese main one."""
+        for t in [title] + scene_variants(title):
+            n = norm(t)
+            if self.index.get(n) == gid:
+                return self.spelling[n]
+        return self.games[gid]["n"] if gid in self.games else None
+
+    def matches_as_written(self, title):
+        """True when the title, exactly as written, is a LaunchBox name (not just after scene clean-up)."""
+        return norm(title) in self.index
 
     def search(self, query, limit=200):
         """LaunchBox ids whose name or an alternate name fits query, best first."""

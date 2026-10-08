@@ -16,6 +16,7 @@ Right-click a game to pick its LaunchBox entry by hand when the automatic match 
 Rename… brings file names in line with a template (default: No-Intro order), with a preview and undo.
 Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and move together.
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
+Holding folder… lists moved games with artwork and details, and restores or permanently deletes them.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
 Updates come from GitHub: checked at startup (can be turned off) or with Check for updates (see lib/updater.py).
 Add to app menu (or --install-desktop) installs a .desktop entry; retroshelf.sh is a launcher for Steam / file managers.
@@ -37,23 +38,26 @@ import nps  # noqa: E402
 import nps_gui  # noqa: E402
 import scraper  # noqa: E402
 import desktop  # noqa: E402
+import details  # noqa: E402
+import ui  # noqa: E402
 import updater  # noqa: E402
 
 UI_FONTS = ["Inter", "Segoe UI", "Noto Sans", "Cantarell", "Ubuntu", "DejaVu Sans"]
 MONO_FONTS = ["JetBrains Mono", "Fira Code", "Noto Sans Mono", "DejaVu Sans Mono", "monospace"]
 PALETTE = {
     "dark": {"field": "#272727", "fg": "#fafafa", "border": "#3a3a3a", "accent": "#57c8ff", "sel": "#2f60d8",
-             "muted": "#9a9a9a", "stripe": "#232323", "manual": "#ffb347", "keep": "#7fd17f", "move": "#ff8a80"},
+             "muted": "#9a9a9a", "stripe": "#232323", "manual": "#ffb347", "keep": "#7fd17f", "move": "#ff8a80",
+             "hover": "#30343c", "selrow": "#1f4f86"},
     "light": {"field": "#ffffff", "fg": "#1c1c1c", "border": "#d4d4d4", "accent": "#005fb8", "sel": "#2f60d8",
-              "muted": "#6b6b6b", "stripe": "#f3f3f3", "manual": "#b05000", "keep": "#1e7b34", "move": "#c42b1c"},
+              "muted": "#6b6b6b", "stripe": "#f3f3f3", "manual": "#b05000", "keep": "#1e7b34", "move": "#c42b1c",
+              "hover": "#e4ecf7", "selrow": "#bcd8f5"},
 }
 PATTERN_EXAMPLES = (
-    "mario         name contains \"mario\"\n"
-    "(Japan)       name contains \"(Japan)\"\n"
-    "*(Beta)*      * = any text, ? = one character\n"
-    "0002*         name starts with 0002\n"
-    "!kart         ! = always keep these\n"
-    "# note        ignored"
+    "mario     contains\n"
+    "*(Beta)*  * ? wildcards\n"
+    "0002*     starts with\n"
+    "!kart     always keep\n"
+    "# note    ignored"
 )
 PATTERN_HELP = [
     ("mario", "Plain text: moves any game whose name contains it, anywhere."),
@@ -207,6 +211,10 @@ PRESETS = {
     "Region dupes (keep 1 per title)": region_dupes,
 }
 DUPES = "Region dupes (keep 1 per title)"
+PRESET_LABELS = {  # shorter text for the checkboxes; the full names stay the keys (saved per system)
+    "Junk (demo/kiosk/beta/proto/unl)": "Junk (demos, betas, protos …)",
+    DUPES: "Region dupes (keep one)",
+}
 PARTIAL_EXT = (".part", ".crdownload", ".tmp")
 
 
@@ -228,9 +236,18 @@ def split_ext(name):
     return (stem, ext) if re.fullmatch(r"\.[A-Za-z0-9_+-]{1,10}", ext) else (name, "")
 
 
-def name_fields(stem, lb_name=None):
+SCENE_REGIONS = {"USA": "USA", "US": "USA", "EUR": "Europe", "EU": "Europe", "JPN": "Japan", "JP": "Japan"}
+SCENE_REGION_RE = re.compile(r"(?:^|(?<=[_\s.-]))(USA|US|EUR|EU|JPN|JP)(?=$|[_\s.-])"
+                             r"|(?:(?<=[a-z])|(?<=[A-Z]{2}))(USA|US|EUR|JPN)$")
+
+
+def name_fields(stem, lb_name=None, lb_title=False):
+    """lb_title: the file name isn't a real title (scene name, or the game was matched by hand), so {title} comes
+    from LaunchBox, and a region word like _USA_ or ...US becomes {region}."""
     s = PREFIX_RE.sub("", stem)
     f = {"title": TAG_RE.sub("", s).strip(), "region": "", "lang": "", "rev": ""}
+    if lb_title and lb_name:
+        f["title"] = lb_name
     other = []
     for tag in ANY_TAG_RE.findall(s):
         inner = tag[1:-1].strip()
@@ -242,6 +259,10 @@ def name_fields(stem, lb_name=None):
             f["rev"] = inner
         else:
             other.append(tag)
+    if lb_title and not f["region"]:
+        m = SCENE_REGION_RE.search(TAG_RE.sub("", s))
+        if m:
+            f["region"] = SCENE_REGIONS[m.group(1) or m.group(2)]
     f["tags"] = " ".join(other)
     f["lbname"] = lb_name or f["title"]
     return f
@@ -254,16 +275,16 @@ def render_name(template, fields):
         raise ValueError("unknown field " + ", ".join("{%s}" % u for u in sorted(unknown)))
     out = re.sub(r"\{(\w+)\}", lambda m: fields[m.group(1)], template)
     out = re.sub(r"\(\s*\)|\[\s*\]", "", out)
-    out = re.sub(r"\s*:\s*", " - ", out)
-    out = re.sub(r'[<>"/\\|?*\x00-\x1f]', "", out)
+    out = re.sub(r"\s*:\s*", " - ", out).replace("/", "-")  # Fate/Unlimited Codes -> Fate-Unlimited Codes
+    out = re.sub(r'[<>"\\|?*\x00-\x1f]', "", out)
     return re.sub(r"^[\s-]+|[\s-]+$", "", " ".join(out.split()))
 
 
 def plan_renames(units, template):
-    """units: [(key, [paths], LaunchBox name or None)] -> rows {key, old, new, status}; status is "rename",
-    "same", or why it's skipped. A conflict anywhere in a multi-file game skips the whole game."""
+    """units: [(key, [paths], LaunchBox name or None, use it as {title})] -> rows {key, old, new, status}; status
+    is "rename", "same", or why it's skipped. A conflict anywhere in a multi-file game skips the whole game."""
     rows = []
-    for key, paths, lb_name in units:
+    for key, paths, lb_name, lb_title in units:
         for p in paths:
             name = os.path.basename(p)
             row = {"key": key, "old": p, "new": p, "status": "same"}
@@ -274,7 +295,7 @@ def plan_renames(units, template):
             stem, ext = split_ext(name)
             parts = "".join(" " + m.strip() for m in PART_RE.findall(stem))
             try:
-                base = render_name(template, name_fields(PART_RE.sub("", stem).strip(), lb_name))
+                base = render_name(template, name_fields(PART_RE.sub("", stem).strip(), lb_name, lb_title))
             except ValueError as e:
                 row["status"] = str(e)
                 continue
@@ -358,7 +379,9 @@ def wildcard_re(pat, icase):
 def human(n):
     if n >= 1 << 40:
         return f"{n / (1 << 40):.2f} TB"
-    return f"{n / 1073741824:.2f} GB" if n >= 1073741824 else f"{n / 1048576:.1f} MB"
+    if n >= 1073741824:
+        return f"{n / 1073741824:.2f} GB"
+    return f"{n / 1048576:.1f} MB" if n >= 1048576 else f"{max(1, round(n / 1024)) if n else 0} KB"
 
 
 def dir_size(path):
@@ -436,16 +459,18 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title("RetroShelf")
+        self.icons, self.big_icon = [], None
         try:  # default=True: dialogs and the NoPayStation window get it too
             self.icons = [tk.PhotoImage(file=os.path.join(APP_DIR, "assets", f"icon-{n}.png")) for n in (256, 64, 32)]
             root.iconphoto(True, *self.icons)
+            self.big_icon = self.icons[0].subsample(2)  # 128 px, for the details panel's welcome
         except tk.TclError:
             pass
         root.geometry("1600x950")
 
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
                     "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True,
-                    "system_state": {}}
+                    "system_state": {}, "show_details": True}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -457,6 +482,9 @@ class App:
         self.units = {}          # key -> {"paths": [abs path], "size": int}
         self.file_to_unit = {}
         self.ratings = {}        # key -> lb game dict
+        self.lb_ids = {}         # key -> LaunchBox id for any match (fuzzy too), for the details panel
+        self.detail_panels = []  # DetailsPanel widgets to restyle on theme changes
+        self._lb_details = {}    # platform -> LaunchBox details (descriptions etc.), loaded on first use
         self.lb_kind = {}        # key -> "exact" | "fuzzy" | "manual" (manual may also mean "no match")
         self.played = set()
         self.preset_hits = {}
@@ -470,6 +498,8 @@ class App:
         self._fonts()
         self._build()
         self.apply_theme()
+        self.toast = ui.Toaster(root, lambda: self.colors).show
+        root.bind_class("Toplevel", "<Map>", self._center_dialog, add="+")
         self.load_roms_root(self.cfg["roms_root"])
         root.protocol("WM_DELETE_WINDOW", self._close)
         if self.cfg["check_updates"]:
@@ -499,6 +529,9 @@ class App:
         c = self.colors = PALETTE[theme]
         st = ttk.Style()
         st.configure("Treeview", rowheight=28, indent=0)
+        # the theme's own selection colour is nearly the row colour in dark mode; use a clear accent tint
+        st.map("Treeview", background=[("selected", c["selrow"])],
+               foreground=[("selected", "#ffffff" if theme == "dark" else "#0b1a2b")])
         # flat lists only: drop the expand-arrow slot so first-column text lines up with its heading
         st.layout("Treeview.Item", [("Treeitem.padding", {"sticky": "nswe", "children": [
             ("Treeitem.image", {"side": "left", "sticky": ""}), ("Treeitem.text", {"sticky": "nswe"})]})])
@@ -519,6 +552,16 @@ class App:
         for tv in (self.keep_tv, self.move_tv):
             tv.tag_configure("odd", background=c["stripe"])
             tv.tag_configure("manual", foreground=c["manual"])
+            tv.tag_configure("hover", background=c["hover"])  # configured last, so it wins over "odd"
+        menu_colors = dict(background=c["field"], foreground=c["fg"], activebackground=c["sel"],
+                           activeforeground="#ffffff", disabledforeground=c["muted"], selectcolor=c["fg"])
+        for k, v in menu_colors.items():
+            self.root.option_add(f"*Menu.{k}", v)  # right-click menus made later
+        for m in self.menus:
+            m.configure(relief="flat", borderwidth=0, activeborderwidth=0, **menu_colors)
+        self.detail_panels = [p for p in self.detail_panels if p.winfo_exists()]
+        for p in self.detail_panels:
+            p.restyle(field)
         self.root.configure(bg=ttk.Style().lookup("TFrame", "background"))
 
     def toggle_theme(self):
@@ -532,9 +575,8 @@ class App:
         except OSError as e:
             messagebox.showerror("Couldn't add to app menu", str(e))
             return
-        self.menu_btn.pack_forget()
-        messagebox.showinfo("Added to app menu", f"RetroShelf is now in your app menu.\n\n{path}\n\nIf you move "
-                                                 "the RetroShelf folder, click Add to app menu again.")
+        self.help_menu.entryconfig(self._menu_item(self.help_menu, "Add to app menu"), state="disabled")
+        self.toast("Added to your app menu. If you move the RetroShelf folder, add it again from Help.")
 
     # ---------- updates ----------
     def check_updates(self, quiet=False):
@@ -542,7 +584,8 @@ class App:
         if getattr(self, "_checking", False):
             return
         self._checking = True
-        self.update_btn.config(text="Checking…", state="disabled")
+        item = self._menu_item(self.help_menu, "Check")
+        self.help_menu.entryconfig(item, label="Checking for updates…", state="disabled")
         box = queue.Queue()
 
         def work():
@@ -558,19 +601,21 @@ class App:
                 self.root.after(200, poll)
                 return
             self._checking = False
-            self.update_btn.config(state="normal")
+            self.help_menu.entryconfig(item, label="Check for updates", state="normal")
             if isinstance(res, Exception):
-                self.update_btn.config(text="Check for updates", style="TButton")
                 if not quiet:
                     messagebox.showerror("Couldn't check for updates", str(res))
                 return
             if res["behind"] == 0:
-                self.update_btn.config(text="Check for updates", style="TButton")
                 if not quiet:
-                    messagebox.showinfo("Up to date", "You have the latest RetroShelf.")
+                    self.toast("You have the latest RetroShelf.")
                 return
-            self.update_btn.config(text="Update available", style="Accent.TButton",
-                                   command=lambda: self.update_dialog(res))
+            # a menu-bar item stays as a reminder after "Later"
+            label = "⬆ Update available"
+            if self._menu_item(self.menubar, label) is None:
+                self.menubar.add_command(label=label, command=lambda: self.update_dialog(res))
+            else:
+                self.menubar.entryconfig(self._menu_item(self.menubar, label), command=lambda: self.update_dialog(res))
             self.update_dialog(res)
 
         threading.Thread(target=work, daemon=True).start()
@@ -665,110 +710,106 @@ class App:
 
     # ---------- UI ----------
     def _build(self):
-        outer = ttk.Frame(self.root, padding=(16, 12, 16, 8))
+        self._build_menu()
+        outer = ttk.Frame(self.root, padding=(16, 10, 16, 8))
         outer.pack(fill="both", expand=True)
 
-        # header: title + theme switch
-        head = ttk.Frame(outer)
-        head.pack(fill="x")
-        ttk.Label(head, text="RetroShelf", style="Title.TLabel").pack(side="left")
-        self.dark_var = tk.BooleanVar(value=self.cfg["theme"] == "dark")
-        ttk.Checkbutton(head, text="Dark mode", style="Switch.TCheckbutton", variable=self.dark_var,
-                        command=self.toggle_theme).pack(side="right")
-        self.update_btn = ttk.Button(head, text="Check for updates", command=self.check_updates)
-        self.update_btn.pack(side="right", padx=(0, 16))
-        if not desktop.is_installed():
-            self.menu_btn = ttk.Button(head, text="Add to app menu", command=self.install_desktop)
-            self.menu_btn.pack(side="right", padx=(0, 6))
-
-        # source bar
-        bar = ttk.Frame(outer, padding=(0, 10, 0, 0))
+        # source bar: folder, system, LaunchBox platform; drive space on the right
+        bar = ttk.Frame(outer)
         bar.pack(fill="x")
         bar.columnconfigure(1, weight=1)
-        ttk.Label(bar, text="ROMs folder").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(bar, text="ROMs").grid(row=0, column=0, sticky="w", padx=(0, 8))
         self.roms_var = tk.StringVar()
-        self.roms_entry = ttk.Entry(bar, textvariable=self.roms_var, state="readonly")
+        self.roms_entry = ttk.Entry(bar, textvariable=self.roms_var, state="readonly", width=12)
         self.roms_entry.grid(row=0, column=1, sticky="ew")
-        ttk.Button(bar, text="Browse…", command=self.browse_roms).grid(row=0, column=2, padx=(6, 18))
+        self.roms_entry.bind("<Double-Button-1>", lambda e: self.browse_roms())
+        pick = ttk.Button(bar, text="…", width=3, command=self.browse_roms)
+        pick.grid(row=0, column=2, padx=(4, 16))
+        ui.Tooltip(pick, "Choose your ROMs folder (the one with a folder per system)")
+        ui.Tooltip(self.roms_entry, lambda: self.roms_var.get())
         ttk.Label(bar, text="System").grid(row=0, column=3, sticky="w", padx=(0, 8))
         self.system_var = tk.StringVar()
-        self.system_cb = ttk.Combobox(bar, textvariable=self.system_var, state="readonly", width=30)
+        self.system_cb = ttk.Combobox(bar, textvariable=self.system_var, state="readonly", width=26)
         self.system_cb.grid(row=0, column=4)
         self.system_cb.bind("<<ComboboxSelected>>", lambda e: self.load_system(self.system_codes[self.system_cb.current()]))
-        self.nps_btn = ttk.Button(bar, text="NoPayStation…", command=lambda: nps_gui.open_window(self))
-        self.nps_btn.grid(row=0, column=5, padx=(6, 0))
-        ttk.Label(bar, text="LaunchBox").grid(row=0, column=6, sticky="w", padx=(18, 8))
+        self.sys_info = ttk.Label(bar, style="Move.TLabel", cursor="hand2")  # ⚠ when something's off; click it
+        self.sys_info.grid(row=0, column=5, padx=(6, 0))
+        self.sys_warning = ""
+        self.sys_info.bind("<Button-1>", lambda e: self.sys_warning and messagebox.showinfo("System", self.sys_warning))
+        ui.Tooltip(self.sys_info, lambda: self.sys_warning)
+        ttk.Label(bar, text="LaunchBox").grid(row=0, column=6, sticky="w", padx=(16, 8))
         self.platform_var = tk.StringVar()
-        self.platform_cb = ttk.Combobox(bar, textvariable=self.platform_var, state="readonly", width=24)
+        self.platform_cb = ttk.Combobox(bar, textvariable=self.platform_var, state="readonly", width=20)
         self.platform_cb.grid(row=0, column=7)
         self.platform_cb.bind("<<ComboboxSelected>>", lambda e: self.set_platform())
-        self.lb_btn = ttk.Button(bar, text="Download LaunchBox data", command=self.update_lb)
-        self.lb_btn.grid(row=0, column=8, padx=(6, 0))
-        ttk.Button(bar, text="Scrape metadata…", command=self.scrape_dialog).grid(row=0, column=9, padx=(6, 0))
-        info = ttk.Frame(outer, padding=(0, 6, 0, 0))
-        info.pack(fill="x")
-        self.sys_info = ttk.Label(info, style="Muted.TLabel")
-        self.sys_info.pack(side="left", fill="x", expand=True)
-        self.disk_bar = ttk.Progressbar(info, length=140, mode="determinate", maximum=100)
-        self.disk_bar.pack(side="right", padx=(8, 0))
-        self.disk_lbl = ttk.Label(info, style="Muted.TLabel")
-        self.disk_lbl.pack(side="right")
+        self.disk_lbl = ttk.Label(bar, style="Muted.TLabel")
+        self.disk_lbl.grid(row=0, column=8, padx=(16, 8))
+        self.disk_bar = ttk.Progressbar(bar, length=80, mode="determinate", maximum=100)
+        self.disk_bar.grid(row=0, column=9)
+        for w in (self.disk_lbl, self.disk_bar):
+            ui.Tooltip(w, self._disk_tip)
 
-        # filter cards
+        # filter cards, with the details panel beside them
         top = ttk.Frame(outer, padding=(0, 10, 0, 0))
         top.pack(fill="x")
 
-        presets = ttk.LabelFrame(top, text="Presets", padding=(12, 8))
-        presets.pack(side="left", fill="y")
+        # filters live in tabs (one group at a time fits even a Steam Deck screen next to the details panel);
+        # tab names count what's switched on, so nothing active is hidden
+        self.filter_tabs = nb = ttk.Notebook(top)
+        nb.pack(side="left", fill="y")
+        presets = ttk.Frame(nb, padding=(12, 8))
+        pcol = ttk.Frame(presets)
+        pcol.pack(side="left", fill="y", anchor="n")
         self.preset_vars = {}
         for name in list(PRESETS) + ["Partial downloads (.part)"]:
             v = tk.BooleanVar(value=False)
-            ttk.Checkbutton(presets, text=name, variable=v, command=self.refresh).pack(anchor="w", pady=1)
+            ttk.Checkbutton(pcol, text=PRESET_LABELS.get(name, name), variable=v,
+                            command=self.refresh).pack(anchor="w", pady=0)
             self.preset_vars[name] = v
             if name == DUPES:
-                prow = ttk.Frame(presets)
-                prow.pack(fill="x", padx=(28, 0), pady=(0, 4))
+                prow = ttk.Frame(pcol)
+                prow.pack(fill="x", padx=(28, 0), pady=(0, 2))
                 self.priority = [p.strip() for p in self.cfg["region_priority"].split(",") if p.strip()]
                 self.prio_lbl = ttk.Label(prow, style="Muted.TLabel")
                 self.prio_lbl.pack(side="left")
                 ttk.Button(prow, text="Edit…", command=self.edit_priority).pack(side="right", padx=(6, 0))
                 self._show_priority()
-        ttk.Separator(presets).pack(fill="x", pady=8)
-        self.protect_played = tk.BooleanVar(value=True)
-        self.played_cb = ttk.Checkbutton(presets, text="Protect played games", style="Switch.TCheckbutton",
-                                         variable=self.protect_played, command=self.refresh)
-        self.played_cb.pack(anchor="w")
-
-        rat = ttk.LabelFrame(top, text="LaunchBox ratings", padding=(12, 8))
-        rat.pack(side="left", fill="y", padx=(10, 0))
-        self.rat_info = ttk.Label(rat, style="Muted.TLabel")
-        self.rat_info.pack(anchor="w", pady=(0, 4))
+        ttk.Separator(presets, orient="vertical").pack(side="left", fill="y", padx=12)
+        rat = ttk.Frame(presets)
+        rat.pack(side="left", fill="y", anchor="n")
         row = ttk.Frame(rat)
         row.pack(anchor="w", pady=1)
         self.use_rating = tk.BooleanVar(value=False)
         ttk.Checkbutton(row, text="Rating below", variable=self.use_rating, command=self.refresh).pack(side="left")
         self.rating_max = tk.DoubleVar(value=2.5)
-        ttk.Spinbox(row, from_=0, to=5, increment=0.25, width=5, textvariable=self.rating_max,
+        ttk.Spinbox(row, from_=0, to=5, increment=0.25, width=3, textvariable=self.rating_max,
                     command=self.refresh).pack(side="left", padx=6)
         ttk.Label(row, text="/ 5").pack(side="left")
         row2 = ttk.Frame(rat)
         row2.pack(anchor="w", pady=1)
-        ttk.Label(row2, text="only if votes ≥", style="Muted.TLabel").pack(side="left", padx=(28, 0))
+        ttk.Label(row2, text="if votes ≥", style="Muted.TLabel").pack(side="left", padx=(28, 0))
         self.min_votes = tk.IntVar(value=3)
-        ttk.Spinbox(row2, from_=1, to=500, increment=1, width=5, textvariable=self.min_votes,
+        ttk.Spinbox(row2, from_=1, to=500, increment=1, width=3, textvariable=self.min_votes,
                     command=self.refresh).pack(side="left", padx=6)
         for var in (self.rating_max, self.min_votes):
             var.trace_add("write", lambda *_: self._debounce())
         self.use_unrated = tk.BooleanVar(value=False)
-        ttk.Checkbutton(rat, text="Unrated / no LaunchBox match", variable=self.use_unrated,
+        ttk.Checkbutton(rat, text="Unrated or unmatched", variable=self.use_unrated,
                         command=self.refresh).pack(anchor="w", pady=1)
+        self.rat_info = ttk.Label(rat, style="Muted.TLabel")
+        self.rat_info.pack(anchor="w", pady=(2, 0))
+        self.protect_played = tk.BooleanVar(value=True)
+        self.played_cb = ttk.Checkbutton(rat, text="Protect played games", style="Switch.TCheckbutton",
+                                         variable=self.protect_played, command=self.refresh)
+        self.played_cb.pack(anchor="w", side="bottom", pady=(6, 2))
+        nb.add(presets, text="Presets & ratings")
 
-        gen = ttk.LabelFrame(top, text="Move genres", padding=(12, 8))
-        gen.pack(side="left", fill="y", padx=(10, 0))
-        ttk.Label(gen, text="ctrl / shift-click for several", style="Muted.TLabel").pack(anchor="w", pady=(0, 4))
+        gen = ttk.Frame(nb, padding=(12, 8))
+        ttk.Label(gen, text="Games in the selected genres move. Ctrl / Shift-click for several.",
+                  style="Muted.TLabel").pack(anchor="w", pady=(0, 4))
         gf = ttk.Frame(gen)
         gf.pack(fill="both", expand=True)
-        self.genre_lb = tk.Listbox(gf, selectmode="extended", height=6, exportselection=False, width=22,
+        self.genre_lb = tk.Listbox(gf, selectmode="extended", height=6, exportselection=False, width=30,
                                    font="SunValleyBodyFont")
         gsb = ttk.Scrollbar(gf, orient="vertical", command=self.genre_lb.yview)
         self.genre_lb.configure(yscrollcommand=gsb.set)
@@ -776,16 +817,20 @@ class App:
         gsb.pack(side="right", fill="y")
         self.genre_lb.bind("<<ListboxSelect>>", lambda e: self.refresh())
         self.genre_names = []
+        nb.add(gen, text="Genres")
 
-        reg = ttk.LabelFrame(top, text="Regions", padding=(12, 8))
-        reg.pack(side="left", fill="y", padx=(10, 0))
+        reg = ttk.Frame(nb, padding=(12, 8))
+        rtop = ttk.Frame(reg)
+        rtop.pack(fill="x", pady=(0, 4))
         self.region_mode = tk.StringVar(value=REGION_MODES[0])
-        mode_cb = ttk.Combobox(reg, textvariable=self.region_mode, values=REGION_MODES, state="readonly", width=17)
-        mode_cb.pack(fill="x", pady=(0, 4))
+        mode_cb = ttk.Combobox(rtop, textvariable=self.region_mode, values=REGION_MODES, state="readonly",
+                               width=17)
+        mode_cb.pack(side="left")
         mode_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
+        ttk.Label(rtop, text="  the regions picked below", style="Muted.TLabel").pack(side="left")
         rf = ttk.Frame(reg)
         rf.pack(fill="both", expand=True)
-        self.region_lb = tk.Listbox(rf, selectmode="extended", height=6, exportselection=False, width=18,
+        self.region_lb = tk.Listbox(rf, selectmode="extended", height=5, exportselection=False, width=30,
                                     font="SunValleyBodyFont")
         rsb = ttk.Scrollbar(rf, orient="vertical", command=self.region_lb.yview)
         self.region_lb.configure(yscrollcommand=rsb.set)
@@ -793,9 +838,9 @@ class App:
         rsb.pack(side="right", fill="y")
         self.region_lb.bind("<<ListboxSelect>>", lambda e: self.refresh())
         self.region_names = []
+        nb.add(reg, text="Regions")
 
-        pat = ttk.LabelFrame(top, text="Name patterns", padding=(12, 8))
-        pat.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        pat = ttk.Frame(nb, padding=(12, 8))
         prow = ttk.Frame(pat)
         prow.pack(fill="x", pady=(0, 4))
         ttk.Label(prow, text="One rule per line", style="Muted.TLabel").pack(side="left")
@@ -803,34 +848,45 @@ class App:
         self.icase = tk.BooleanVar(value=True)
         ttk.Checkbutton(prow, text="Ignore case", variable=self.icase, command=self.refresh).pack(side="right",
                                                                                                 padx=(0, 8))
-        self.pat_text = tk.Text(pat, height=6, width=30, font=(self.mono, 10), undo=True)
+        self.pat_text = tk.Text(pat, height=5, width=30, font=(self.mono, 10), undo=True)
         self.pat_text.pack(fill="both", expand=True)
         self.pat_text.bind("<<Modified>>", self._on_modified)
         self.pat_hint = tk.Label(self.pat_text, text=PATTERN_EXAMPLES, justify="left", anchor="nw",
                                  font=(self.mono, 10))
         self.pat_hint.bind("<Button-1>", lambda e: self.pat_text.focus_set())
         self._toggle_hint()
+        nb.add(pat, text="Patterns")
+        self.filter_pages = [presets, gen, reg, pat]
 
-        # search + tools
-        flt = ttk.Frame(outer, padding=(0, 12, 0, 0))
+        self.details_card = ttk.LabelFrame(top, text="Details", padding=(10, 6))
+        self.details = details.DetailsPanel(self.details_card, wide=True, padding=0)
+        self.details.pack(fill="both", expand=True)
+        self.detail_panels.append(self.details)
+        if self.cfg["show_details"]:
+            self.details_card.pack(side="left", fill="both", expand=True, padx=(10, 0))
+
+        # search
+        flt = ttk.Frame(outer, padding=(0, 10, 0, 0))
         flt.pack(fill="x")
         ttk.Label(flt, text="Search").pack(side="left")
         self.view_filter = tk.StringVar()
         self.view_filter.trace_add("write", lambda *_: self.render())
-        ttk.Entry(flt, textvariable=self.view_filter).pack(side="left", fill="x", expand=True, padx=(8, 16))
-        ttk.Button(flt, text="Reset flips", command=self.reset_manual).pack(side="left")
-        ttk.Button(flt, text="Rescan", command=self.rescan).pack(side="left", padx=(4, 0))
-        ttk.Button(flt, text="Rename…", command=self.rename_dialog).pack(side="left", padx=(16, 0))
+        self.search_entry = ttk.Entry(flt, textvariable=self.view_filter)
+        self.search_entry.pack(side="left", fill="x", expand=True, padx=(8, 16))
+        reset = ttk.Button(flt, text="Reset flips", command=self.reset_manual)
+        reset.pack(side="left")
+        ui.Tooltip(reset, "Undo every double-click flip on this system")
 
         # footer: status left, move controls right (packed before the panes so it never gets squeezed out)
         foot = ttk.Frame(outer, padding=(0, 10, 0, 0))
         foot.pack(side="bottom", fill="x")
-        ttk.Button(foot, text="Move files", style="Accent.TButton", command=self.execute).pack(side="right")
-        ttk.Button(foot, text="Export list…", command=self.export).pack(side="right", padx=(0, 6))
-        ttk.Button(foot, text="Restore…", command=self.restore_dialog).pack(side="right", padx=(0, 6))
+        self.move_btn = ttk.Button(foot, text="Move files", style="Accent.TButton", command=self.execute)
+        self.move_btn.pack(side="right")
         ttk.Button(foot, text="Change…", command=self.browse_holding).pack(side="right", padx=(0, 16))
         self.hold_lbl = ttk.Label(foot, style="Muted.TLabel")
         self.hold_lbl.pack(side="right", padx=(0, 6))
+        ui.Tooltip(self.hold_lbl, lambda: f"Holding folder: {self.holding_root()}\nMoved games wait here until you "
+                                          "delete them (Library → Holding folder…)")
         self.dest = tk.StringVar(value=DESTS[0])
         ttk.Combobox(foot, textvariable=self.dest, values=DESTS, state="readonly", width=17).pack(side="right", padx=(0, 6))
         ttk.Label(foot, text="Move to").pack(side="right", padx=(0, 6))
@@ -847,6 +903,52 @@ class App:
         for tv in (self.keep_tv, self.move_tv):
             tv.bind("<<TreeviewSelect>>", lambda e, tv=tv: self._show_selected(tv))
             tv.bind("<Button-3>", lambda e, tv=tv: self._row_menu(tv, e))
+            tv.bind("<space>", lambda e, tv=tv: (self.flip(tv, tv is self.keep_tv), "break")[1])
+        self.root.bind("<F5>", lambda e: self.rescan())
+        self.root.bind("<Control-f>", lambda e: (self.search_entry.focus_set(), "break")[1])
+
+    def _build_menu(self):
+        """Things you do now and then live in the menu bar, so the window can give its height to the tables."""
+        mb = self.menubar = tk.Menu(self.root, tearoff=0)
+        lib = tk.Menu(mb, tearoff=0)
+        lib.add_command(label="Change ROMs folder…", command=self.browse_roms)
+        lib.add_command(label="Rescan", accelerator="F5", command=self.rescan)
+        lib.add_separator()
+        lib.add_command(label="Holding folder…", command=self.holding_dialog)
+        lib.add_command(label="Restore a move…", command=self.restore_dialog)
+        lib.add_command(label="Change holding folder…", command=self.browse_holding)
+        lib.add_separator()
+        lib.add_command(label="Export move list…", command=self.export)
+        mb.add_cascade(label="Library", menu=lib)
+        tools = self.tools_menu = tk.Menu(mb, tearoff=0)
+        tools.add_command(label="Scrape metadata…", command=self.scrape_dialog)
+        tools.add_command(label="Rename files…", command=self.rename_dialog)
+        tools.add_command(label="NoPayStation…", command=lambda: nps_gui.open_window(self))
+        tools.add_separator()
+        tools.add_command(label="Download LaunchBox data", command=self.update_lb)
+        mb.add_cascade(label="Tools", menu=tools)
+        view = tk.Menu(mb, tearoff=0)
+        self.dark_var = tk.BooleanVar(value=self.cfg["theme"] == "dark")
+        view.add_checkbutton(label="Dark mode", variable=self.dark_var, command=self.toggle_theme)
+        self.details_var = tk.BooleanVar(value=self.cfg["show_details"])
+        view.add_checkbutton(label="Details panel", variable=self.details_var, command=self.toggle_details)
+        mb.add_cascade(label="View", menu=view)
+        hlp = self.help_menu = tk.Menu(mb, tearoff=0)
+        hlp.add_command(label="Name pattern help", command=self.pattern_help)
+        hlp.add_separator()
+        hlp.add_command(label="Check for updates", command=self.check_updates)
+        hlp.add_command(label="Add to app menu", command=self.install_desktop,
+                        state="disabled" if desktop.is_installed() else "normal")
+        mb.add_cascade(label="Help", menu=hlp)
+        self.root.config(menu=mb)
+        self.menus = [mb, lib, tools, view, hlp]
+
+    def _menu_item(self, menu, label):
+        """Index of a menu entry by its label (labels change, e.g. Download/Update LaunchBox data)."""
+        for i in range(menu.index("end") + 1):
+            if menu.type(i) != "separator" and menu.entrycget(i, "label").startswith(label):
+                return i
+        return None
 
     def _pane(self, panes, label_style, pad=(0, 8)):
         f = ttk.Frame(panes, padding=(pad[0], 0, pad[1], 0))
@@ -859,18 +961,31 @@ class App:
         for col, text in (("#0", "Game"), ("why", "Why"), ("region", "Region"), ("rating", "Rating"),
                           ("genre", "Genre"), ("size", "Size")):
             tv.heading(col, text=text, anchor=anchors[col], command=lambda c=col: self.sort(c))
-        tv.column("#0", width=210, minwidth=160, stretch=True)
+        tv.column("#0", width=210, minwidth=110, stretch=True)
         tv.column("why", width=150, minwidth=60, stretch=True)
         tv.column("region", width=95, minwidth=60, stretch=False)
-        tv.column("rating", width=105, minwidth=80, stretch=False, anchor="center")
-        tv.column("genre", width=120, minwidth=60, stretch=False)
+        tv.column("rating", width=126, minwidth=110, stretch=False, anchor="center")
+        tv.column("genre", width=112, minwidth=60, stretch=False)
         tv.column("size", width=80, minwidth=60, stretch=False, anchor="e")
         sb = ttk.Scrollbar(inner, orient="vertical", command=tv.yview)
         tv.configure(yscrollcommand=sb.set)
         tv.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
+        tv.empty = ttk.Label(inner, style="Muted.TLabel", justify="center", anchor="center")  # shown when no rows
+        tv.hover = None
+        tv.bind("<Motion>", lambda e: self._hover(tv, tv.identify_row(e.y)))
+        tv.bind("<Leave>", lambda e: self._hover(tv, None))
         panes.add(f, weight=1)
         return lbl, tv
+
+    def _hover(self, tv, row):
+        if row == tv.hover:
+            return
+        for r, on in ((tv.hover, False), (row, True)):
+            if r and tv.exists(r):
+                tags = [t for t in tv.item(r, "tags") if t != "hover"] + (["hover"] if on else [])
+                tv.item(r, tags=tags)
+        tv.hover = row
 
     def _on_modified(self, _):
         self.pat_text.edit_modified(False)
@@ -906,8 +1021,8 @@ class App:
 
     # ---------- region priority ----------
     def _show_priority(self):
-        shown = " › ".join(self.priority[:3]) + (" …" if len(self.priority) > 3 else "")
-        self.prio_lbl.config(text=f"Prefer  {shown}")
+        shown = " › ".join(self.priority[:2]) + (" …" if len(self.priority) > 2 else "")
+        self.prio_lbl.config(text=f"Prefer {shown}")
 
     def set_priority(self, order):
         self.priority = list(order)
@@ -1041,8 +1156,9 @@ class App:
         self.system_cb["values"] = labels
         self.show_holding()
         self.show_disk()
+        self._merge_old_log()
         if not self.system_codes:
-            self.sys_info.config(text="No systems with ROMs found — pick your roms folder with Browse…")
+            self.sys_info.config(text="⚠ No games found — pick your ROMs folder")
             return
         sys_code = self.cfg["system"] if self.cfg["system"] in self.system_codes else self.system_codes[0]
         self.load_system(sys_code)
@@ -1057,12 +1173,12 @@ class App:
         name, fullname, exts = read_systeminfo(self.folder)
         self.fullname = fullname if name == system else nps.FULL_NAMES.get(system)
         self.exts = exts if name == system else None
-        warn = "" if name in (None, system) else f"  ⚠ systeminfo.txt here is for '{name}' — ignored"
-        self.sys_info.config(text=f"{self.folder}  ·  {self.fullname or 'unknown console'}{warn}")
-        if system in nps.CONSOLES:
-            self.nps_btn.grid()
-        else:
-            self.nps_btn.grid_remove()
+        self.sys_info.config(text="" if name in (None, system) else "⚠")
+        self.sys_warning = "" if name in (None, system) else (
+            f"This folder's systeminfo.txt is for '{name}', so it's ignored (ES-DE may have written it there).")
+        self.root.title(f"RetroShelf — {self.fullname or system}")
+        self.tools_menu.entryconfig(self._menu_item(self.tools_menu, "NoPayStation"),
+                                    state="normal" if system in nps.CONSOLES else "disabled")
         self.restore_state()
         self._refresh_platform_choices()
         self.rescan()
@@ -1072,7 +1188,8 @@ class App:
         self.platform_cb["values"] = ["(none)"] + plats
         self.platform = lb.resolve_platform(self.system, self.fullname, self.cfg["platform_overrides"])
         self.platform_var.set(self.platform or "(none)")
-        self.lb_btn.config(text="Update LaunchBox data" if plats else "Download LaunchBox data")
+        self.tools_menu.entryconfig(self._menu_item(self.tools_menu, ("Update", "Download")),
+                                    label="Update LaunchBox data" if plats else "Download LaunchBox data")
 
     def set_platform(self):
         p = self.platform_var.get()
@@ -1099,17 +1216,19 @@ class App:
                     if kind == "msg":
                         self.status.config(text=val)
                     else:
-                        self.lb_btn.config(state="normal")
+                        self.tools_menu.entryconfig(self._menu_item(self.tools_menu, ("Update", "Download")),
+                                                    state="normal")
                         if val:
                             messagebox.showerror("LaunchBox update failed", str(val))
                         else:
                             self._refresh_platform_choices()
                             self.rescan()
+                            self.toast("LaunchBox data is up to date: ratings, genres and scraping are ready.")
                         return
             except queue.Empty:
                 self.root.after(200, poll)
 
-        self.lb_btn.config(state="disabled")
+        self.tools_menu.entryconfig(self._menu_item(self.tools_menu, ("Update", "Download")), state="disabled")
         threading.Thread(target=work, daemon=True).start()
         poll()
 
@@ -1123,7 +1242,7 @@ class App:
             messagebox.showinfo("No LaunchBox platform", "Pick a LaunchBox platform for this system first.")
             return
         if not lb.has_details():
-            messagebox.showinfo("Update needed", "Click “Update LaunchBox data” once first — the scraper needs "
+            messagebox.showinfo("Update needed", "Run Tools → Update LaunchBox data once first — the scraper needs "
                                                  "descriptions and image lists that older downloads don't include.")
             return
         selected = set(self.keep_tv.selection()) | set(self.move_tv.selection())
@@ -1137,7 +1256,7 @@ class App:
         body = ttk.Frame(win, padding=18)
         body.pack(fill="both", expand=True)
         ttk.Label(body, text=f"Scrape {self.fullname or self.system} from LaunchBox", style="Section.TLabel").pack(anchor="w")
-        ttk.Label(body, text="Fills gaps only: existing text and images are never replaced, and play counts, "
+        ttk.Label(body, text="Fills gaps: existing images are never replaced, text only if you tick that below, and play counts, "
                              "favorites and hidden flags are left alone.", style="Muted.TLabel",
                   wraplength=520, justify="left").pack(anchor="w", pady=(2, 12))
 
@@ -1146,7 +1265,9 @@ class App:
         scope = tk.IntVar(value=0)
         for i, (label, keys) in enumerate(scopes):
             linked = sum(k in self.lb_links for k in keys)
-            ttk.Radiobutton(scope_box, text=f"{label}  —  {len(keys):,} games, {linked:,} matched in LaunchBox",
+            close = sum(k in self.lb_ids and k not in self.lb_links for k in keys)
+            ttk.Radiobutton(scope_box, text=f"{label}  —  {len(keys):,} games, {linked:,} matched in LaunchBox"
+                                            + (f" (+{close:,} close matches)" if close else ""),
                             variable=scope, value=i, state="normal" if keys else "disabled").pack(anchor="w", pady=1)
 
         what = ttk.LabelFrame(body, text="What to fill", padding=(12, 8))
@@ -1160,6 +1281,14 @@ class App:
             ttk.Checkbutton(what, text=label, variable=v).grid(row=1 + i // 2, column=i % 2, sticky="w", pady=1,
                                                                padx=(0, 24))
             media_vars[mtype] = v
+        rows = 1 + (len(scraper.MEDIA) + 1) // 2
+        use_close = tk.BooleanVar(value=False)
+        ttk.Checkbutton(what, text="Also scrape close (fuzzy) matches — check them in the details panel first",
+                        variable=use_close).grid(row=rows, column=0, columnspan=2, sticky="w", pady=(8, 1))
+        overwrite = tk.BooleanVar(value=False)
+        ttk.Checkbutton(what, text="Replace existing text with LaunchBox's (dates, descriptions … from other "
+                                   "scrapers)", variable=overwrite).grid(row=rows + 1, column=0, columnspan=2,
+                                                                         sticky="w", pady=1)
 
         ttk.Label(body, text="Videos and miximages aren't in LaunchBox's free data. Afterwards, in ES-DE: "
                              "Scraper → Content to scrape → only Videos, and Scraper → Other settings → "
@@ -1198,11 +1327,12 @@ class App:
                                        parent=win)
                 return
             keys = scopes[scope.get()][1]
-            jobs = [(scraper.primary_file(self.units[k]["paths"]), self.lb_links[k], self.regions[k])
-                    for k in keys if k in self.lb_links]
+            links = self.lb_ids if use_close.get() else self.lb_links
+            jobs = [(scraper.primary_file(self.units[k]["paths"]), links[k], self.regions[k])
+                    for k in keys if k in links]
             q = queue.Queue()
             args = (jobs, self.platform, self.system, self.cfg["roms_root"], self.gamelist_path(), do_text.get(),
-                    media, lambda m, d, t: q.put(("p", m, d, t)), lambda: state["cancel"])
+                    media, lambda m, d, t: q.put(("p", m, d, t)), lambda: state["cancel"], overwrite.get())
 
             def work():
                 try:
@@ -1230,7 +1360,8 @@ class App:
                                 f"{stopped}Filled {s['text']} text fields ({s.get('added', 0)} new gamelist entries), "
                                 f"downloaded {s['images']} images. {s['skipped']} already had that image, "
                                 f"{s['missing']} not available in LaunchBox, {s['failed']} failed. "
-                                f"{len(keys) - len(jobs)} games had no exact LaunchBox match "
+                                f"{len(keys) - len(jobs)} games had no {'' if use_close.get() else 'exact '}"
+                                f"LaunchBox match "
                                 f"(right-click a game to pick one)."))
                             state["cancel"] = False
                             return
@@ -1264,19 +1395,26 @@ class App:
             du = shutil.disk_usage(self.cfg["roms_root"])
         except OSError:
             self.disk_lbl.config(text="")
-            self.disk_bar.pack_forget()
+            self.disk_bar.grid_remove()
             return
         used = 100 * (du.total - du.free) / du.total if du.total else 0
-        self.disk_lbl.config(text=f"ROMs drive: {human(du.free)} free of {human(du.total)}",
+        self.disk_lbl.config(text=f"{human(du.free)} free",
                              style="Move.TLabel" if used > 90 else "Muted.TLabel")
         self.disk_bar.config(value=used)
-        if not self.disk_bar.winfo_ismapped():
-            self.disk_bar.pack(side="right", padx=(8, 0), before=self.disk_lbl)
+        self.disk_bar.grid()
 
     def show_holding(self):
         """Footer shows the last two folders only, so a long path can't push the status text under the buttons."""
         parts = os.path.normpath(self.holding_root()).split(os.sep)
         self.hold_lbl.config(text=os.sep.join(parts[-2:]) if len(parts) <= 3 else "…/" + "/".join(parts[-2:]))
+
+    def _disk_tip(self):
+        try:
+            du = shutil.disk_usage(self.cfg["roms_root"])
+        except OSError:
+            return ""
+        return (f"Drive with your ROMs: {human(du.free)} free of {human(du.total)} "
+                f"({100 * (du.total - du.free) / du.total:.0f}% used)")
 
     def holding_on_same_drive(self):
         """True when the holding folder (or where it will be created) shares a filesystem with roms."""
@@ -1318,7 +1456,7 @@ class App:
         self.played &= self.units.keys()
         self.played_cb.config(text=f"Protect played games ({len(self.played)})")
 
-        self.ratings, self.lb_kind = {}, {}
+        self.ratings, self.lb_kind, self.lb_ids = {}, {}, {}
         self.lb_links = {}  # key -> LaunchBox id, exact or hand-picked only (groups region dupes, drives scraping)
         matched = rated = 0
         if self.platform:
@@ -1330,19 +1468,20 @@ class App:
                         self.lb_kind[k] = kind
                     if g:
                         self.ratings[k] = g
+                        self.lb_ids[k] = gid
                         if kind in ("exact", "manual"):
                             self.lb_links[k] = gid
                         matched += 1
                         rated += g["r"] is not None
                 m.save()
         if not lb.platforms():
-            self.rat_info.config(text="No LaunchBox data — click Download")
+            self.rat_info.config(text="No LaunchBox data — Tools → Download")
         elif not self.platform:
             self.rat_info.config(text="No LaunchBox platform for this system")
         else:
             picked = sum(kind == "manual" for kind in self.lb_kind.values())
-            self.rat_info.config(text=f"Matched {matched}/{len(keys)}, {rated} rated"
-                                      + (f", {picked} by hand" if picked else ""))
+            self.rat_info.config(text=f"{matched}/{len(keys)} matched · {rated} rated"
+                                      + (f"\n{picked} matched by hand" if picked else ""))
 
         # keep genre / region picks across rescans; right after a system switch, use the ones saved for it
         pending = getattr(self, "_pending_sel", None)
@@ -1416,6 +1555,13 @@ class App:
         finally:
             self._restoring = False
 
+    def _center_dialog(self, e):
+        """Every dialog opens in the middle of the main window (once; moving it afterwards sticks)."""
+        w = e.widget
+        if isinstance(w, tk.Toplevel) and not getattr(w, "_centered", False) and not w.wm_overrideredirect():
+            w._centered = True
+            ui.center(w, self.root)
+
     def _close(self):
         self.save_state()
         self.root.destroy()
@@ -1486,7 +1632,13 @@ class App:
             self.why[key] = why
             (self.to_move if hit else self.kept).append(key)
         self.render()
+        self._tab_counts(active, moves, keeps, use_rating, use_unrated, genres, sel_regions)
         self.save_state()
+
+    def _tab_counts(self, active, moves, keeps, use_rating, use_unrated, genres, regions):
+        counts = [len(active) + use_rating + use_unrated, len(genres), len(regions), len(moves) + len(keeps)]
+        for page, base, n in zip(self.filter_pages, ("Presets & ratings", "Genres", "Regions", "Patterns"), counts):
+            self.filter_tabs.tab(page, text=f"{base} ({n})" if n else base)
 
     # ---------- display ----------
     def _label(self, key):
@@ -1522,24 +1674,44 @@ class App:
                 shown = sorted(shown, key=lambda k: self._sort_key(k, col), reverse=desc)
             elif desc:
                 shown = shown[::-1]
+            keep_sel = tv.selection()  # survive the rebuild (flips, filter changes) where the game is still listed
             tv.delete(*tv.get_children())
+            tv.hover = None
             for i, k in enumerate(shown):
                 g = self.ratings.get(k)
-                rating = "—" if not g or g["r"] is None else f"★ {g['r']:.1f}  ({g['v']})"
+                rating = "—" if not g or g["r"] is None else f"{ui.stars(g['r'])}  {g['r']:.1f}"
                 tags = (("odd",) if i % 2 else ()) + (("manual",) if k in self.manual else ())
                 tv.insert("", "end", iid=k, text=self._label(k),
                           values=(self.why[k], ", ".join(self.regions[k]), rating, ", ".join(g["g"]) if g else "",
                                   human(self.units[k]["size"])),
                           tags=tags)
+            again = [k for k in keep_sel if tv.exists(k)]
+            if again:
+                tv.selection_set(again)
             size = sum(self.units[k]["size"] for k in keys)
             extra = f"  ·  {len(shown)} shown" if q else ""
             lbl.config(text=f"{title}   {len(keys):,} games  ·  {human(size)}{extra}")
+            if shown:
+                tv.empty.place_forget()
+            else:
+                tv.empty.config(text=f"No games match “{self.view_filter.get()}”" if q and keys else
+                                "Nothing to move yet\n\nTick a preset, pick genres or regions, add a name pattern,\n"
+                                "or double-click a game on the left." if tv is self.move_tv else
+                                "Nothing left to keep\n\nEvery game here is set to move." if self.units else
+                                "No games in this folder")
+                tv.empty.place(relx=0.5, rely=0.45, anchor="center")
+        n, size = len(self.to_move), sum(self.units[k]["size"] for k in self.to_move)
+        self.move_btn.config(text=f"Move {n:,} game{'s' if n != 1 else ''}  ·  {human(size)}" if n else "Move files",
+                             state="normal" if n else "disabled")
         self.render_status()
+        if not self.keep_tv.selection() and not self.move_tv.selection():
+            self._details_idle()
 
     def render_status(self):
         nfiles = sum(len(u["paths"]) for u in self.units.values())
-        self.status.config(text=f"{len(self.units):,} games ({nfiles:,} files)  ·  {len(self.manual)} flipped (orange)"
-                                f"  ·  double-click to flip")
+        flips = f"{len(self.manual)} flipped (orange)  ·  " if self.manual else ""
+        self.status.config(text=f"{len(self.units):,} games ({nfiles:,} files)  ·  {flips}double-click or Space flips "
+                                f"a game  ·  right-click for more")
 
     # ---------- output ----------
     def export(self):
@@ -1593,7 +1765,8 @@ class App:
         if failed:
             messagebox.showerror(f"Moved {moved} files, {len(failed)} failed", "\n".join(failed[:30]))
         else:
-            messagebox.showinfo("Done", f"Moved {moved} files to {dest_dir}/")
+            self.toast(f"Moved {moved:,} files to {self.dest.get()}. Library → Holding folder… to review "
+                       "or delete them.")
 
     # ---------- move log / restore ----------
     def moves_log(self):
@@ -1612,6 +1785,23 @@ class App:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(batches, f, indent=1)
         os.replace(tmp, self.moves_log())
+
+    def _merge_old_log(self):
+        """Older versions logged moves in <holding>/moves.json; fold that into the current log once, so Restore and
+        the holding folder window know where those games came from. The old file is kept as moves.json.merged."""
+        old = os.path.join(self.holding_root(), "moves.json")
+        if not os.path.isfile(old) or os.path.realpath(old) == os.path.realpath(self.moves_log()):
+            return
+        try:
+            with open(old, encoding="utf-8") as f:
+                legacy = json.load(f)
+            batches = self._read_moves()
+            seen = {(b["time"], b["system"], b["dest"]) for b in batches}
+            batches += [b for b in legacy if (b["time"], b["system"], b["dest"]) not in seen]
+            self._write_moves(sorted(batches, key=lambda b: b["time"]))
+            os.replace(old, old + ".merged")
+        except (OSError, ValueError, KeyError, TypeError):
+            pass  # leave both files alone; nothing is lost
 
     def _log_moves(self, batch):
         try:
@@ -1685,7 +1875,7 @@ class App:
                 messagebox.showerror(f"Restored {back} files, {len(failed)} failed", "\n".join(failed[:30]),
                                      parent=win)
             else:
-                messagebox.showinfo("Restored", f"Put {back} files back.", parent=win)
+                self.toast(f"Put {back:,} files back.")
 
         ttk.Button(foot, text="Restore selected", style="Accent.TButton", command=restore).pack(side="right")
         ttk.Button(foot, text="Close", command=win.destroy).pack(side="right", padx=(0, 6))
@@ -1700,7 +1890,10 @@ class App:
         key = sel[0] if len(sel) == 1 else None
         if key not in self.units:
             self.render_status()
+            self._details_idle(sel)
             return
+        self.details.show(self.game_info(self.system, key, self.units[key]["paths"], self.units[key]["size"],
+                                         self.ratings.get(key), self.lb_ids.get(key), self.platform))
         g, kind = self.ratings.get(key), self.lb_kind.get(key)
         parts = [f"LaunchBox: {g['n']} ({'picked by hand' if kind == 'manual' else kind})" if g else
                  "LaunchBox: no match (set by hand)" if kind == "manual" else
@@ -1708,6 +1901,300 @@ class App:
         if self.units[key]["extra"]:
             parts.append("Installed data:  " + "  ·  ".join(self.units[key]["extra"]))
         self.status.config(text="  ·  ".join(parts))
+
+    # ---------- details ----------
+    def _details_idle(self, sel=()):
+        """What the details panel shows with no single game selected."""
+        if len(sel) > 1:
+            size = sum(self.units[k]["size"] for k in sel if k in self.units)
+            self.status.config(text=f"{len(sel):,} selected  ·  {human(size)}  ·  Space or double-click flips them")
+            self.details.placeholder(f"{len(sel):,} games selected", f"{human(size)} in total.\n\nSpace or "
+                                     "double-click flips them between Keeping and Moving. Right-click for more.",
+                                     image=self.big_icon)
+            return
+        tips = ("Pick a game to see its artwork, LaunchBox info and description.\n\n"
+                "•  Presets, ratings, genres, regions and name patterns decide what moves.\n"
+                "•  Double-click or Space flips a game by hand; right-click to fix its LaunchBox match.\n"
+                "•  Moved games wait in the holding folder until you delete them (Library → Holding folder…).")
+        action = None
+        if not lb.platforms():
+            tips = ("Download the LaunchBox database (about 110 MB, once) to get ratings, genres, artwork and "
+                    "descriptions for your games.\n\n" + tips)
+            action = ("Download LaunchBox data", self.update_lb)
+        self.details.placeholder("Welcome to RetroShelf", tips, image=self.big_icon,
+                                 action=action)
+
+
+    def toggle_details(self):
+        self.cfg["show_details"] = self.details_var.get()
+        self.save_cfg()
+        if self.cfg["show_details"]:
+            self.details_card.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        else:
+            self.details_card.pack_forget()
+
+    def lb_details(self, platform):
+        if platform and platform not in self._lb_details:
+            self._lb_details[platform] = lb.load_details(platform)
+        return self._lb_details.get(platform, {})
+
+    def game_info(self, system, key, paths, size, game, gid, platform):
+        """What a DetailsPanel shows for one game (in roms or in the holding folder)."""
+        names = [os.path.basename(p.rstrip("/")) for p in paths]
+        return {
+            "title": game["n"] if game else title_of(key),
+            "console": nps.FULL_NAMES.get(system) or (self.fullname if system == self.system else None)
+                       or platform or system,
+            "lb": game, "det": self.lb_details(platform).get(gid, {}) if gid else {},
+            "media_dir": os.path.join(scraper.media_root(self.cfg["roms_root"]), system),
+            "stems": list(dict.fromkeys([os.path.splitext(n)[0] for n in names] + names)),
+            "file": names[0] if len(names) == 1 else f"{key}  [{len(names)} files]",
+            "size": human(size),
+        }
+
+    # ---------- holding folder ----------
+    def _holding_games(self):
+        """Games sitting in <holding>/<to_delete|review_low_value>/<system>/, joined with the move log so each
+        knows where it came from, when it moved, and which RPCS3 / Vita3K data went with it."""
+        origin, moved_at, extras_of = {}, {}, {}
+        for b in self._read_moves():
+            owner = None
+            for src, target in b["moves"]:
+                origin[target], moved_at[target] = src, b["time"]
+                if os.sep + "installed" + os.sep in target and owner:
+                    extras_of.setdefault(owner, []).append(target)
+                else:
+                    owner = target
+        games = {}
+        root = self.holding_root()
+        for dest in DESTS:
+            base = os.path.join(root, dest)
+            for system in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+                folder = os.path.join(base, system)
+                if not os.path.isdir(folder):
+                    continue
+                for e in os.scandir(folder):
+                    if e.name.startswith(".") or (e.is_dir() and e.name == "installed"):
+                        continue
+                    key = e.name if e.name.lower().endswith(PARTIAL_EXT) else unit_key(e.name)
+                    g = games.setdefault((dest, system, key), {"dest": dest, "system": system, "key": key,
+                                                               "paths": [], "extra": [], "size": 0, "moved": ""})
+                    g["paths"].append(e.path)
+                    g["size"] += dir_size(e.path) if e.is_dir() else e.stat().st_size
+                    g["moved"] = max(g["moved"], moved_at.get(e.path, ""))
+                    for x in extras_of.get(e.path, []):
+                        if os.path.lexists(x):
+                            g["extra"].append(x)
+                            g["size"] += dir_size(x) if os.path.isdir(x) else os.path.getsize(x)
+        return list(games.values()), origin
+
+    def _drop_from_log(self, targets):
+        batches = []
+        for b in self._read_moves():
+            b["moves"] = [m for m in b["moves"] if m[1] not in targets]
+            if b["moves"]:
+                batches.append(b)
+        self._write_moves(batches)
+
+    def holding_dialog(self):
+        win = tk.Toplevel(self.root)
+        win.title("Holding folder")
+        win.transient(self.root)
+        win.geometry("1300x780")
+        win.configure(bg=ttk.Style().lookup("TFrame", "background"))
+        body = ttk.Frame(win, padding=16)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="Games in the holding folder", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(body, text=f"{self.holding_root()}  ·  Look through what you moved out, put games back, or "
+                             "delete them for good to free the space.", style="Muted.TLabel", wraplength=1200,
+                  justify="left").pack(anchor="w", pady=(2, 10))
+
+        row = ttk.Frame(body)
+        row.pack(fill="x")
+        ttk.Label(row, text="Folder").pack(side="left", padx=(0, 6))
+        dest_var = tk.StringVar(value="All")
+        ttk.Combobox(row, textvariable=dest_var, values=["All"] + DESTS, state="readonly", width=18).pack(side="left")
+        ttk.Label(row, text="System").pack(side="left", padx=(16, 6))
+        sys_var = tk.StringVar(value="All")
+        sys_cb = ttk.Combobox(row, textvariable=sys_var, state="readonly", width=12)
+        sys_cb.pack(side="left")
+        ttk.Label(row, text="Search").pack(side="left", padx=(16, 6))
+        q_var = tk.StringVar()
+        ttk.Entry(row, textvariable=q_var).pack(side="left", fill="x", expand=True)
+
+        foot = ttk.Frame(body, padding=(0, 12, 0, 0))
+        foot.pack(side="bottom", fill="x")
+        summary = ttk.Label(foot, style="Muted.TLabel")
+        summary.pack(side="left")
+        forget = tk.BooleanVar(value=True)
+
+        panes = ttk.PanedWindow(body, orient="horizontal")
+        panes.pack(fill="both", expand=True, pady=(10, 0))
+        left = ttk.Frame(panes)
+        tv = ttk.Treeview(left, columns=("system", "dest", "size", "moved"), selectmode="extended")
+        for col, text, width, anchor in (("#0", "Game", 420, "w"), ("system", "System", 90, "w"),
+                                         ("dest", "Folder", 140, "w"), ("size", "Size", 90, "e"),
+                                         ("moved", "Moved", 170, "w")):
+            tv.heading(col, text=text, anchor=anchor, command=lambda c=col: sort(c))
+            tv.column(col, width=width, anchor=anchor, stretch=col == "#0")
+        sb = ttk.Scrollbar(left, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sb.set)
+        tv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        tv.tag_configure("odd", background=self.colors["stripe"])
+        panes.add(left, weight=1)
+        panel = details.DetailsPanel(panes, self.field_style)
+        self.detail_panels.append(panel)
+        panes.add(panel, weight=0)
+
+        state = {"games": [], "origin": {}, "shown": [], "sort": ("#0", False), "matchers": {}}
+
+        def platform_of(system):
+            folder = os.path.join(self.cfg["roms_root"], system)
+            name, full, _ = read_systeminfo(folder)
+            return lb.resolve_platform(system, full if name == system else nps.FULL_NAMES.get(system),
+                                       self.cfg["platform_overrides"])
+
+        def lb_match(g):
+            plat = platform_of(g["system"])
+            if not plat:
+                return None, None, None
+            m = state["matchers"].get(plat) or state["matchers"].setdefault(plat, lb.Matcher(plat))
+            gid, game, _ = m.match(title_of(g["key"]))
+            return game, gid, plat
+
+        def load():
+            state["games"], state["origin"] = self._holding_games()
+            systems = sorted({g["system"] for g in state["games"]})
+            sys_cb["values"] = ["All"] + systems
+            if sys_var.get() not in sys_cb["values"]:
+                sys_var.set("All")
+            fill()
+
+        def sort(col):
+            c, desc = state["sort"]
+            state["sort"] = (col, not desc if c == col else col in ("size", "moved"))
+            fill()
+
+        def fill():
+            q = q_var.get().lower()
+            shown = [g for g in state["games"]
+                     if dest_var.get() in ("All", g["dest"]) and sys_var.get() in ("All", g["system"])
+                     and (not q or q in g["key"].lower())]
+            col, desc = state["sort"]
+            keyf = {"#0": lambda g: g["key"].lower(), "system": lambda g: g["system"], "dest": lambda g: g["dest"],
+                    "size": lambda g: g["size"], "moved": lambda g: g["moved"]}[col]
+            shown.sort(key=keyf, reverse=desc)
+            state["shown"] = shown
+            tv.delete(*tv.get_children())
+            for i, g in enumerate(shown):
+                label = os.path.basename(g["paths"][0]) if len(g["paths"]) == 1 else \
+                    f"{g['key']}  [{len(g['paths'])} files]"
+                tv.insert("", "end", iid=str(i), text=label, tags=("odd",) if i % 2 else (),
+                          values=(g["system"], g["dest"], human(g["size"]), g["moved"].replace("T", "  ")))
+            in_del = [g for g in shown if g["dest"] == "to_delete"]
+            summary.config(text=f"{len(shown):,} games · {human(sum(g['size'] for g in shown))}")
+            empty_btn.config(text=f"Empty to_delete ({len(in_del):,} · {human(sum(g['size'] for g in in_del))})",
+                             state="normal" if in_del else "disabled")
+            on_select()
+
+        def picked():
+            return [state["shown"][int(i)] for i in tv.selection()]
+
+        def on_select(_=None):
+            sel = picked()
+            if len(sel) != 1:
+                panel.clear(f"{len(sel)} games selected." if sel else "Select a game to see its details.")
+                return
+            g = sel[0]
+            game, gid, plat = lb_match(g)
+            panel.show(self.game_info(g["system"], g["key"], g["paths"], g["size"], game, gid, plat))
+
+        def restore(games):
+            if not games:
+                return
+            back, failed, done = 0, [], set()
+            for g in games:
+                pairs = [(p, state["origin"].get(p) or os.path.join(self.cfg["roms_root"], g["system"],
+                                                                     os.path.basename(p))) for p in g["paths"]]
+                pairs += [(x, state["origin"][x]) for x in g["extra"] if x in state["origin"]]
+                for target, src in pairs:
+                    try:
+                        if os.path.lexists(src):
+                            raise OSError("something is already at the original path")
+                        os.makedirs(os.path.dirname(src), exist_ok=True)
+                        shutil.move(target, src)
+                        done.add(target)
+                        back += 1
+                        prune_empty(os.path.dirname(target), self.holding_root())
+                    except OSError as e:
+                        failed.append(f"{os.path.basename(src)}: {e}")
+            try:
+                self._drop_from_log(done)
+            except OSError as e:
+                failed.append(f"move log: {e}")
+            load()
+            self.rescan()
+            if failed:
+                messagebox.showerror(f"Restored {back} files, {len(failed)} failed", "\n".join(failed[:30]),
+                                     parent=win)
+
+        def delete(games, what):
+            if not games:
+                return
+            size = sum(g["size"] for g in games)
+            extra = sum(bool(g["extra"]) for g in games)
+            note = f"\n\n{extra} of them include RPCS3 / Vita3K game data, which is deleted too." if extra else ""
+            esde = "\n\nTheir ES-DE artwork and gamelist entries are removed as well." if forget.get() else ""
+            if not messagebox.askyesno("Delete for good", f"Permanently delete {what} ({len(games):,} games, "
+                                                         f"{human(size)})?{note}{esde}\n\nThis can't be undone.",
+                                       icon="warning", parent=win):
+                return
+            gone, failed, by_system = set(), [], {}
+            for g in games:
+                for p in g["paths"] + g["extra"]:
+                    try:
+                        if os.path.isdir(p) and not os.path.islink(p):
+                            shutil.rmtree(p)
+                        else:
+                            os.unlink(p)
+                        gone.add(p)
+                        prune_empty(os.path.dirname(p), self.holding_root())
+                    except OSError as e:
+                        failed.append(f"{os.path.basename(p)}: {e}")
+                if all(p in gone for p in g["paths"]):
+                    by_system.setdefault(g["system"], []).extend(os.path.basename(p.rstrip("/")) for p in g["paths"])
+            try:
+                self._drop_from_log(gone)
+            except OSError as e:
+                failed.append(f"move log: {e}")
+            if forget.get():
+                for system, names in by_system.items():
+                    failed += scraper.forget_games(names, system, self.cfg["roms_root"],
+                                                   find_gamelist(self.cfg["roms_root"], system))[2]
+            load()
+            self.show_disk()
+            if failed:
+                messagebox.showerror("Some files weren't deleted", "\n".join(failed[:30]), parent=win)
+
+        ttk.Button(foot, text="Close", command=win.destroy).pack(side="right")
+        empty_btn = ttk.Button(foot, command=lambda: delete(
+            [g for g in state["shown"] if g["dest"] == "to_delete"],
+            "everything in to_delete" + ("" if sys_var.get() == "All" else f" for {sys_var.get()}")))
+        empty_btn.pack(side="right", padx=(0, 16))
+        ttk.Button(foot, text="Delete selected", command=lambda: delete(picked(), "the selected games")).pack(
+            side="right", padx=(0, 6))
+        ttk.Button(foot, text="Restore selected", style="Accent.TButton",
+                   command=lambda: restore(picked())).pack(side="right", padx=(0, 6))
+        ttk.Checkbutton(foot, text="Deleting also removes ES-DE artwork and gamelist entries",
+                        variable=forget).pack(side="right", padx=(0, 16))
+
+        for var in (dest_var, sys_var, q_var):
+            var.trace_add("write", lambda *_: fill())
+        tv.bind("<<TreeviewSelect>>", on_select)
+        tv.bind("<Delete>", lambda e: delete(picked(), "the selected games"))
+        win.bind("<Escape>", lambda e: win.destroy())
+        load()
 
     # ---------- renaming ----------
     def renames_log(self):
@@ -1729,6 +2216,18 @@ class App:
         media, entries, problems = scraper.carry_over(done, self.system, self.cfg["roms_root"], self.gamelist_path())
         failed += problems
         return f"\n\nES-DE: renamed {media:,} media files and {entries:,} gamelist entries."
+
+    def _carry_matches(self, done, system):
+        """Hand-picked LaunchBox matches are stored by title; copy them to the renamed games' new titles."""
+        plat = self.platform if system == self.system else lb.resolve_platform(
+            system, nps.FULL_NAMES.get(system), self.cfg["platform_overrides"])
+        titles = {title_of(unit_key(os.path.basename(o))): title_of(unit_key(os.path.basename(n))) for o, n in done}
+        titles = {o: n for o, n in titles.items() if o != n}
+        if plat and titles:
+            try:
+                lb.copy_manual(plat, titles)
+            except OSError:
+                pass
 
     def _after_rename(self, done):
         """Carry double-click flips over to the games' new names, then rescan."""
@@ -1792,17 +2291,27 @@ class App:
         summary = ttk.Label(foot, style="Muted.TLabel")
         summary.pack(side="left")
         show_same = tk.BooleanVar(value=False)
+        fix_titles = tk.BooleanVar(value=True)
+        ttk.Checkbutton(body, text="Use the LaunchBox name as {title} for games you matched by hand or whose file "
+                                   "name isn't a proper title (e.g. Final_Fantasy_IV_US)", variable=fix_titles,
+                        command=lambda: refresh()).pack(anchor="w", pady=(0, 8), before=inner)
         state = {"rows": [], "after": None}
 
         def refresh():
             state["after"] = None
-            lb_names = {}
+            lb_names, fix = {}, set()
             if self.platform:
                 m = lb.Matcher(self.platform)
                 lb_names = {k: m.games[gid]["n"] for k, gid in self.lb_links.items() if gid in m.games}
+                if fix_titles.get():  # hand-picked, or only matched after cleaning up a scene-style name
+                    fix = {k for k in lb_names
+                           if self.lb_kind.get(k) == "manual" or not m.matches_as_written(title_of(k))}
+                    for k in fix:
+                        if self.lb_kind.get(k) != "manual":
+                            lb_names[k] = m.proper_name(title_of(k), self.lb_links[k]) or lb_names[k]
             keys = list(self.units) if scope.get() == 0 else [k for k in scopes[scope.get()][1] if k in self.units]
             state["rows"] = rows = plan_renames(
-                [(k, self.units[k]["paths"], lb_names.get(k)) for k in keys], template.get())
+                [(k, self.units[k]["paths"], lb_names.get(k), k in fix) for k in keys], template.get())
             tv.delete(*tv.get_children())
             for i, r in enumerate(rows):
                 if r["status"] == "same" and not show_same.get():
@@ -1831,6 +2340,7 @@ class App:
             self.save_cfg()
             done, failed = apply_renames(pairs)
             esde = self._carry_over(done, failed) if done else ""
+            self._carry_matches(done, self.system)
             if done:
                 batches = self._read_renames()
                 batches.append({"time": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -1845,7 +2355,7 @@ class App:
                 messagebox.showerror(f"Renamed {len(done)} files, {len(failed)} problems",
                                      "\n".join(failed[:30]) + esde, parent=win)
             else:
-                messagebox.showinfo("Renamed", f"Renamed {len(done):,} files.{esde}", parent=win)
+                self.toast(f"Renamed {len(done):,} files.{esde.replace(chr(10), ' ')}")
 
         apply_btn = ttk.Button(foot, text="Rename", style="Accent.TButton", command=apply)
         apply_btn.pack(side="right")
@@ -1899,9 +2409,10 @@ class App:
                 done, errs = apply_renames(pairs)
                 back += done
                 failed += errs
-                if done:  # ES-DE media + gamelist follow the names back
+                if done:  # ES-DE media + gamelist and hand-picked matches follow the names back
                     failed += scraper.carry_over(done, batches[i]["system"], self.cfg["roms_root"],
                                                  find_gamelist(self.cfg["roms_root"], batches[i]["system"]))[2]
+                    self._carry_matches(done, batches[i]["system"])
                 undone = {o for _, o in done}
                 left = [[o, n] for o, n in batches[i]["renames"] if os.path.lexists(n) and o not in undone]
                 if left:
@@ -1919,7 +2430,7 @@ class App:
                 messagebox.showerror(f"Undid {len(back)} renames, {len(failed)} problems", "\n".join(failed[:30]),
                                      parent=win)
             else:
-                messagebox.showinfo("Undone", f"Put back {len(back)} file names.", parent=win)
+                self.toast(f"Put back {len(back):,} file names.")
 
         ttk.Button(foot, text="Undo selected", style="Accent.TButton", command=undo).pack(side="right")
         ttk.Button(foot, text="Close", command=win.destroy).pack(side="right", padx=(0, 6))
@@ -1990,7 +2501,7 @@ class App:
                 x = m.games[gid]
                 alts = [a for a in m.alts.get(gid, []) if lb.norm(a) != lb.norm(x["n"])]
                 name = x["n"] + (f"   (aka {alts[0]})" if alts else "")
-                rating = "—" if x["r"] is None else f"★ {x['r']:.1f}  ({x['v']})"
+                rating = "—" if x["r"] is None else f"{ui.stars(x['r'])}  {x['r']:.1f}  ({x['v']})"
                 tv.insert("", "end", iid=gid, text=name, values=(rating, ", ".join(x["g"])))
             kids = tv.get_children()
             if kids:

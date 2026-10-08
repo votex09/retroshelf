@@ -195,8 +195,46 @@ def carry_over(pairs, system, roms_root, gamelist):
     return media, entries, problems
 
 
-def write_gamelist(path, entries, log):
-    """entries: {rom file name: {field: value}}. Adds missing <game>s and fills empty fields only."""
+def forget_games(names, system, roms_root, gamelist):
+    """After games are deleted: remove their ES-DE media and gamelist entries. names = the games' file / folder
+    names. -> (media files removed, gamelist entries removed, problems). The gamelist is left alone while ES-DE runs."""
+    stems = set(names) | {os.path.splitext(n)[0] for n in names}
+    problems, media = [], 0
+    mdir = os.path.join(media_root(roms_root), system)
+    for mtype in sorted(os.listdir(mdir)) if os.path.isdir(mdir) else []:
+        folder = os.path.join(mdir, mtype)
+        if not os.path.isdir(folder):
+            continue
+        for f in os.listdir(folder):
+            if os.path.splitext(f)[0] in stems:
+                try:
+                    os.unlink(os.path.join(folder, f))
+                    media += 1
+                except OSError as e:
+                    problems.append(f"{mtype}/{f}: {e}")
+
+    entries = 0
+    if gamelist and os.path.exists(gamelist):
+        if es_de_running():
+            return media, 0, problems + ["gamelist.xml not cleaned: RetroDECK / ES-DE is running"]
+        try:
+            tops, root = read_gamelist(gamelist)
+            gone = [g for g in root.findall("game")
+                    if os.path.basename((g.findtext("path") or "").strip().rstrip("/")) in names]
+            if gone:
+                shutil.copy2(gamelist, f"{gamelist}.bak-{datetime.datetime.now():%Y%m%d-%H%M%S}")
+                for g in gone:
+                    root.remove(g)
+                save_gamelist(gamelist, tops)
+                entries = len(gone)
+        except (OSError, ET.ParseError) as e:
+            problems.append(f"gamelist.xml: {e}")
+    return media, entries, problems
+
+
+def write_gamelist(path, entries, log, overwrite=False):
+    """entries: {rom file name: {field: value}}. Adds missing <game>s and fills empty fields; overwrite=True also
+    replaces fields that already have a different value (e.g. from ES-DE's own scraper)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if os.path.exists(path):
         tops, root = read_gamelist(path)  # parse before backing up, so a bad file fails without side effects
@@ -223,7 +261,8 @@ def write_gamelist(path, entries, log):
             if el is None:
                 ET.SubElement(g, tag).text = value
                 filled += 1
-            elif not (el.text or "").strip() or (tag == "name" and el.text.strip() == os.path.splitext(fname)[0]):
+            elif not (el.text or "").strip() or (tag == "name" and el.text.strip() == os.path.splitext(fname)[0]) \
+                    or (overwrite and el.text.strip() != value):
                 el.text = value  # ES-DE uses the file name as a placeholder name for unscraped games
                 filled += 1
     save_gamelist(path, tops)
@@ -238,8 +277,9 @@ def download(url, dest):
     os.replace(tmp, dest)
 
 
-def scrape(jobs, platform, system, roms_root, gamelist, do_text, media_types, progress, cancelled):
-    """jobs: list of (rom file path, LaunchBox id, rom regions). progress(msg, done, total)."""
+def scrape(jobs, platform, system, roms_root, gamelist, do_text, media_types, progress, cancelled, overwrite=False):
+    """jobs: list of (rom file path, LaunchBox id, rom regions). progress(msg, done, total). overwrite: replace
+    existing gamelist text too (images are never replaced)."""
     details = lb.load_details(platform)
     games = lb.Matcher(platform).games
     mroot = os.path.join(media_root(roms_root), system)
@@ -287,7 +327,7 @@ def scrape(jobs, platform, system, roms_root, gamelist, do_text, media_types, pr
                 progress(f"Downloading images … {done} / {total}", done, total)
 
     if do_text and entries and not cancelled():
-        added, filled = write_gamelist(gamelist, entries, lambda m: progress(m, done, total))
+        added, filled = write_gamelist(gamelist, entries, lambda m: progress(m, done, total), overwrite)
         stats["text"] = filled
         stats["added"] = added
     return stats

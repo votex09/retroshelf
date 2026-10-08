@@ -504,8 +504,7 @@ class NpsWindow:
 
     def _scrape(self, rows, platform, gamelist, do_text):
         msgs = self.msgs
-        # LaunchBox keeps PSP minis on their own platform; try it after the system's own one
-        platforms = [platform] + [p for p in ("Sony PSP Minis",) if self.console == "PSP" and p in lb.platforms()]
+        platforms = [platform]  # Matcher also searches lb.PLATFORM_EXTRAS (e.g. PSP minis)
         matchers = {p: lb.Matcher(p) for p in platforms}
         jobs = {p: [] for p in platforms}
         for r in rows:
