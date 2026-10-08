@@ -17,6 +17,7 @@ Rename… brings file names in line with a template (default: No-Intro order), w
 Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and move together.
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
+Updates come from GitHub: checked at startup (can be turned off) or with Check for updates (see lib/updater.py).
 """
 import datetime, json, os, queue, re, shutil, sys, threading
 import xml.etree.ElementTree as ET
@@ -34,6 +35,7 @@ import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import nps_gui  # noqa: E402
 import scraper  # noqa: E402
+import updater  # noqa: E402
 
 UI_FONTS = ["Inter", "Segoe UI", "Noto Sans", "Cantarell", "Ubuntu", "DejaVu Sans"]
 MONO_FONTS = ["JetBrains Mono", "Fira Code", "Noto Sans Mono", "DejaVu Sans Mono", "monospace"]
@@ -432,7 +434,7 @@ class App:
         root.geometry("1600x950")
 
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
-                    "region_priority": DEFAULT_PRIORITY, "rename_templates": {}}
+                    "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -459,6 +461,8 @@ class App:
         self._build()
         self.apply_theme()
         self.load_roms_root(self.cfg["roms_root"])
+        if self.cfg["check_updates"]:
+            root.after(1500, lambda: self.check_updates(quiet=True))
 
     # ---------- look ----------
     def _fonts(self):
@@ -507,6 +511,121 @@ class App:
         self.save_cfg()
         self.apply_theme()
 
+    # ---------- updates ----------
+    def check_updates(self, quiet=False):
+        """Ask GitHub off the UI thread. quiet (startup): stay silent unless there's an update."""
+        if getattr(self, "_checking", False):
+            return
+        self._checking = True
+        self.update_btn.config(text="Checking…", state="disabled")
+        box = queue.Queue()
+
+        def work():
+            try:
+                box.put(updater.check())
+            except Exception as e:
+                box.put(e)
+
+        def poll():
+            try:
+                res = box.get_nowait()
+            except queue.Empty:
+                self.root.after(200, poll)
+                return
+            self._checking = False
+            self.update_btn.config(state="normal")
+            if isinstance(res, Exception):
+                self.update_btn.config(text="Check for updates", style="TButton")
+                if not quiet:
+                    messagebox.showerror("Couldn't check for updates", str(res))
+                return
+            if res["behind"] == 0:
+                self.update_btn.config(text="Check for updates", style="TButton")
+                if not quiet:
+                    messagebox.showinfo("Up to date", "You have the latest RetroShelf.")
+                return
+            self.update_btn.config(text="Update available", style="Accent.TButton",
+                                   command=lambda: self.update_dialog(res))
+            self.update_dialog(res)
+
+        threading.Thread(target=work, daemon=True).start()
+        poll()
+
+    def update_dialog(self, res):
+        win = tk.Toplevel(self.root)
+        win.title("Update RetroShelf")
+        win.transient(self.root)
+        win.configure(bg=ttk.Style().lookup("TFrame", "background"))
+        body = ttk.Frame(win, padding=18)
+        body.pack(fill="both", expand=True)
+        n = res["behind"]
+        ttk.Label(body, text="A new version of RetroShelf is available" if n is None else
+                  f"{n} new change{'s' if n != 1 else ''} on GitHub", style="Section.TLabel").pack(anchor="w")
+        if res["note"]:
+            ttk.Label(body, text=res["note"], style="Muted.TLabel", wraplength=520, justify="left").pack(
+                anchor="w", pady=(4, 0))
+        if res["commits"]:
+            box = tk.Text(body, height=min(12, len(res["commits"])), width=70, wrap="word", font=(self.mono, 10))
+            box.insert("1.0", "\n".join(f"•  {c}" for c in res["commits"][:40]))
+            box.config(state="disabled")
+            box.pack(fill="both", expand=True, pady=(10, 0))
+        ttk.Label(body, text="Your settings, logs and LaunchBox / NoPayStation data are kept. RetroShelf restarts "
+                             "when the update is done.", style="Muted.TLabel", wraplength=520,
+                  justify="left").pack(anchor="w", pady=(10, 0))
+        auto = tk.BooleanVar(value=self.cfg["check_updates"])
+
+        def set_auto():
+            self.cfg["check_updates"] = auto.get()
+            self.save_cfg()
+
+        ttk.Checkbutton(body, text="Check for updates when RetroShelf starts", variable=auto,
+                        command=set_auto).pack(anchor="w", pady=(10, 0))
+        foot = ttk.Frame(body, padding=(0, 14, 0, 0))
+        foot.pack(fill="x")
+        status = ttk.Label(foot, style="Muted.TLabel")
+        status.pack(side="left")
+        go = ttk.Button(foot, text="Update and restart", style="Accent.TButton")
+        go.pack(side="right")
+        later = ttk.Button(foot, text="Later", command=win.destroy)
+        later.pack(side="right", padx=(0, 6))
+
+        def start():
+            w = getattr(self, "nps_window", None)
+            if w and w.running:
+                messagebox.showinfo("Downloads running", "Wait for the NoPayStation queue to finish (or stop it) "
+                                                         "before updating.", parent=win)
+                return
+            go.config(state="disabled", text="Updating…")
+            later.config(state="disabled")
+            box = queue.Queue()
+
+            def work():
+                try:
+                    box.put(updater.apply())
+                except Exception as e:
+                    box.put(e)
+
+            def poll():
+                try:
+                    res2 = box.get_nowait()
+                except queue.Empty:
+                    win.after(200, poll)
+                    return
+                if isinstance(res2, Exception):
+                    go.config(state="normal", text="Update and restart")
+                    later.config(state="normal")
+                    messagebox.showerror("Update failed", str(res2), parent=win)
+                    return
+                status.config(text="Restarting…")
+                self.save_cfg()
+                win.after(300, updater.restart)
+
+            threading.Thread(target=work, daemon=True).start()
+            poll()
+
+        go.config(command=start)
+        win.bind("<Escape>", lambda e: win.destroy() if str(later.cget("state")) == "normal" else None)
+
     # ---------- config ----------
     def save_cfg(self):
         try:
@@ -530,6 +649,8 @@ class App:
         self.dark_var = tk.BooleanVar(value=self.cfg["theme"] == "dark")
         ttk.Checkbutton(head, text="Dark mode", style="Switch.TCheckbutton", variable=self.dark_var,
                         command=self.toggle_theme).pack(side="right")
+        self.update_btn = ttk.Button(head, text="Check for updates", command=self.check_updates)
+        self.update_btn.pack(side="right", padx=(0, 16))
 
         # source bar
         bar = ttk.Frame(outer, padding=(0, 10, 0, 0))
