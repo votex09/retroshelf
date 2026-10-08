@@ -756,7 +756,7 @@ class App:
         # filters live in tabs (one group at a time fits even a Steam Deck screen next to the details panel);
         # tab names count what's switched on, so nothing active is hidden
         self.filter_tabs = nb = ttk.Notebook(top)
-        nb.pack(side="left", fill="y")
+        nb.pack(side="right", fill="y")  # details takes the rest of the row on the left
         presets = ttk.Frame(nb, padding=(12, 8))
         pcol = ttk.Frame(presets)
         pcol.pack(side="left", fill="y", anchor="n")
@@ -863,7 +863,9 @@ class App:
         self.details.pack(fill="both", expand=True)
         self.detail_panels.append(self.details)
         if self.cfg["show_details"]:
-            self.details_card.pack(side="left", fill="both", expand=True, padx=(10, 0))
+            self.details_card.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        else:
+            nb.pack_configure(side="left")
 
         # search
         flt = ttk.Frame(outer, padding=(0, 10, 0, 0))
@@ -1929,9 +1931,11 @@ class App:
         self.cfg["show_details"] = self.details_var.get()
         self.save_cfg()
         if self.cfg["show_details"]:
-            self.details_card.pack(side="left", fill="both", expand=True, padx=(10, 0))
+            self.filter_tabs.pack_configure(side="right")
+            self.details_card.pack(side="left", fill="both", expand=True, padx=(0, 10))
         else:
             self.details_card.pack_forget()
+            self.filter_tabs.pack_configure(side="left")  # no empty gap where the details were
 
     def lb_details(self, platform):
         if platform and platform not in self._lb_details:
