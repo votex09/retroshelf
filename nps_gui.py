@@ -17,6 +17,20 @@ def human(n):
     return f"{n / 1073741824:.2f} GB" if n >= 1073741824 else f"{n / 1048576:.1f} MB"
 
 
+def open_window(app):
+    """One NoPayStation window at a time: a second click just brings the open one forward."""
+    w = getattr(app, "nps_window", None)
+    if w and w.win.winfo_exists() and w.system != app.system and not w.running:
+        w._finish()  # idle window for another system: reopen for the one picked now
+    elif w and w.win.winfo_exists():
+        w.win.deiconify()
+        w.win.lift()
+        w.win.focus_force()
+        return w
+    app.nps_window = NpsWindow(app)
+    return app.nps_window
+
+
 class NpsWindow:
     def __init__(self, app):
         self.app = app
@@ -329,7 +343,11 @@ class NpsWindow:
                             key=lambda r: (r["id"], nps.ver(r["version"])))
         added = 0
         for r in picked:
-            if r in self.jobs:
+            queued = next((j for j in self.jobs if j is r), None)
+            if queued is not None:
+                if self.job_state.get(id(r), "").startswith("Failed"):  # adding a failed one again retries it
+                    self._set_job(r, "Queued")
+                    added += 1
                 continue
             self.jobs.append(r)
             self.job_state[id(r)] = "Queued"
@@ -339,10 +357,11 @@ class NpsWindow:
             self.render()
 
     def dequeue(self):
-        for iid in self.q_tv.selection():
-            r = self.jobs[int(iid)]
-            if self.job_state.get(id(r)) in ("Queued", "Done") or self.job_state.get(id(r), "").startswith("Failed"):
-                self.jobs.remove(r)
+        picked = [self.jobs[int(iid)] for iid in self.q_tv.selection()]  # resolve before removing shifts indices
+        for r in picked:
+            st = self.job_state.get(id(r), "")
+            if st in ("Queued", "Done") or st.startswith("Failed"):
+                self.jobs = [j for j in self.jobs if j is not r]
                 self.job_state.pop(id(r), None)
         self.render_queue()
         self.render()
@@ -362,7 +381,7 @@ class NpsWindow:
 
     def _set_job(self, row, text):
         self.job_state[id(row)] = text
-        i = self.jobs.index(row) if row in self.jobs else None
+        i = next((n for n, j in enumerate(self.jobs) if j is row), None)
         if i is not None and self.q_tv.exists(str(i)):
             self.q_tv.set(str(i), "status", text)
 
@@ -542,6 +561,7 @@ class NpsWindow:
             self._finish()
 
     def _finish(self):
+        self.app.nps_window = None
         self.win.destroy()
         if self.installed_any and self.app.system == self.system:
             self.app.rescan()

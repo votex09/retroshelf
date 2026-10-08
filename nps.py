@@ -6,7 +6,7 @@ PSV  -> Vita3K --pkg/--zrif (headless), <name>.psvita in roms/psvita holding the
 PSP  -> pkg decrypted here, USRDIR/CONTENT/EBOOT.PBP written as roms/psp/<name>.pbp (PPSSPP plays it as-is)
 PSX is left out on purpose: PS1 Classics come out as encrypted PBPs that DuckStation / Beetle refuse to load.
 """
-import csv, hashlib, os, re, shutil, ssl, struct, subprocess, urllib.error, urllib.request
+import csv, hashlib, json, os, re, shutil, ssl, struct, subprocess, urllib.error, urllib.request
 import xml.etree.ElementTree as ET
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -202,6 +202,33 @@ def firmware_problem(system, roms_root):
     return None
 
 
+# ---------- install state ----------
+STATE = os.path.join(CACHE, "state.json")
+_state = None
+
+
+def state():
+    """{"incomplete": [PS3 game dirs being written], "dlc": [content ids installed]}, cached in memory."""
+    global _state
+    if _state is None:
+        try:
+            with open(STATE, encoding="utf-8") as f:
+                _state = json.load(f)
+        except (OSError, ValueError):
+            _state = {}
+        _state.setdefault("incomplete", [])
+        _state.setdefault("dlc", [])
+    return _state
+
+
+def save_state():
+    os.makedirs(CACHE, exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(state(), f, indent=1)
+    os.replace(tmp, STATE)
+
+
 # ---------- paths ----------
 def retrodeck_root(roms_root):
     return os.path.dirname(os.path.realpath(roms_root).rstrip("/"))
@@ -249,7 +276,12 @@ def is_installed(row, roms_root):
     if row["kind"] == "Updates":
         have = installed_version(roms_root, row["id"])
         return have is not None and ver(have) >= ver(row["version"])
-    return os.path.exists(install_target(row, roms_root))
+    if row["console"] == "PS3" and row["kind"] == "DLC" and row["rap"] == "NOT REQUIRED":
+        return row["content_id"] in state()["dlc"]  # nothing on disk says which DLC a game folder holds
+    target = install_target(row, roms_root)
+    if row["console"] == "PS3" and os.path.dirname(os.path.dirname(target)) in state()["incomplete"]:
+        return False  # an install that was stopped or failed part way
+    return os.path.exists(target)
 
 
 def install_target(row, roms_root):
@@ -260,8 +292,10 @@ def install_target(row, roms_root):
         return os.path.join(rpcs3_hdd0(roms_root), "home", "00000001", "exdata", row["content_id"] + ".rap") \
             if row["rap"] != "NOT REQUIRED" else os.path.join(rpcs3_hdd0(roms_root), "game", row["id"])
     if row["console"] == "PSV":
-        sub = "addcont" if row["kind"] == "DLC" else "app"
-        return os.path.join(vita3k_pref(roms_root), "ux0", sub, row["id"])
+        ux0 = os.path.join(vita3k_pref(roms_root), "ux0")
+        if row["kind"] == "DLC":  # addcont/<title id>/<entitlement label, the last part of the content id>
+            return os.path.join(ux0, "addcont", row["id"], row["content_id"].rsplit("-", 1)[-1])
+        return os.path.join(ux0, "app", row["id"])
     return os.path.join(roms_root, "psp", rom_name(row) + " (PSN).pbp")
 
 
@@ -415,7 +449,12 @@ def install_ps3(row, pkg_file, roms_root, log, progress, cancelled):
         files = [i for i in pkg.items if not i["dir"]]
         total, done = sum(i["size"] for i in files), 0
         log(f"Installing into {dest}")
+        if dest not in state()["incomplete"]:
+            state()["incomplete"].append(dest)
+            save_state()
         for item in pkg.items:
+            if not item["name"].strip("/"):
+                continue
             target = os.path.join(dest, *item["name"].split("/"))
             if not os.path.realpath(target).startswith(os.path.realpath(dest) + os.sep):
                 raise ValueError(f"unsafe path in package: {item['name']}")
@@ -435,6 +474,10 @@ def install_ps3(row, pkg_file, roms_root, log, progress, cancelled):
                 return False
     finally:
         pkg.close()
+    state()["incomplete"].remove(dest)
+    if row["kind"] == "DLC" and row["content_id"] not in state()["dlc"]:
+        state()["dlc"].append(row["content_id"])
+    save_state()
 
     if row["rap"] != "NOT REQUIRED":
         exdata = os.path.join(hdd0, "home", "00000001", "exdata")
@@ -530,9 +573,10 @@ def install_psp(row, pkg_file, roms_root, log, progress, cancelled):
     return True
 
 
-def vita3k_command():
+def vita3k_command(pkg_dir):
     if shutil.which("flatpak") and subprocess.run(["flatpak", "info", FLATPAK], capture_output=True).returncode == 0:
-        return ["flatpak", "run", "--command=sh", FLATPAK, "-c",
+        # the sandbox can't see every host folder (e.g. /tmp), so grant the package's folder for this run
+        return ["flatpak", "run", f"--filesystem={os.path.realpath(pkg_dir)}:ro", "--command=sh", FLATPAK, "-c",
                 'cd /app/retrodeck/components/vita3k && exec bin/Vita3K "$@"', "sh"]
     exe = shutil.which("Vita3K") or shutil.which("vita3k")
     if exe:
@@ -543,7 +587,7 @@ def vita3k_command():
 def install_psv(row, pkg_file, roms_root, log, progress, cancelled):
     log("Installing with Vita3K …")
     progress(0, 0)
-    r = subprocess.run(vita3k_command() + ["-z", "--pkg", pkg_file, "--zrif", row["zrif"]],
+    r = subprocess.run(vita3k_command(os.path.dirname(pkg_file)) + ["-z", "--pkg", pkg_file, "--zrif", row["zrif"]],
                        capture_output=True, text=True, timeout=3600)
     target = install_target(row, roms_root)
     if not os.path.isdir(target):

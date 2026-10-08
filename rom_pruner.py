@@ -402,7 +402,7 @@ class App:
         self.system_cb = ttk.Combobox(bar, textvariable=self.system_var, state="readonly", width=30)
         self.system_cb.grid(row=0, column=4)
         self.system_cb.bind("<<ComboboxSelected>>", lambda e: self.load_system(self.system_codes[self.system_cb.current()]))
-        self.nps_btn = ttk.Button(bar, text="NoPayStation…", command=lambda: nps_gui.NpsWindow(self))
+        self.nps_btn = ttk.Button(bar, text="NoPayStation…", command=lambda: nps_gui.open_window(self))
         self.nps_btn.grid(row=0, column=5, padx=(6, 0))
         ttk.Label(bar, text="LaunchBox").grid(row=0, column=6, sticky="w", padx=(18, 8))
         self.platform_var = tk.StringVar()
@@ -1217,7 +1217,8 @@ class App:
 
     # ---------- move log / restore ----------
     def moves_log(self):
-        return os.path.join(self.holding_root(), "moves.json")
+        """Kept with the app (entries hold absolute paths), so changing the holding folder doesn't lose history."""
+        return os.path.join(APP_DIR, "moves.json")
 
     def _read_moves(self):
         try:
@@ -1227,7 +1228,6 @@ class App:
             return []
 
     def _write_moves(self, batches):
-        os.makedirs(self.holding_root(), exist_ok=True)
         tmp = self.moves_log() + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(batches, f, indent=1)
