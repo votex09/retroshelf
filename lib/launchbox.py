@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(APP_DIR, "cache", "launchbox")
 META = os.path.join(CACHE, "_meta.json")
+MANUAL = os.path.join(APP_DIR, "matches.json")  # hand-picked matches; outside cache/ so updates never touch it
 URL = "https://gamesdb.launchbox-app.com/Metadata.zip"
 IMAGE_URL = "https://images.launchbox-app.com/"
 USER_AGENT = "RetroShelf/1.0"
@@ -183,14 +184,39 @@ def load_details(platform):
         return {}
 
 
+def load_manual():
+    """-> {platform: {title: LaunchBox id, or None for "no match"}}"""
+    try:
+        with open(MANUAL, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def set_manual(platform, title, gid, clear=False):
+    """Pin title to gid (None = never match). clear=True drops the pin so automatic matching applies again."""
+    data = load_manual()
+    plat = data.setdefault(platform, {})
+    if clear:
+        plat.pop(title, None)
+    else:
+        plat[title] = gid
+    if not plat:
+        del data[platform]
+    with open(MANUAL, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1, ensure_ascii=False)
+
+
 class Matcher:
-    """Maps ROM titles (tags already stripped) to LaunchBox games for one platform. Memoises to cache/matches/."""
+    """Maps ROM titles (tags already stripped) to LaunchBox games for one platform. Memoises to cache/matches/.
+    Manual picks from matches.json win over automatic matching."""
 
     def __init__(self, platform):
         meta = load_meta()
         path = os.path.join(CACHE, safe(platform) + ".json")
         self.ok = bool(meta) and os.path.exists(path)
-        self.games, self.index, self.memo = {}, {}, {}
+        self.games, self.index, self.memo, self.alts = {}, {}, {}, {}
+        self.manual = load_manual().get(platform, {})
         if not self.ok:
             return
         with open(path, encoding="utf-8") as f:
@@ -200,6 +226,7 @@ class Matcher:
             self.index.setdefault(norm(g["n"]), gid)
         for gid, name in data["alts"]:
             self.index.setdefault(norm(name), gid)
+            self.alts.setdefault(gid, []).append(name)
         self.keys = list(self.index)
         self.stamp = meta["updated"]
         self.memo_path = os.path.join(APP_DIR, "cache", "matches", safe(platform) + ".json")
@@ -213,9 +240,15 @@ class Matcher:
         self.dirty = False
 
     def match(self, title):
-        """-> (LaunchBox id, game dict with n/r/v/g, "exact"|"fuzzy") or (None, None, None)"""
+        """-> (LaunchBox id, game dict with n/r/v/g, "exact"|"fuzzy"|"manual") or (None, None, None|"manual")"""
         if not self.ok:
             return None, None, None
+        if title in self.manual:
+            gid = self.manual[title]
+            if gid is None:
+                return None, None, "manual"
+            if gid in self.games:  # else the pick left the LaunchBox DB; fall back to automatic matching
+                return gid, self.games[gid], "manual"
         if title not in self.memo:
             n = norm(title)
             gid, kind = self.index.get(n), "exact"
@@ -227,6 +260,33 @@ class Matcher:
             self.dirty = True
         gid, kind = self.memo[title]
         return (gid, self.games[gid], kind) if gid else (None, None, None)
+
+    def search(self, query, limit=200):
+        """LaunchBox ids whose name or an alternate name fits query, best first."""
+        q = norm(query)
+        if not self.ok or not q:
+            return []
+        words = q.split()
+        scored = []
+        for gid, g in self.games.items():
+            best = None
+            for name in [g["n"]] + self.alts.get(gid, []):
+                n = norm(name)
+                if n == q:
+                    score = 0
+                elif n.startswith(q):
+                    score = 1
+                elif all(w in n for w in words):
+                    score = 2
+                else:
+                    r = difflib.SequenceMatcher(None, q, n).quick_ratio()
+                    if r < 0.75 or difflib.SequenceMatcher(None, q, n).ratio() < 0.75:
+                        continue
+                    score = 3 - r
+                best = score if best is None else min(best, score)
+            if best is not None:
+                scored.append((best, g["n"].lower(), gid))
+        return [gid for _, _, gid in sorted(scored)[:limit]]
 
     def save(self):
         if self.ok and self.dirty:

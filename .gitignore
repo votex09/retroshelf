@@ -3,3 +3,4 @@ cache/
 config.json
 *.part
 moves.json
+matches.json

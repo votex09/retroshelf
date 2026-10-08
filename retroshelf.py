@@ -12,6 +12,7 @@ Plain text with no * or ? matches anywhere in the name; with wildcards the patte
   !*Mario*        -> keep matches, even if a preset/pattern/list/rating hit them
   # comment       -> ignored
 Double-click a game in either pane to flip it manually (beats everything, including played-game protection).
+Right-click a game to pick its LaunchBox entry by hand when the automatic match is missing or wrong.
 Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and move together.
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
@@ -304,6 +305,7 @@ class App:
         self.units = {}          # key -> {"paths": [abs path], "size": int}
         self.file_to_unit = {}
         self.ratings = {}        # key -> lb game dict
+        self.lb_kind = {}        # key -> "exact" | "fuzzy" | "manual" (manual may also mean "no match")
         self.played = set()
         self.preset_hits = {}
         self.list_names = set()
@@ -552,6 +554,7 @@ class App:
         self.move_tv.bind("<Double-Button-1>", lambda e: self.flip(self.move_tv, False))
         for tv in (self.keep_tv, self.move_tv):
             tv.bind("<<TreeviewSelect>>", lambda e, tv=tv: self._show_selected(tv))
+            tv.bind("<Button-3>", lambda e, tv=tv: self._row_menu(tv, e))
 
     def _pane(self, panes, label_style, pad=(0, 8)):
         f = ttk.Frame(panes, padding=(pad[0], 0, pad[1], 0))
@@ -934,7 +937,8 @@ class App:
                                 f"{stopped}Filled {s['text']} text fields ({s.get('added', 0)} new gamelist entries), "
                                 f"downloaded {s['images']} images. {s['skipped']} already had that image, "
                                 f"{s['missing']} not available in LaunchBox, {s['failed']} failed. "
-                                f"{len(keys) - len(jobs)} games had no exact LaunchBox match."))
+                                f"{len(keys) - len(jobs)} games had no exact LaunchBox match "
+                                f"(right-click a game to pick one)."))
                             state["cancel"] = False
                             return
                 except queue.Empty:
@@ -990,17 +994,19 @@ class App:
         self.played &= self.units.keys()
         self.played_cb.config(text=f"Protect played games ({len(self.played)})")
 
-        self.ratings = {}
-        self.lb_links = {}  # key -> LaunchBox id, exact title matches only (used to group region dupes)
+        self.ratings, self.lb_kind = {}, {}
+        self.lb_links = {}  # key -> LaunchBox id, exact or hand-picked only (groups region dupes, drives scraping)
         matched = rated = 0
         if self.platform:
             m = lb.Matcher(self.platform)
             if m.ok:
                 for k in keys:
                     gid, g, kind = m.match(title_of(k))
+                    if kind:
+                        self.lb_kind[k] = kind
                     if g:
                         self.ratings[k] = g
-                        if kind == "exact":
+                        if kind in ("exact", "manual"):
                             self.lb_links[k] = gid
                         matched += 1
                         rated += g["r"] is not None
@@ -1010,7 +1016,9 @@ class App:
         elif not self.platform:
             self.rat_info.config(text="No LaunchBox platform for this system")
         else:
-            self.rat_info.config(text=f"Matched {matched}/{len(keys)}, {rated} rated")
+            picked = sum(kind == "manual" for kind in self.lb_kind.values())
+            self.rat_info.config(text=f"Matched {matched}/{len(keys)}, {rated} rated"
+                                      + (f", {picked} by hand" if picked else ""))
 
         gcount = Counter(x for g in self.ratings.values() for x in g["g"])
         self.genre_names = [g for g, _ in gcount.most_common()]
@@ -1316,13 +1324,118 @@ class App:
         win.bind("<Escape>", lambda e: win.destroy())
 
     def _show_selected(self, tv):
-        """Status line: where a launcher entry's installed data lives (PS3 shortcuts, .psvita files)."""
+        """Status line: the LaunchBox match, and where a launcher entry's installed data lives (PS3 shortcuts,
+        .psvita files)."""
         sel = tv.selection()
-        u = self.units.get(sel[0]) if len(sel) == 1 else None
-        if u and u["extra"]:
-            self.status.config(text="Installed data:  " + "  ·  ".join(u["extra"]))
-        else:
+        key = sel[0] if len(sel) == 1 else None
+        if key not in self.units:
             self.render_status()
+            return
+        g, kind = self.ratings.get(key), self.lb_kind.get(key)
+        parts = [f"LaunchBox: {g['n']} ({'picked by hand' if kind == 'manual' else kind})" if g else
+                 "LaunchBox: no match (set by hand)" if kind == "manual" else
+                 "LaunchBox: no match  ·  right-click to pick one"]
+        if self.units[key]["extra"]:
+            parts.append("Installed data:  " + "  ·  ".join(self.units[key]["extra"]))
+        self.status.config(text="  ·  ".join(parts))
+
+    # ---------- manual LaunchBox match ----------
+    def _row_menu(self, tv, e):
+        row = tv.identify_row(e.y)
+        if not row:
+            return
+        if row not in tv.selection():
+            tv.selection_set(row)
+        tv.focus(row)
+        menu = tk.Menu(self.root, tearoff=0)
+        state = "normal" if self.platform and lb.platforms() else "disabled"
+        menu.add_command(label="Set LaunchBox match…", state=state, command=lambda: self.match_dialog(row))
+        menu.add_command(label="Clear hand-picked match", command=lambda: self._set_match(row, None, clear=True),
+                         state="normal" if self.lb_kind.get(row) == "manual" else "disabled")
+        menu.tk_popup(e.x_root, e.y_root)
+
+    def _set_match(self, key, gid, clear=False):
+        try:
+            lb.set_manual(self.platform, title_of(key), gid, clear)
+        except OSError as e:
+            messagebox.showerror("Couldn't save match", str(e))
+            return
+        self.rescan()
+
+    def match_dialog(self, key):
+        m = lb.Matcher(self.platform)
+        if not m.ok:
+            messagebox.showinfo("No LaunchBox data", "Download LaunchBox data for this platform first.")
+            return
+        title = title_of(key)
+        same = sum(title_of(k) == title for k in self.units)
+        win = tk.Toplevel(self.root)
+        win.title("LaunchBox match")
+        win.transient(self.root)
+        win.configure(bg=ttk.Style().lookup("TFrame", "background"))
+        body = ttk.Frame(win, padding=16)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text=f"Which {self.platform} game is this?", style="Section.TLabel").pack(anchor="w")
+        g = self.ratings.get(key)
+        now = f"Now: {g['n']} ({self.lb_kind.get(key)})" if g else "Now: no match"
+        also = f"  ·  applies to all {same} versions titled “{title}”" if same > 1 else ""
+        ttk.Label(body, text=f"{self._label(key)}\n{now}{also}", style="Muted.TLabel", wraplength=640,
+                  justify="left").pack(anchor="w", pady=(2, 10))
+
+        query = tk.StringVar(value=title)
+        entry = ttk.Entry(body, textvariable=query)
+        entry.pack(fill="x")
+        foot = ttk.Frame(body, padding=(0, 12, 0, 0))
+        foot.pack(side="bottom", fill="x")
+        tv = ttk.Treeview(body, columns=("rating", "genre"), selectmode="browse", height=14)
+        for col, text, width, anchor in (("#0", "LaunchBox game", 360, "w"), ("rating", "Rating", 110, "center"),
+                                         ("genre", "Genre", 170, "w")):
+            tv.heading(col, text=text, anchor=anchor)
+            tv.column(col, width=width, anchor=anchor, stretch=col == "#0")
+        tv.pack(fill="both", expand=True, pady=(8, 0))
+        pending = {"id": None}
+
+        def search():
+            pending["id"] = None
+            tv.delete(*tv.get_children())
+            for gid in m.search(query.get()):
+                x = m.games[gid]
+                alts = [a for a in m.alts.get(gid, []) if lb.norm(a) != lb.norm(x["n"])]
+                name = x["n"] + (f"   (aka {alts[0]})" if alts else "")
+                rating = "—" if x["r"] is None else f"★ {x['r']:.1f}  ({x['v']})"
+                tv.insert("", "end", iid=gid, text=name, values=(rating, ", ".join(x["g"])))
+            kids = tv.get_children()
+            if kids:
+                tv.selection_set(self.lb_links.get(key) if self.lb_links.get(key) in kids else kids[0])
+
+        def on_type(*_):
+            if pending["id"]:
+                win.after_cancel(pending["id"])
+            pending["id"] = win.after(250, search)
+
+        def use(gid):
+            win.destroy()
+            self._set_match(key, gid)
+
+        def use_selected(*_):
+            sel = tv.selection()
+            if sel:
+                use(sel[0])
+
+        query.trace_add("write", on_type)
+        tv.bind("<Double-Button-1>", use_selected)
+        entry.bind("<Return>", use_selected)
+        ttk.Button(foot, text="Use selected", style="Accent.TButton", command=use_selected).pack(side="right")
+        ttk.Button(foot, text="Cancel", command=win.destroy).pack(side="right", padx=(0, 6))
+        ttk.Button(foot, text="Not in LaunchBox", command=lambda: use(None)).pack(side="left")
+        if self.lb_kind.get(key) == "manual":
+            ttk.Button(foot, text="Back to automatic",
+                       command=lambda: (win.destroy(), self._set_match(key, None, clear=True))).pack(side="left",
+                                                                                                    padx=(6, 0))
+        win.bind("<Escape>", lambda e: win.destroy())
+        search()
+        entry.focus_set()
+        entry.select_range(0, "end")
 
 
 def prune_empty(folder, stop):
