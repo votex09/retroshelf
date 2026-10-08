@@ -14,7 +14,7 @@ Plain text with no * or ? matches anywhere in the name; with wildcards the patte
 Double-click a game in either pane to flip it manually (beats everything, including played-game protection).
 Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and move together.
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
-For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see nps.py).
+For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
 """
 import datetime, json, os, queue, re, shutil, sys, threading
 import xml.etree.ElementTree as ET
@@ -25,6 +25,7 @@ from tkinter import ttk, filedialog, messagebox
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(APP_DIR, "vendor"))
+sys.path.insert(0, os.path.join(APP_DIR, "lib"))
 import sv_ttk  # noqa: E402  (vendored Sun Valley theme, MIT)
 
 import launchbox as lb  # noqa: E402

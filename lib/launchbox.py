@@ -2,13 +2,13 @@
 """LaunchBox Games DB: download once, split per platform into cache/launchbox/, match ROM titles to games.
 
 CLI:
-  ./launchbox.py              # download + rebuild cache (~110 MB download, not kept)
-  ./launchbox.py --zip PATH   # rebuild from an already-downloaded Metadata.zip
+  ./lib/launchbox.py              # download + rebuild cache (~110 MB download, not kept)
+  ./lib/launchbox.py --zip PATH   # rebuild from an already-downloaded Metadata.zip
 """
 import argparse, datetime, difflib, gzip, json, os, re, tempfile, unicodedata, urllib.request, zipfile
 import xml.etree.ElementTree as ET
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(APP_DIR, "cache", "launchbox")
 META = os.path.join(CACHE, "_meta.json")
 URL = "https://gamesdb.launchbox-app.com/Metadata.zip"
