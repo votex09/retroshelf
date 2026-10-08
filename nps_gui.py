@@ -1,4 +1,4 @@
-"""NoPayStation window for ROM Pruner: search the NPS lists, queue packages, download and install them."""
+"""NoPayStation window for RetroShelf: search the NPS lists, queue packages, download and install them."""
 import datetime, os, queue, re, shutil, threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox

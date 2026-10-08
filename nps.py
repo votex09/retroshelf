@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(APP_DIR, "cache", "nps")
 TSV_URL = "https://nopaystation.com/tsv/{}.tsv"
-USER_AGENT = "ROM-Pruner/1.0"
+USER_AGENT = "RetroShelf/1.0"
 FLATPAK = "net.retrodeck.retrodeck"
 FLATPAK_CONFIG = os.path.expanduser(f"~/.var/app/{FLATPAK}/config")
 

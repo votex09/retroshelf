@@ -13,7 +13,7 @@ CACHE = os.path.join(APP_DIR, "cache", "launchbox")
 META = os.path.join(CACHE, "_meta.json")
 URL = "https://gamesdb.launchbox-app.com/Metadata.zip"
 IMAGE_URL = "https://images.launchbox-app.com/"
-USER_AGENT = "ROM-Pruner/1.0"
+USER_AGENT = "RetroShelf/1.0"
 # image types kept in the cache (the ones ES-DE has a media folder for)
 IMAGE_TYPES = {
     "Box - Front", "Box - Front - Reconstructed", "Fanart - Box - Front", "Box - Back", "Box - 3D",

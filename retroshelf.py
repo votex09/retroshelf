@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""ROM Pruner: preview and move unwanted ROMs out of an ES-DE / RetroDECK roms folder, for any system.
+"""RetroShelf: manage an ES-DE / RetroDECK library. Prune unwanted ROMs (any system), scrape metadata from
+LaunchBox, and download + install PS3 / PS Vita / PSP games through NoPayStation.
 
 Pick a roms folder and a system; the console comes from the folder name (ES-DE system name), checked against
 its systeminfo.txt, and is mapped to a LaunchBox platform for ratings/genres (override it in the dropdown).
@@ -286,7 +287,7 @@ def guess_roms_root():
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("ROM Pruner")
+        root.title("RetroShelf")
         root.geometry("1600x950")
 
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
@@ -383,7 +384,7 @@ class App:
         # header: title + theme switch
         head = ttk.Frame(outer)
         head.pack(fill="x")
-        ttk.Label(head, text="ROM Pruner", style="Title.TLabel").pack(side="left")
+        ttk.Label(head, text="RetroShelf", style="Title.TLabel").pack(side="left")
         self.dark_var = tk.BooleanVar(value=self.cfg["theme"] == "dark")
         ttk.Checkbutton(head, text="Dark mode", style="Switch.TCheckbutton", variable=self.dark_var,
                         command=self.toggle_theme).pack(side="right")
