@@ -6,7 +6,7 @@ PSV  -> Vita3K --pkg/--zrif (headless), <name>.psvita in roms/psvita holding the
 PSP  -> pkg decrypted here, USRDIR/CONTENT/EBOOT.PBP written as roms/psp/<name>.pbp (PPSSPP plays it as-is)
 PSX is left out on purpose: PS1 Classics come out as encrypted PBPs that DuckStation / Beetle refuse to load.
 """
-import csv, hashlib, json, os, re, shutil, ssl, struct, subprocess, urllib.error, urllib.request
+import csv, ctypes, ctypes.util, hashlib, json, os, re, shutil, ssl, struct, subprocess, urllib.error, urllib.request
 import xml.etree.ElementTree as ET
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -393,9 +393,7 @@ class Pkg:
                                "dir": flags & 0xFF in (0x04, 0x12)})
 
     def _cipher(self, key, off):
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-        ctr = (self.iv + off // 16) % (1 << 128)
-        return Cipher(algorithms.AES(key), modes.CTR(ctr.to_bytes(16, "big"))).decryptor()
+        return aes_ctr(key, ((self.iv + off // 16) % (1 << 128)).to_bytes(16, "big"))
 
     def _read(self, key, off, size):
         skip = off % 16
@@ -431,12 +429,65 @@ class Pkg:
         self.f.close()
 
 
+class _OpenSSLCtr:
+    """AES-128-CTR straight from the system's libcrypto, for machines without the cryptography module
+    (SteamOS has OpenSSL but no pip)."""
+    lib = None
+
+    @classmethod
+    def load(cls):
+        if cls.lib is None:
+            names = [ctypes.util.find_library("crypto"), "libcrypto.so.3", "libcrypto.so.1.1", "libcrypto.so"]
+            for name in filter(None, names):
+                try:
+                    lib = ctypes.CDLL(name)
+                    break
+                except OSError:
+                    continue
+            else:
+                raise RuntimeError("Installing PS3/PSP packages needs OpenSSL's libcrypto or the Python "
+                                   "'cryptography' module (pip install cryptography); neither was found")
+            lib.EVP_CIPHER_CTX_new.restype = ctypes.c_void_p
+            lib.EVP_aes_128_ctr.restype = ctypes.c_void_p
+            lib.EVP_DecryptInit_ex.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p,
+                                               ctypes.c_char_p]
+            lib.EVP_DecryptUpdate.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_int),
+                                              ctypes.c_char_p, ctypes.c_int]
+            lib.EVP_CIPHER_CTX_free.argtypes = [ctypes.c_void_p]
+            cls.lib = lib
+        return cls.lib
+
+    def __init__(self, key, iv):
+        lib = self.load()
+        self.ctx = lib.EVP_CIPHER_CTX_new()
+        if not self.ctx or lib.EVP_DecryptInit_ex(self.ctx, lib.EVP_aes_128_ctr(), None, key, iv) != 1:
+            raise RuntimeError("OpenSSL couldn't set up AES-128-CTR")
+
+    def update(self, data):
+        out, n = ctypes.create_string_buffer(len(data)), ctypes.c_int(0)
+        if self.lib.EVP_DecryptUpdate(self.ctx, out, ctypes.byref(n), data, len(data)) != 1:
+            raise RuntimeError("OpenSSL AES decrypt failed")
+        return out.raw[:n.value]
+
+    def __del__(self):
+        if getattr(self, "ctx", None) and self.lib:
+            self.lib.EVP_CIPHER_CTX_free(self.ctx)
+
+
+def aes_ctr(key, iv):
+    """AES-128-CTR decryptor with .update(): the cryptography module if installed, else system OpenSSL."""
+    try:
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    except ImportError:
+        return _OpenSSLCtr(key, iv)
+    return Cipher(algorithms.AES(key), modes.CTR(iv)).decryptor()
+
+
 def _need_crypto():
     try:
         import cryptography  # noqa: F401
     except ImportError:
-        raise RuntimeError("Installing PS3/PSP packages needs the Python 'cryptography' module "
-                           "(pacman -S python-cryptography, or pip install cryptography)")
+        _OpenSSLCtr.load()  # fail before downloading/installing anything, with a clear message
 
 
 # ---------- install ----------
