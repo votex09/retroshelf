@@ -1,6 +1,7 @@
 """Name parsing, presets, region dupes, rename planning, LaunchBox matching and file helpers. No window needed,
 but retroshelf.py imports tkinter, so run these with a Python that has it (tests/run.sh picks one)."""
 import io, json, ntpath, os, posixpath, shutil, subprocess, sys, tempfile, unittest, zipfile
+import xml.etree.ElementTree as ET
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
@@ -13,7 +14,9 @@ except ImportError as e:  # no tkinter
     raise unittest.SkipTest(f"can't import retroshelf: {e}")
 import fsutil  # noqa: E402  (lib/ is on sys.path once retroshelf is imported)
 import desktop  # noqa: E402
+import downloads  # noqa: E402
 import homebrew as hb  # noqa: E402
+import itch  # noqa: E402
 import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import scraper  # noqa: E402
@@ -559,39 +562,39 @@ class HomebrewHub(unittest.TestCase):
 
     def test_watcher_files_what_the_user_downloads(self):
         self.write(self.dl, "old.gb")  # there before: never touched
-        w = hb.DownloadWatcher(self.dl, self.roms)
+        w = downloads.DownloadWatcher(self.dl, self.roms)
         self.assertEqual(w.poll(), [])
         a = hh_entry()
         b = hh_entry(slug="racer", title="Racer", platform="GBC", files=[{"filename": "racer.gbc"}])
-        w.expect(a)
-        w.expect(b)
-        w.expect(a)
+        w.expect(hb.want(a))
+        w.expect(hb.want(b))
+        w.expect(hb.want(a))
         self.assertEqual(len(w.waiting), 2)
         self.write(self.dl, "game (1).gb.part")
         self.write(self.dl, "notes.txt")
         self.assertEqual(w.poll(), [])
         self.write(self.dl, "game (1).gb")  # the browser renamed a repeat download
         self.assertEqual(w.poll(), [])  # first sight: wait until its size settles
-        [(entry, path)] = w.poll()
-        self.assertEqual((entry["slug"], path), ("pong", os.path.join(self.roms, "gb", "Pong - Deluxe (Homebrew).gb")))
+        [(want, path)] = w.poll()
+        self.assertEqual((want["id"], path), ("pong", os.path.join(self.roms, "gb", "Pong - Deluxe (Homebrew).gb")))
         self.assertTrue(os.path.exists(os.path.join(self.dl, "old.gb")))
-        self.assertEqual([e["slug"] for e in w.waiting], ["racer"])
+        self.assertEqual([x["id"] for x in w.waiting], ["racer"])
         self.write(self.dl, "racer.gbc")
         w.poll()
-        [(entry, path)] = w.poll()
+        [(want, path)] = w.poll()
         self.assertEqual(path, os.path.join(self.roms, "gbc", "Racer (Homebrew).gbc"))
         self.assertEqual(w.waiting, [])
 
     def test_watcher_leaves_ambiguous_files_alone(self):
-        w = hb.DownloadWatcher(self.dl, self.roms)
-        w.expect(hh_entry(slug="a", files=[{"filename": "a.gb"}]))
-        w.expect(hh_entry(slug="b", files=[{"filename": "b.gb"}]))
+        w = downloads.DownloadWatcher(self.dl, self.roms)
+        w.expect(hb.want(hh_entry(slug="a", files=[{"filename": "a.gb"}])))
+        w.expect(hb.want(hh_entry(slug="b", files=[{"filename": "b.gb"}])))
         self.write(self.dl, "something-else.gb")  # two GB games waiting: can't tell which this is
         w.poll()
         self.assertEqual(w.poll(), [])
         self.assertEqual(len(w.waiting), 2)
         w.cancel("a")
-        self.assertEqual([e["slug"] for e in w.waiting], ["b"])
+        self.assertEqual([x["id"] for x in w.waiting], ["b"])
         w.cancel()
         self.assertEqual(w.waiting, [])
 
@@ -599,11 +602,126 @@ class HomebrewHub(unittest.TestCase):
         cfg = os.path.join(self.dir, "cfg")
         os.makedirs(cfg)
         self.write(cfg, "user-dirs.dirs", b'XDG_DOWNLOAD_DIR="$HOME/Telechargements"\n')
-        with mock.patch.object(hb, "is_windows", return_value=False), \
+        with mock.patch.object(downloads, "is_windows", return_value=False), \
                 mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": cfg}):
-            self.assertEqual(hb.downloads_dir(), os.path.join(os.path.expanduser("~"), "Telechargements"))
-        with mock.patch.object(hb, "is_windows", return_value=True):
-            self.assertEqual(hb.downloads_dir(), os.path.join(os.path.expanduser("~"), "Downloads"))
+            self.assertEqual(downloads.downloads_dir(), os.path.join(os.path.expanduser("~"), "Telechargements"))
+        with mock.patch.object(downloads, "is_windows", return_value=True):
+            self.assertEqual(downloads.downloads_dir(), os.path.join(os.path.expanduser("~"), "Downloads"))
+
+
+def itch_feed(*games, extra=""):
+    """An itch.io browse feed (RSS 2.0, with the extra fields itch.io adds)."""
+    items = "".join(
+        f"<item><title>{t}</title><plainTitle>{t}</plainTitle><link>https://{a}.itch.io/{t.lower().replace(' ', '-')}"
+        f"</link><guid>x</guid><pubDate>Sat, 01 May 2021 10:00:00 GMT</pubDate><price>{p}</price>"
+        f"<imageurl>https://img.itch.zone/{t[:3]}.png</imageurl>"
+        f"<description><![CDATA[<img src=\"https://img.itch.zone/{t[:3]}.png\"/><p>About {t} &amp; more.</p>]]>"
+        f"</description></item>" for t, a, p in games)
+    head = '<?xml version="1.0"?><rss version="2.0"><channel><title>itch</title>'
+    return f"{head}{items}{extra}</channel></rss>".encode()
+
+
+class ItchIo(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.roms = os.path.join(self.dir, "roms")
+        self.dl = os.path.join(self.dir, "Downloads")
+        os.makedirs(self.dl)
+        p = mock.patch.object(itch, "CACHE", os.path.join(self.dir, "cache"))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def write(self, name, data=b"ROM"):
+        p = os.path.join(self.dl, name)
+        with open(p, "wb") as f:
+            f.write(data)
+        return p
+
+    def test_parse_feed(self):
+        [g] = itch.parse_feed(itch_feed(("Tiny Quest", "gee", "$0.00")))
+        self.assertEqual(g["url"], "https://gee.itch.io/tiny-quest")
+        self.assertEqual((g["title"], g["author"], g["year"]), ("Tiny Quest", "gee", "2021"))
+        self.assertEqual(g["image"], "https://img.itch.zone/Tin.png")
+        self.assertEqual(g["description"], "About Tiny Quest & more.")
+        self.assertTrue(itch.is_free(g))
+        self.assertFalse(itch.is_free({"price": "$2.99"}))
+        self.assertTrue(itch.is_free({"price": ""}))
+
+    def test_catalog_pages_merges_and_caches(self):
+        page1 = itch_feed(*[(f"Game {i:02}", "dev", "") for i in range(12)])
+        page2 = itch_feed(("Game 00", "dev", ""), ("Paid", "dev", "$5.00"), ("Last", "dev", "0"))
+        urls = []
+
+        def fetch(url, timeout=30):
+            urls.append(url)
+            if "game-boy" in url and "page=2" in url:
+                return page2
+            if "game-boy" in url and "page" not in url:
+                return page1
+            return itch_feed()
+
+        with mock.patch.object(itch, "_fetch", side_effect=fetch):
+            games = itch.load_catalog("gb")
+            self.assertEqual(len(games), 13)  # 12 + "Last"; the repeat merged, the paid one dropped
+            self.assertEqual({g["system"] for g in games}, {"gb"})
+            self.assertIn("https://itch.io/games/price-free/tag-game-boy.xml", urls)
+            self.assertIn("https://itch.io/games/price-free/made-with-gb-studio.xml", urls)
+            n = len(urls)
+            itch.load_catalog("gb")
+            self.assertEqual(len(urls), n)  # from the cache
+            self.assertLess(itch.cached_age("gb"), 1)
+
+    def test_blocked_by_cloudflare(self):
+        err = itch.urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+        with mock.patch.object(itch, "_fetch", side_effect=err):
+            with self.assertRaises(itch.Blocked):
+                itch.load_catalog("gb", refresh=True)
+        with mock.patch.object(itch, "_fetch", side_effect=itch.urllib.error.URLError("offline")):
+            with self.assertRaises(itch.urllib.error.URLError):
+                itch.load_catalog("nes", refresh=True)
+
+    def test_open_game_is_filed_with_its_title(self):
+        g = dict(itch.parse_feed(itch_feed(("Tiny Quest", "gee", "")))[0], system="nes")
+        w = downloads.DownloadWatcher(self.dl, self.roms)
+        w.expect(itch.want(g))
+        self.write("tinyquest_v1.0.nes")
+        w.poll()
+        [(want, path)] = w.poll()
+        self.assertEqual(path, os.path.join(self.roms, "nes", "Tiny Quest (Homebrew).nes"))
+        self.assertEqual(itch.installed_path(g, self.roms), path)
+
+    def test_browsing_freely_files_any_rom_for_the_system(self):
+        w = downloads.DownloadWatcher(self.dl, self.roms)
+        w.expect(itch.browse_want("gba"))
+        self.write("cool_game-v2 (1).gba")
+        self.write("windows-build.zip", HomebrewHub._zip({"game.exe": b"MZ"}))  # not a GBA game: left alone
+        self.write("screenshot.png")
+        w.poll()
+        [(want, path)] = w.poll()
+        self.assertEqual(path, os.path.join(self.roms, "gba", "cool game-v2 (Homebrew).gba"))
+        self.assertTrue(os.path.exists(os.path.join(self.dl, "windows-build.zip")))
+        self.assertTrue(os.path.exists(os.path.join(self.dl, "screenshot.png")))
+        self.assertEqual(len(w.waiting), 1)  # keeps watching while browsing
+        self.write("other.gba")
+        w.poll()
+        self.assertEqual(len(w.poll()), 1)
+
+    def test_a_game_waits_before_free_browsing(self):
+        w = downloads.DownloadWatcher(self.dl, self.roms)
+        w.expect(itch.browse_want("nes"))
+        g = dict(itch.parse_feed(itch_feed(("Tiny Quest", "gee", "")))[0], system="nes")
+        w.expect(itch.want(g))
+        self.write("x.nes")
+        w.poll()
+        [(want, path)] = w.poll()
+        self.assertEqual(os.path.basename(path), "Tiny Quest (Homebrew).nes")
+        self.assertEqual([x["id"] for x in w.waiting], ["any:nes"])
+
+    def test_pico8_carts(self):
+        self.assertEqual(downloads.rom_ext("celeste.p8.png", downloads.SYSTEM_EXTS["pico8"]), ".p8.png")
+        self.assertIsNone(downloads.rom_ext("cover.png", downloads.SYSTEM_EXTS["pico8"]))
+        self.assertEqual(downloads.stem_from_download("celeste.p8.png", downloads.SYSTEM_EXTS["pico8"]), "celeste")
 
 
 @unittest.skipUnless(os.environ.get("RETROSHELF_LIVE_TESTS"),
@@ -635,6 +753,28 @@ class LiveHomebrewHub(unittest.TestCase):
             with hb.urllib.request.urlopen(req, timeout=30) as r:
                 self.assertEqual(r.status, 200, url)
                 self.assertTrue(r.read(16))
+
+
+@unittest.skipUnless(os.environ.get("RETROSHELF_LIVE_TESTS"),
+                     "talks to the real itch.io; set RETROSHELF_LIVE_TESTS=1")
+class LiveItchIo(unittest.TestCase):
+    """Whether itch.io's feeds answer an app, and in what shape (run by CI, not by default)."""
+
+    def test_feed(self):
+        url = itch.feed_url(itch.FILTERS["gb"][0])
+        try:
+            data = itch._fetch(url)
+        except itch.urllib.error.HTTPError as e:
+            print(f"\n{url}: HTTP {e.code} (blocked: the window falls back to Browse on itch.io)")
+            self.skipTest(f"itch.io answered {e.code}")
+        root = ET.fromstring(data)
+        item = next(root.iter("item"), None)
+        print(f"\n{url}: {len(list(root.iter('item')))} items; fields: "
+              f"{sorted(c.tag for c in item) if item is not None else None}")
+        games = itch.parse_feed(data)
+        print("sample:", {k: v[:60] for k, v in games[0].items()} if games else None)
+        self.assertTrue(games)
+        self.assertTrue(all(g["url"].startswith("https://") and g["title"] for g in games))
 
 
 @unittest.skipUnless(os.name == "nt", "real Windows only")
