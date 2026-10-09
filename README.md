@@ -89,8 +89,8 @@ Either clone the repository:
 git clone https://github.com/votex09/retroshelf.git
 ```
 
-or download the [latest zip](https://github.com/votex09/retroshelf/archive/refs/heads/main.zip) and unpack it
-anywhere.
+or download `retroshelf-<version>.zip` from the [latest release](https://github.com/votex09/retroshelf/releases/latest)
+and unpack it anywhere.
 
 ## Run
 
@@ -108,7 +108,11 @@ On first start, run **Tools → Download LaunchBox data** (about 110 MB) to enab
 
 RetroShelf checks GitHub for updates when it starts (you can turn this off) and has **Help → Check for updates**.
 Updating keeps your settings, logs and downloaded data and restarts the app. Git clones update with `git pull`; zip
-copies download the new version and swap it in.
+copies download the latest [release](https://github.com/votex09/retroshelf/releases) and swap it in.
+
+Every change to the app that lands on `main` passes the tests and is then published as a release automatically
+(`.github/workflows/release.yml`), versioned by date: `v2026.10.09`, then `v2026.10.09.2` for a second one that
+day. Changes to docs, tests or CI alone don't make a release; **Run workflow** on the Actions tab forces one.
 
 ## Your data
 

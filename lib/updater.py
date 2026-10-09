@@ -1,5 +1,7 @@
-"""Self-update from GitHub. Git clones fast-forward with git pull; zip copies download the branch archive and
-swap in its files (cache/, config and logs aren't in the archive, so they're left alone)."""
+"""Self-update from GitHub. Git clones fast-forward with git pull; zip copies follow the published releases (made
+for every change on main by .github/workflows/release.yml): they download the latest release's archive and swap in
+its files (cache/, config and logs aren't in the archive, so they're left alone). Until a release exists, zip copies
+follow the main branch instead."""
 import json, os, re, shutil, subprocess, sys, tempfile, urllib.error, urllib.request, zipfile
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -37,8 +39,20 @@ def _api(path):
         return json.load(r)
 
 
+def latest_release():
+    """-> (tag, release notes) of the newest published release, or (None, "") if there isn't one yet."""
+    try:
+        rel = _api("releases/latest")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None, ""
+        raise
+    return rel["tag_name"], (rel.get("body") or "").strip()
+
+
 def check():
-    """-> {"behind": commits to pull (None = unknown), "commits": [subject lines, newest first], "note": str}.
+    """-> {"behind": commits to pull (None = unknown), "commits": [subject lines, newest first], "note": str,
+    "tag": release to install (None = the main branch, or a git clone), "notes": that release's notes}.
     Raises RuntimeError with a readable message when the check can't be done."""
     if is_git():
         if _git("rev-parse", "--abbrev-ref", "@{u}").returncode:
@@ -51,29 +65,32 @@ def check():
         log = _git("log", "--format=%s", "HEAD..@{u}").stdout.splitlines()
         note = f"You have {ahead} local commits that aren't on GitHub; git can't fast-forward." if ahead and behind \
             else ""
-        return {"behind": behind, "commits": log, "note": note}
+        return {"behind": behind, "commits": log, "note": note, "tag": None, "notes": ""}
     try:
-        remote = _api(f"commits/{BRANCH}")["sha"]
+        tag, notes = latest_release()
+        target = tag or BRANCH
+        res = {"behind": None, "commits": [], "note": "", "tag": tag, "notes": notes}
         local = local_sha()
-        if local == remote:
-            return {"behind": 0, "commits": [], "note": ""}
         if not local:
-            return {"behind": None, "commits": [], "note": "This copy doesn't know its version, so updating "
-                                                          "replaces it with the latest one."}
+            return dict(res, note="This copy doesn't know its version, so updating replaces it with the latest one.")
         try:
-            cmp = _api(f"compare/{local}...{remote}")
+            cmp = _api(f"compare/{local}...{target}")
         except urllib.error.HTTPError as e:
             if e.code != 404:
                 raise
-            return {"behind": None, "commits": [], "note": "This version isn't in the GitHub history any more."}
+            return dict(res, note="This version isn't in the GitHub history any more.")
+        # "behind": this copy is newer than the release (e.g. downloaded from main), so there's nothing to install
+        if cmp["status"] in ("identical", "behind"):
+            return dict(res, behind=0)
         commits = [c["commit"]["message"].splitlines()[0] for c in reversed(cmp["commits"])]
-        return {"behind": cmp["ahead_by"], "commits": commits, "note": ""}
+        return dict(res, behind=cmp["ahead_by"], commits=commits)
     except (urllib.error.URLError, OSError, ValueError, KeyError) as e:
         raise RuntimeError(f"couldn't reach GitHub: {getattr(e, 'reason', e)}")
 
 
-def apply():
-    """Bring the files up to date. -> short description. Raises RuntimeError if nothing was changed."""
+def apply(tag=None):
+    """Bring the files up to date: git pull, or for zip copies the release tag (None = the main branch).
+    -> short description. Raises RuntimeError if nothing was changed."""
     if is_git():
         if _git("status", "--porcelain", "--untracked-files=no").stdout.strip():
             raise RuntimeError("this checkout has uncommitted changes; commit or stash them first")
@@ -85,7 +102,8 @@ def apply():
     work = tempfile.mkdtemp(prefix=".update-", dir=APP_DIR)  # same filesystem, so the swap is just renames
     try:
         zpath = os.path.join(work, "update.zip")
-        req = urllib.request.Request(f"https://codeload.github.com/{REPO}/zip/refs/heads/{BRANCH}",
+        ref = f"tags/{tag}" if tag else f"heads/{BRANCH}"
+        req = urllib.request.Request(f"https://codeload.github.com/{REPO}/zip/refs/{ref}",
                                      headers={"User-Agent": USER_AGENT})
         try:
             with urllib.request.urlopen(req, timeout=60) as r, open(zpath, "wb") as f:
@@ -131,7 +149,7 @@ def apply():
                 if had:
                     os.rename(os.path.join(old, name), dest)
             raise RuntimeError(f"couldn't swap in the new files, nothing was changed: {e}")
-        return "downloaded the latest version"
+        return f"installed {tag}" if tag else "downloaded the latest version"
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

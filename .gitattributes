@@ -1,1 +1,4 @@
 lib/version.txt export-subst
+tests/ export-ignore
+.github/ export-ignore
+.claude/ export-ignore

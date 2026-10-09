@@ -18,7 +18,8 @@ Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and 
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
 Holding folder… lists moved games with artwork and details, and restores or permanently deletes them.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
-Updates come from GitHub: checked at startup (can be turned off) or with Check for updates (see lib/updater.py).
+Updates come from GitHub releases (git clones: the main branch): checked at startup (can be turned off) or with Check
+for updates (see lib/updater.py).
 Add to app menu (or --install-desktop) installs a .desktop entry; retroshelf.sh is a launcher for Steam / file managers.
 """
 import datetime, json, os, queue, re, shutil, sys, threading
@@ -635,7 +636,8 @@ class App:
         body = ttk.Frame(win, padding=18)
         body.pack(fill="both", expand=True)
         n = res["behind"]
-        ttk.Label(body, text="A new version of RetroShelf is available" if n is None else
+        ttk.Label(body, text=f"RetroShelf {res['tag']} is available" if res["tag"] else
+                  "A new version of RetroShelf is available" if n is None else
                   f"{n} new change{'s' if n != 1 else ''} on GitHub", style="Section.TLabel").pack(anchor="w")
         if res["note"]:
             ttk.Label(body, text=res["note"], style="Muted.TLabel", wraplength=520, justify="left").pack(
@@ -677,7 +679,7 @@ class App:
 
             def work():
                 try:
-                    box.put(updater.apply())
+                    box.put(updater.apply(res["tag"]))
                 except Exception as e:
                     box.put(e)
 
