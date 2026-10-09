@@ -17,6 +17,9 @@ Rename… brings file names in line with a template (default: No-Intro order), w
 Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and move together.
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
 Holding folder… lists moved games with artwork and details, and restores or permanently deletes them.
+Import ROMs… takes games in any form (zip / 7z / rar archives, disc images, loose ROMs, folders of them), from an
+import folder next to roms or from anywhere, works out each one's system, then unpacks and files it (see
+lib/romimport.py; 7z needs no 7-Zip: lib/sevenzip.py).
 Set up RetroDECK… (Windows: Set up ES-DE…) installs the frontend for people who don't have it yet, letting them pick
 where games go (see lib/frontend.py); it opens by itself the first time no ROMs folder can be found.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
@@ -45,6 +48,8 @@ import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import nps_gui  # noqa: E402
 import homebrew_gui  # noqa: E402
+import import_gui  # noqa: E402
+import romimport  # noqa: E402
 import itch_gui  # noqa: E402
 import mamedev_gui  # noqa: E402
 import pdroms_gui  # noqa: E402
@@ -299,8 +304,7 @@ def render_name(template, fields):
 
 
 # arcade systems whose emulators look games up by ROM set name, so their files must keep the names they have
-ARCADE_SYSTEMS = {"arcade", "mame", "mame-advmame", "mame-mame4all", "fba", "fbneo", "neogeo", "cps", "cps1", "cps2",
-                  "cps3", "naomi", "naomi2", "naomigd", "atomiswave", "model2", "model3", "hikaru", "triforce"}
+ARCADE_SYSTEMS = romimport.ARCADE
 
 
 def plan_renames(units, template):
@@ -500,7 +504,7 @@ class App:
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
                     "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True,
                     "system_state": {}, "show_details": True, "emulator_dirs": {}, "esde_bases": [],
-                    "setup_offered": False}
+                    "setup_offered": False, "import_dir": "", "import_delete_originals": False}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -540,6 +544,9 @@ class App:
         root.protocol("WM_DELETE_WINDOW", self._close)
         if not self.cfg["roms_root"] and not self.cfg["setup_offered"]:  # no library anywhere: offer to set one up
             root.after(600, lambda: setup_gui.open_window(self))
+        if self.cfg["roms_root"] and import_gui.waiting(self):
+            root.after(1200, lambda: self.toast(f"{import_gui.waiting(self)} waiting in the import folder: "
+                                                "press Import ROMs to file them."))
         if self.cfg["check_updates"]:
             root.after(1500, lambda: self.check_updates(quiet=True))
 
@@ -788,6 +795,11 @@ class App:
         self.disk_bar.grid(row=0, column=9)
         for w in (self.disk_lbl, self.disk_bar):
             ui.Tooltip(w, self._disk_tip)
+        imp = ttk.Button(bar, text="Import ROMs…", command=lambda: import_gui.open_window(self))
+        imp.grid(row=0, column=10, padx=(16, 0))
+        ui.Tooltip(imp, "Add games: archives (zip, 7z, rar), disc images and ROMs are checked, unpacked and filed "
+                        "into the right system folder")
+        self.root.bind("<Control-i>", lambda e: None if isinstance(e.widget, tk.Text) else import_gui.open_window(self))
 
         # filter cards, with the details panel beside them
         top = ttk.Frame(outer, padding=(0, 10, 0, 0))
@@ -953,6 +965,8 @@ class App:
         """Things you do now and then live in the menu bar, so the window can give its height to the tables."""
         mb = self.menubar = tk.Menu(self.root, tearoff=0)
         lib = tk.Menu(mb, tearoff=0)
+        lib.add_command(label="Import ROMs…", accelerator="Ctrl+I", command=lambda: import_gui.open_window(self))
+        lib.add_separator()
         lib.add_command(label="Change ROMs folder…", command=self.browse_roms)
         lib.add_command(label="Rescan", accelerator="F5", command=self.rescan)
         lib.add_separator()

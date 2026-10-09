@@ -6,6 +6,7 @@ from unittest import mock
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import sandbox  # noqa: E402
+import discs  # noqa: E402
 
 try:
     import tkinter as tk
@@ -17,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -549,6 +550,42 @@ class AppTest(unittest.TestCase):
                 self.root.update()
                 time.sleep(0.07)
             self.assertIsNone(getattr(self.app, "setup_window", None))  # offered once, not on every start
+
+    def test_import_roms(self):
+        """Throw games in the import folder: each one's system is shown, can be changed, and Import files them."""
+        ig = sys.modules["import_gui"]
+        inbox = ig.inbox_dir(self.app)
+        self.assertEqual(inbox, os.path.join(os.path.dirname(self.p["roms"]), "import"))
+        os.makedirs(inbox, exist_ok=True)
+        for name, data in (("Gran Turismo 4 (USA).7z", discs.seven_zip({"Gran Turismo 4 (USA).iso": discs.ps2()})),
+                           ("mystery.zip", zip_bytes({"mystery.p1": b"x" * 10})),
+                           ("Tetris (World).gb", b"T" * 64)):
+            with open(os.path.join(inbox, name), "wb") as f:
+                f.write(data)
+        button(self.root, "Import ROMs…").invoke()
+        w = self.app.import_window
+        self.pump(lambda: not w.scanning)
+        shown = {r.name: w.tv.set(iid, "system") for iid, r in w.rows.items()}
+        self.assertEqual(shown, {"Gran Turismo 4 (USA).7z": "PlayStation 2", "mystery.zip": "?",
+                                 "Tetris (World).gb": "Game Boy"})
+        self.assertEqual(w.import_btn.cget("text"), "Import 2 games")
+        iid = next(i for i, r in w.rows.items() if r.name == "mystery.zip")
+        w.tv.selection_set(iid)
+        self.root.update()
+        w.system_cb.current(w.codes.index("fbneo") + 1)
+        button(w.win, "Set").invoke()
+        self.assertEqual(w.tv.set(iid, "system"), "Arcade (FinalBurn Neo)")
+        w.import_btn.invoke()
+        self.pump(lambda: not w.busy and all(r.status.startswith("Imported") for r in w.rows.values()))
+        for rel in ("ps2/Gran Turismo 4 (USA).iso", "fbneo/mystery.zip", "gb/Tetris (World).gb"):
+            self.assertTrue(os.path.exists(os.path.join(self.p["roms"], *rel.split("/"))), rel)
+        self.assertEqual(os.listdir(inbox), [])
+        self.assertIn("ps2", self.app.system_codes)  # the new system shows up in the main window
+        with open(os.path.join(inbox, "Metroid (USA).gba"), "wb") as f:  # noticed while the window is open
+            f.write(b"M" * 64)
+        self.pump(lambda: any(r.name == "Metroid (USA).gba" for r in w.rows.values()), timeout=10)
+        w.close()
+        self.assertIsNone(self.app.import_window)
 
     def pump(self, done, timeout=5.0):
         """Run Tk's event loop until done() is true (background work finishes through after() polls)."""

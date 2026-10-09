@@ -32,6 +32,23 @@ rename can be undone, and games only go for good when you delete them from the h
 - A details panel shows the selected game's artwork, LaunchBox description, year, developer,
   rating and genres, plus a button that searches YouTube for gameplay videos.
 
+**Import ROMs**
+- **Import ROMs…** (top bar, or **Library → Import ROMs…**) is a bucket for games in whatever form you have them:
+  zip / 7z / rar archives, disc images, loose ROMs, folders full of them. Put them in the `import` folder next to
+  your `roms` folder (RetroShelf notices new files while the window is open), or add them from anywhere with
+  **Add files…** / **Add a folder…**.
+- Each game's system is shown before anything moves, with how it was found: the file type when only one system
+  uses it, the disc itself for images (PS2 and PS1 discs by their `SYSTEM.CNF`, PSP, GameCube, Wii, Saturn,
+  Sega CD, Dreamcast, 3DO, PC Engine CD, Neo Geo CD, Xbox; `.cso`, `.rvz`, `.gcz`, `.pbp` and `.chd` too), or the
+  folder name (`PS2`, `Sony - PlayStation 2`, …) when the file can't tell. Select any game to pick its system by hand.
+- **Import** unpacks archives (7z needs nothing installed; rar and 7z's rarer methods use 7-Zip, unrar or bsdtar if
+  you have one) and files the games into `roms/<system>`: a `.bin` without a `.cue` gets one, `.cue` / `.gdi` games
+  keep their tracks together, full Xbox dumps are cut down to the part xemu reads, and arcade zips stay zipped under
+  their set name. Readmes and tools inside archives are left out.
+- Games unpack into a hidden staging folder first, so ES-DE never sees half a game, and the drive's free space is
+  checked before a big archive is unpacked. Games from the import folder are moved out of it; games added from
+  elsewhere are copied, unless you tick **Also delete the originals**.
+
 **LaunchBox metadata**
 - Downloads the free LaunchBox Games Database once and matches your games to it automatically.
 - Right-click a game to pick its LaunchBox entry by hand when the match is missing or wrong.
@@ -184,6 +201,9 @@ These files live next to `retroshelf.py` and are never part of the repository:
 | `renames.json` | Log of renames, used by **Undo…** in the rename dialog |
 | `matches.json` | LaunchBox matches you picked by hand |
 | `cache/` | LaunchBox and NoPayStation data (safe to delete; download it again from the app) |
+
+**Import ROMs** uses an `import` folder next to your `roms` folder (change it in the window), and unpacks into a
+hidden `.retroshelf-import` folder inside `roms` that's removed when it's done.
 
 ## Testing
 
