@@ -77,14 +77,16 @@ rename can be undone, and games only go for good when you delete them from the h
   `sudo apt install python3-tk`.
 - **Windows:** Python 3.9 or newer from [python.org](https://www.python.org/downloads/windows/) (it includes Tk).
   Works with both the installer and the portable release of ES-DE: RetroShelf finds `C:\Users\<you>\ROMs` and
-  `C:\Users\<you>\ES-DE`, or `ES-DE\ROMs` next to `ES-DE\ES-DE` for the portable one. NoPayStation installs are
-  Linux / RetroDECK only for now.
+  `C:\Users\<you>\ES-DE`, or `ES-DE\ROMs` next to `ES-DE\ES-DE` for the portable one.
 - No other Python packages are needed. With Pillow installed (`python3-pil.imagetk` on Debian / Ubuntu, `python-pillow` on Arch,
   `py -m pip install pillow` on Windows), the details panel
   can show JPEG artwork too; without it only PNG artwork is shown.
 - PS3 / PSP package decryption uses the `cryptography` module if it's installed
   and the system's OpenSSL library otherwise.
 - For PS Vita installs: Vita3K (the RetroDECK flatpak or a standalone build).
+- NoPayStation on Windows uses the standalone RPCS3 and Vita3K. They're found in ES-DE portable's `Emulators`
+  folder or on `PATH`; otherwise pick their folders with **Emulators…** in the NoPayStation window. PS3 games get
+  an RPCS3 `.lnk` shortcut in `ROMs\ps3`, which ES-DE's default *RPCS3 Shortcut* emulator launches.
 
 ## Install
 

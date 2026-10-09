@@ -6,6 +6,8 @@ from tkinter import ttk, filedialog, messagebox
 import launchbox as lb
 import nps
 import scraper
+import ui
+from fsutil import is_windows
 
 REGION_CHOICES = ["All regions"] + list(nps.REGIONS)
 PARALLEL_DOWNLOADS = 2
@@ -75,12 +77,11 @@ class NpsWindow:
         ttk.Button(head, text="Refresh lists", command=self.refresh_lists).pack(side="right")
         self.age_lbl = ttk.Label(head, style="Muted.TLabel")
         self.age_lbl.pack(side="right", padx=(0, 8))
-        ttk.Label(body, text=self._install_note(), style="Muted.TLabel", wraplength=1080,
-                  justify="left").pack(anchor="w", pady=(2, 0))
-        fw = nps.firmware_problem(self.system, self.roms_root)
-        if fw:
-            ttk.Label(body, text="⚠ " + fw, style="Move.TLabel", wraplength=1080, justify="left").pack(
-                anchor="w", pady=(6, 0))
+        self.fw_anchor = ttk.Label(body, text=self._install_note(), style="Muted.TLabel", wraplength=1080,
+                                   justify="left")
+        self.fw_anchor.pack(anchor="w", pady=(2, 0))
+        self.fw_lbl = ttk.Label(body, style="Move.TLabel", wraplength=1080, justify="left")
+        self._show_problems()
 
         flt = ttk.Frame(body, padding=(0, 10, 0, 0))
         flt.pack(fill="x")
@@ -113,6 +114,12 @@ class NpsWindow:
         self.dir_lbl = ttk.Label(foot, text=self.dl_dir(), style="Muted.TLabel")
         self.dir_lbl.pack(side="left", padx=(8, 6))
         ttk.Button(foot, text="Change…", command=self.browse_dir).pack(side="left")
+        emulator = nps.SYSTEM_EMULATOR.get(self.system)
+        if is_windows() and emulator:
+            pick = ttk.Button(foot, text="Emulators…", command=lambda: self.pick_emulator(emulator))
+            pick.pack(side="left", padx=(6, 0))
+            ui.Tooltip(pick, lambda: f"{nps.EMULATOR_NAMES[emulator]}: "
+                                     f"{nps.find_emulator(emulator, self.roms_root) or 'not found'}")
         self.keep_pkg = tk.BooleanVar(value=self.app.cfg.get("nps_keep_pkg", False))
         ttk.Checkbutton(foot, text="Keep .pkg after install", variable=self.keep_pkg,
                         command=self._save_opts).pack(side="left", padx=(16, 0))
@@ -178,7 +185,8 @@ class NpsWindow:
     def _install_note(self):
         return {
             "PS3": "Packages are decrypted straight into RPCS3's dev_hdd0/game, the license (.rap) goes to exdata, "
-                   "and games get a shortcut in roms/ps3 so ES-DE lists them. Updates come from Sony's update "
+                   "and games get a shortcut in roms/ps3 so ES-DE lists them (ES-DE's default RPCS3 Shortcut "
+                   "emulator launches it). Updates come from Sony's update "
                    "server for the games RPCS3 already has.",
             "PSV": "Packages are installed by Vita3K (license included), and games get a .psvita entry in "
                    "roms/psvita. Updates aren't offered: NPS has no license for them and Vita3K needs one.",
@@ -186,7 +194,32 @@ class NpsWindow:
                    "PC Engine / NeoGeo titles are hidden since PPSSPP can't run them.",
         }[self.console]
 
+    def _show_problems(self):
+        fw = nps.firmware_problem(self.system, self.roms_root)
+        if fw:
+            self.fw_lbl.config(text="⚠ " + fw)
+            self.fw_lbl.pack(anchor="w", pady=(6, 0), after=self.fw_anchor)
+        else:
+            self.fw_lbl.pack_forget()
+
     # ---------- options ----------
+    def pick_emulator(self, name):
+        """Windows: the folder with rpcs3.exe / Vita3K.exe, kept in config.json."""
+        exe = nps.EMULATOR_EXES[name]
+        path = filedialog.askdirectory(title=f"Folder with {exe}", parent=self.win,
+                                       initialdir=nps.find_emulator(name, self.roms_root) or self.roms_root)
+        if not path:
+            return
+        if not os.path.isfile(os.path.join(path, exe)):
+            messagebox.showerror(f"No {exe}", f"There's no {exe} in\n{path}", parent=self.win)
+            return
+        self.app.cfg["emulator_dirs"][name] = nps.emulator_dirs[name] = os.path.normpath(path)
+        self.app.save_cfg()
+        self._index_library()
+        self._show_problems()
+        self.render()
+
+
     def dl_dir(self):
         return self.app.cfg.get("nps_dir") or os.path.expanduser("~/Downloads/NPS")
 

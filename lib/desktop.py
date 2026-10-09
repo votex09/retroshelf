@@ -1,16 +1,12 @@
 """App-menu entry pointing at this copy of RetroShelf: on Linux ~/.local/share/applications/retroshelf.desktop,
 on Windows a RetroShelf shortcut in the Start menu (made with PowerShell, which every Windows has)."""
-import os, subprocess, sys
+import os, sys
 
-from fsutil import NO_WINDOW, is_windows
+from fsutil import is_windows, make_shortcut, shortcut_text
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WM_CLASS = "Retroshelf"  # what Tk reports for className="retroshelf"; lets the taskbar match window and entry
 DESCRIPTION = "Prune, scrape, rename and install games for ES-DE / RetroDECK"
-# the shortcut's settings travel as environment variables, so paths need no quoting inside the script
-PS_SCRIPT = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:RS_LNK); "
-             "$s.TargetPath = $env:RS_TARGET; $s.Arguments = $env:RS_ARGS; $s.WorkingDirectory = $env:RS_DIR; "
-             "$s.IconLocation = $env:RS_ICON; $s.Description = $env:RS_DESC; $s.Save()")
 
 
 def menu_label():
@@ -60,9 +56,8 @@ def windowed_python():
 def is_installed():
     """True only if the entry exists and points at this copy (a moved folder needs reinstalling)."""
     try:
-        if is_windows():  # .lnk files are binary; the folder is stored in it as UTF-16
-            with open(entry_path(), "rb") as f:
-                return APP_DIR.encode("utf-16-le") in f.read()
+        if is_windows():  # .lnk files are binary
+            return APP_DIR in shortcut_text(entry_path())
         with open(entry_path(), encoding="utf-8") as f:
             return f.read() == _contents()
     except OSError:
@@ -73,17 +68,8 @@ def install():
     path = entry_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if is_windows():
-        env = dict(os.environ, RS_LNK=path, RS_TARGET=windowed_python(),
-                   RS_ARGS=f'"{os.path.join(APP_DIR, "retroshelf.py")}"', RS_DIR=APP_DIR,
-                   RS_ICON=os.path.join(APP_DIR, "assets", "icon.ico"), RS_DESC=DESCRIPTION)
-        try:
-            r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                                "-Command", PS_SCRIPT], env=env, capture_output=True, text=True, timeout=60,
-                               creationflags=NO_WINDOW)
-        except subprocess.SubprocessError as e:
-            raise OSError(f"PowerShell didn't finish: {e}") from e
-        if r.returncode or not os.path.exists(path):
-            raise OSError(f"PowerShell couldn't make the shortcut: {(r.stderr or r.stdout).strip()[:300]}")
+        make_shortcut(path, windowed_python(), f'"{os.path.join(APP_DIR, "retroshelf.py")}"', APP_DIR,
+                      os.path.join(APP_DIR, "assets", "icon.ico"), DESCRIPTION)
         return path
     with open(path, "w", encoding="utf-8") as f:
         f.write(_contents())

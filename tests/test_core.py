@@ -14,6 +14,7 @@ except ImportError as e:  # no tkinter
 import fsutil  # noqa: E402  (lib/ is on sys.path once retroshelf is imported)
 import desktop  # noqa: E402
 import launchbox as lb  # noqa: E402
+import nps  # noqa: E402
 import scraper  # noqa: E402
 import updater  # noqa: E402
 import sandbox  # noqa: E402
@@ -299,7 +300,7 @@ class Windows(unittest.TestCase):
 
         with mock.patch.object(desktop, "is_windows", return_value=True), \
                 mock.patch.dict(os.environ, {"APPDATA": appdata}), \
-                mock.patch.object(desktop.subprocess, "run", side_effect=powershell):
+                mock.patch.object(fsutil.subprocess, "run", side_effect=powershell):
             self.assertEqual(desktop.menu_label(), "Add to Start menu")
             self.assertFalse(desktop.is_installed())
             path = desktop.install()
@@ -312,7 +313,7 @@ class Windows(unittest.TestCase):
     def test_start_menu_shortcut_failure_is_an_oserror(self):
         with mock.patch.object(desktop, "is_windows", return_value=True), \
                 mock.patch.dict(os.environ, {"APPDATA": self.dir}), \
-                mock.patch.object(desktop.subprocess, "run",
+                mock.patch.object(fsutil.subprocess, "run",
                                   return_value=subprocess.CompletedProcess([], 1, "", "blocked by policy")):
             with self.assertRaisesRegex(OSError, "blocked by policy"):
                 desktop.install()
@@ -343,6 +344,123 @@ class Windows(unittest.TestCase):
         with mock.patch.object(rs, "is_windows", return_value=True):
             rows = rs.plan_renames([("k", [os.path.join(self.dir, "x.sfc")], None, False)], long_name)
         self.assertEqual(rows[0]["status"], "path too long for Windows")
+
+
+class NpsLayouts(unittest.TestCase):
+    """Where RPCS3 / Vita3K keep their data: RetroDECK on Linux, standalone builds on Windows."""
+
+    def setUp(self):
+        self.dir = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.roms = self.mkdir("ES-DE", "ROMs")  # ES-DE portable: ES-DE/ROMs next to ES-DE/Emulators
+        self.addCleanup(nps.emulator_dirs.clear)
+        self.win = mock.patch.object(nps, "is_windows", return_value=True)
+
+    def mkdir(self, *parts):
+        p = os.path.join(self.dir, *parts)
+        os.makedirs(p, exist_ok=True)
+        return p
+
+    def touch(self, *parts, text=""):
+        p = os.path.join(self.dir, *parts)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(text)
+        return p
+
+    def test_rpcs3_in_es_de_portable_emulators_folder(self):
+        rpcs3 = os.path.dirname(self.touch("ES-DE", "Emulators", "RPCS3-v0.0.34", "rpcs3.exe"))
+        with self.win:
+            self.assertEqual(nps.find_emulator("rpcs3", self.roms), rpcs3)
+            self.assertIsNone(nps.emulator_problem("ps3", self.roms))
+            self.assertEqual(nps.rpcs3_hdd0(self.roms), os.path.join(rpcs3, "dev_hdd0"))  # RPCS3's default
+            os.makedirs(os.path.join(rpcs3, "portable"))
+            self.assertEqual(nps.rpcs3_hdd0(self.roms), os.path.join(rpcs3, "portable", "dev_hdd0"))
+
+    def test_rpcs3_vfs_and_games_yml(self):
+        rpcs3 = os.path.dirname(self.touch("Emu", "rpcs3", "rpcs3.exe"))
+        hdd0 = self.mkdir("Big drive", "hdd0")
+        self.touch("Emu", "rpcs3", "config", "vfs.yml",
+                   text=f'$(EmulatorDir): ""\n/dev_hdd0/: {hdd0.replace(os.sep, "/")}/\n'
+                        "/dev_flash/: $(EmulatorDir)dev_flash/\n")
+        self.touch("Emu", "rpcs3", "config", "games.yml", text="BLUS30443: D:/PS3/Demon's Souls/\n")
+        self.mkdir("Big drive", "hdd0", "game", "NPUB30133")
+        self.touch("Big drive", "hdd0", "game", "NPUB30133", "PARAM.SFO")
+        nps.emulator_dirs["rpcs3"] = rpcs3  # picked by hand
+        with self.win:
+            self.assertEqual(nps.rpcs3_hdd0(self.roms), hdd0)
+            self.assertEqual(nps.rpcs3_vfs("/dev_flash/", self.roms), os.path.join(rpcs3, "dev_flash"))
+            self.assertEqual(nps.owned_ids("ps3", self.roms), {"NPUB30133", "BLUS30443"})
+
+    def test_missing_emulator(self):
+        nps.emulator_dirs["rpcs3"] = self.mkdir("not rpcs3")
+        with self.win, mock.patch.object(nps.shutil, "which", return_value=None):
+            self.assertIsNone(nps.find_emulator("rpcs3", self.roms))
+            self.assertIn("rpcs3.exe", nps.emulator_problem("ps3", self.roms))
+            self.assertIn("RPCS3 wasn't found", nps.firmware_problem("ps3", self.roms))
+            self.assertIn("Vita3K wasn't found", nps.emulator_problem("psvita", self.roms))
+            with self.assertRaisesRegex(RuntimeError, "Vita3K wasn't found"):
+                nps.install({"console": "PSV"}, "x.pkg", self.roms, print, print, lambda: False)
+        self.assertIsNone(nps.emulator_problem("ps3", self.roms))  # not on Linux
+
+    def test_vita3k_paths(self):
+        vita = os.path.dirname(self.touch("ES-DE", "Emulators", "Vita3K", "Vita3K.exe"))
+        appdata = self.mkdir("AppData", "Roaming")
+        with self.win, mock.patch.dict(os.environ, {"APPDATA": appdata}):
+            self.assertEqual(nps.vita3k_pref(self.roms), os.path.join(appdata, "Vita3K", "Vita3K"))
+            self.touch("ES-DE", "Emulators", "Vita3K", "config.yml", text="pref-path: 'E:\\Vita'\n")
+            self.assertEqual(nps.vita3k_pref(self.roms), os.path.normpath("E:\\Vita"))
+            os.makedirs(os.path.join(vita, "portable"))
+            self.assertEqual(nps.vita3k_pref(self.roms), os.path.join(vita, "portable", "fs"))
+            self.assertEqual(nps.vita3k_command("pkgs", self.roms), [os.path.join(vita, "Vita3K.exe")])
+
+    def test_linux_retrodeck_unchanged(self):
+        flatpak = self.mkdir("flatpak")
+        roms = self.mkdir("retrodeck", "roms")
+        with mock.patch.object(nps, "is_windows", return_value=False), \
+                mock.patch.object(nps, "FLATPAK_CONFIG", flatpak):
+            self.assertEqual(nps.rpcs3_hdd0(roms), os.path.join(self.dir, "retrodeck", "storage", "rpcs3", "dev_hdd0"))
+            self.assertEqual(nps.vita3k_pref(roms), os.path.join(self.dir, "retrodeck", "storage", "psvita", "Vita3K"))
+            self.touch("flatpak", "rpcs3", "vfs.yml", text="/dev_hdd0: x\n/dev_hdd0/: /mnt/hdd0/\n")
+            self.assertEqual(nps.rpcs3_hdd0(roms), os.path.normpath("/mnt/hdd0"))
+
+    def test_shortcut_game_id_and_linked_data(self):
+        lnk = os.path.join(self.roms, "ps3", "Braid (USA).lnk")
+        os.makedirs(os.path.dirname(lnk))
+        args = '--no-gui "%RPCS3_GAMEID%:NPUB30133"'.encode("utf-16-le")
+        with open(lnk, "wb") as f:  # strings in a .lnk can start at an odd offset
+            f.write(b"L\0\0\0\x01" + args + b"\0\0")
+        desktop_file = self.touch("ES-DE", "ROMs", "ps3", "Other.desktop",
+                                  text='Exec=x --no-gui "%%RPCS3_GAMEID%%:NPEB00001"\n')
+        self.assertEqual(nps.shortcut_game_id(lnk), "NPUB30133")
+        self.assertEqual(nps.shortcut_game_id(desktop_file), "NPEB00001")
+        self.assertEqual(nps.ps3_shortcut(self.roms, "NPUB30133"), "Braid (USA).lnk")
+        self.touch("ES-DE", "Emulators", "RPCS3", "rpcs3.exe")
+        game = self.mkdir("ES-DE", "Emulators", "RPCS3", "dev_hdd0", "game", "NPUB30133")
+        rap = self.touch("ES-DE", "Emulators", "RPCS3", "dev_hdd0", "home", "00000001", "exdata",
+                         "UP0001-NPUB30133_00-BRAID0000000001.rap")
+        with self.win:
+            self.assertEqual(nps.linked_data("ps3", lnk, self.roms), [game, rap])
+
+
+@unittest.skipUnless(os.name == "nt", "real Windows only")
+class RealWindows(unittest.TestCase):
+    """Things only a real Windows can check: PowerShell shortcuts and Python's own OpenSSL."""
+
+    def test_shortcut_round_trip(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        lnk = os.path.join(d, "Braid (USA).lnk")
+        fsutil.make_shortcut(lnk, sys.executable, '--no-gui "%RPCS3_GAMEID%:NPUB30133"', d, sys.executable, "Braid")
+        self.assertEqual(nps.shortcut_game_id(lnk), "NPUB30133")
+        self.assertIn(d, fsutil.shortcut_text(lnk))
+
+    def test_openssl_from_python(self):
+        with mock.patch.object(nps._OpenSSLCtr, "lib", None):
+            ctr = nps._OpenSSLCtr(bytes.fromhex("2b7e151628aed2a6abf7158809cf4f3c"),
+                                  bytes.fromhex("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"))
+            self.assertEqual(ctr.update(bytes.fromhex("874d6191b620e3261bef6864990db6ce")).hex(),
+                             "6bc1bee22e409f96e93d7e117393172a")  # NIST SP 800-38A F.5.2
 
 
 if __name__ == "__main__":
