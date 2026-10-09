@@ -15,6 +15,7 @@ except ImportError as e:  # no tkinter
 import fsutil  # noqa: E402  (lib/ is on sys.path once retroshelf is imported)
 import desktop  # noqa: E402
 import downloads  # noqa: E402
+import frontend  # noqa: E402
 import homebrew as hb  # noqa: E402
 import itch  # noqa: E402
 import mamedev  # noqa: E402
@@ -823,6 +824,173 @@ def mamedev_page(title, zips):
 </div>"""
 
 
+def fsutil_md5(data):
+    import hashlib
+    return hashlib.md5(data).hexdigest()
+
+
+class Frontend(unittest.TestCase):
+    """Finding and setting up RetroDECK / ES-DE (lib/frontend.py)."""
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home)
+        p = mock.patch.dict(os.environ, {"HOME": self.home, "USERPROFILE": self.home})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def retrodeck_config(self, rd_home, lock=True):
+        cfg = frontend.rd_config_dir()
+        os.makedirs(cfg, exist_ok=True)
+        with open(os.path.join(cfg, "retrodeck.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": "0.10.0", "paths": {"rd_home_path": rd_home,
+                                                      "roms_path": os.path.join(rd_home, "roms")}}, f)
+        if lock:
+            open(os.path.join(cfg, ".lock"), "w").close()
+
+    @staticmethod
+    def esde_zip(path, extra=None):
+        members = {"ES-DE/ES-DE.exe": b"MZ", "ES-DE/portable.txt": b"", "ES-DE/ES-DE/settings/": b"",
+                   "ES-DE/ROMs_ALL/snes/systeminfo.txt": b"snes", "ES-DE/ROMs_ALL/gb/systeminfo.txt": b"gb"}
+        members.update(extra or {})
+        with zipfile.ZipFile(path, "w") as z:
+            for n, d in members.items():
+                z.writestr(n, d)
+        return path
+
+    def test_retrodeck_roms_once_its_setup_has_finished(self):
+        rd_home = os.path.join(self.home, "sd", "retrodeck")
+        os.makedirs(os.path.join(rd_home, "roms"))
+        self.assertIsNone(frontend.retrodeck_roms())  # not installed / set up
+        self.retrodeck_config(rd_home, lock=False)
+        self.assertIsNone(frontend.retrodeck_roms())  # setup still running (it writes .lock last)
+        self.retrodeck_config(rd_home)
+        self.assertEqual(frontend.retrodeck_roms(), os.path.join(rd_home, "roms"))
+        with mock.patch.object(rs.frontend, "esde_installs", return_value=[]):
+            self.assertEqual(rs.guess_roms_root(), os.path.realpath(os.path.join(rd_home, "roms")))
+
+    def test_esde_rom_dir(self):
+        settings = os.path.join(self.home, "es_settings.xml")
+        self.assertEqual(frontend.esde_rom_dir(settings, self.home), os.path.join(self.home, "ROMs"))  # no file
+        with open(settings, "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0"?>\n<bool name="Debug" value="false" />\n'
+                    '<string name="ROMDirectory" value="%ESPATH%/Games" />\n')
+        self.assertEqual(frontend.esde_rom_dir(settings, self.home, "/es"), os.path.normpath("/es/Games"))
+        with open(settings, "w", encoding="utf-8") as f:
+            f.write('<string name="ROMDirectory" value="" />')
+        self.assertEqual(frontend.esde_rom_dir(settings, self.home), os.path.join(self.home, "ROMs"))
+
+    def test_esde_installs(self):
+        base = os.path.join(self.home, "Games")
+        os.makedirs(frontend.esde_roms(base))
+        self.assertEqual(frontend.esde_installs([base]), [frontend.esde_roms(base)])
+        os.makedirs(os.path.join(self.home, "ES-DE", "settings"))
+        os.makedirs(os.path.join(self.home, "ROMs"))
+        with open(os.path.join(self.home, "ES-DE", "settings", "es_settings.xml"), "w") as f:
+            f.write("")
+        self.assertEqual(frontend.esde_installs(), [os.path.join(self.home, "ROMs")])  # the regular install
+
+    def test_unpack_and_create_system_dirs(self):
+        base = os.path.join(self.home, "Games")
+        os.makedirs(base)
+        frontend.unpack_esde(self.esde_zip(os.path.join(self.home, "p.zip")), base)
+        self.assertTrue(os.path.exists(frontend.esde_exe(base)))
+        with mock.patch.object(frontend, "is_windows", return_value=False):
+            roms = frontend.create_system_dirs(base)
+        self.assertEqual(roms, os.path.join(base, "ES-DE", "ROMs"))
+        self.assertEqual(sorted(os.listdir(roms)), ["gb", "snes"])
+        self.assertEqual(frontend.games_folder("drive", base) if os.name == "nt" else roms, roms)
+
+    def test_unpack_refuses_other_zips(self):
+        bad = os.path.join(self.home, "bad.zip")
+        with zipfile.ZipFile(bad, "w") as z:
+            z.writestr("something/else.exe", b"MZ")
+        with self.assertRaises(ValueError):
+            frontend.unpack_esde(bad, self.home)
+        slip = self.esde_zip(os.path.join(self.home, "slip.zip"), {"../evil.txt": b"x"})
+        with self.assertRaises(ValueError):
+            frontend.unpack_esde(slip, os.path.join(self.home, "x"))
+        self.assertFalse(os.path.exists(os.path.join(self.home, "evil.txt")))
+
+    def test_esde_release_and_checked_download(self):
+        data = self.esde_zip(os.path.join(self.home, "src.zip"))
+        with open(data, "rb") as f:
+            blob = f.read()
+        release = json.dumps({"stable": {"version": "3.5.0", "packages": [
+            {"name": "LinuxAppImage", "filename": "x.AppImage", "url": "https://a/1", "md5": ""},
+            {"name": "WindowsPortable", "filename": "ES-DE_3.5.0-x64_Portable.zip", "url": "https://a/2",
+             "md5": fsutil_md5(blob)}]}}).encode()
+
+        class Resp(io.BytesIO):
+            def __init__(self, b):
+                super().__init__(b)
+                self.headers = {"Content-Length": str(len(b))}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        with mock.patch.object(frontend.urllib.request, "urlopen",
+                               side_effect=lambda req, timeout=None: Resp(release if "latest" in req.full_url
+                                                                          else blob)):
+            version, pkg = frontend.esde_release()
+            self.assertEqual((version, pkg["url"]), ("3.5.0", "https://a/2"))
+            seen = []
+            dest = frontend.download(pkg["url"], os.path.join(self.home, pkg["filename"]), pkg["md5"],
+                                     lambda d, t: seen.append((d, t)))
+            self.assertTrue(zipfile.is_zipfile(dest))
+            self.assertEqual(seen[-1], (len(blob), len(blob)))
+            with self.assertRaises(ValueError):  # damaged: checksum doesn't match
+                frontend.download(pkg["url"], os.path.join(self.home, "bad.zip"), "0" * 32)
+            self.assertEqual([n for n in os.listdir(self.home) if n.startswith("bad")], [])
+
+    @unittest.skipIf(os.name == "nt", "uses a shell script as a stand-in for flatpak")
+    def test_install_retrodeck_runs_flatpak_for_the_user(self):
+        bin_dir = os.path.join(self.home, "bin")
+        os.makedirs(bin_dir)
+        calls = os.path.join(self.home, "calls")
+        fake = os.path.join(bin_dir, "flatpak")
+        with open(fake, "w") as f:
+            f.write(f'#!/bin/sh\necho "$@" >> {calls}\necho "Installing $1"\n'
+                    '[ "$1" = info ] && exit 1\nexit 0\n')
+        os.chmod(fake, 0o755)
+        with mock.patch.dict(os.environ, {"PATH": bin_dir}):
+            self.assertFalse(frontend.retrodeck_installed())
+            lines = []
+            frontend.install_retrodeck(lines.append)
+        with open(calls) as f:
+            ran = f.read().splitlines()
+        self.assertEqual(ran[1:], ["remote-add --user --if-not-exists flathub " + frontend.FLATHUB,
+                                   "install --user --noninteractive -y flathub net.retrodeck.retrodeck"])
+        self.assertIn("Installing install", lines)
+        with open(fake, "w") as f:
+            f.write("#!/bin/sh\necho nope\nexit 3\n")
+        with mock.patch.dict(os.environ, {"PATH": bin_dir}), self.assertRaises(RuntimeError):
+            frontend.install_retrodeck(lambda line: None)
+
+    def test_retrodeck_steps(self):
+        with mock.patch.object(frontend, "is_steam_deck", return_value=False):
+            self.assertIn("Home Directory", frontend.retrodeck_steps("home", "/home/me")[0])
+        with mock.patch.object(frontend, "is_steam_deck", return_value=True):
+            self.assertIn("Internal Storage", frontend.retrodeck_steps("home", "/home/deck")[0])
+        steps = frontend.retrodeck_steps("drive", "/run/media/deck/SD")
+        self.assertIn("Custom Location", steps[0])
+        self.assertIn("/run/media/deck/SD", steps[1])
+
+    def test_storage_choices_start_with_home(self):
+        with mock.patch.object(frontend, "is_windows", return_value=False):
+            choices = frontend.storage_choices()
+        self.assertEqual(choices[0], ("home", "Home folder", self.home))
+        with mock.patch.object(frontend, "is_windows", return_value=True):
+            win_home = frontend.storage_choices()[0]
+        self.assertEqual(win_home, ("home", "Home folder", os.path.join(self.home, "Games")))  # not ~\ES-DE
+        self.assertIsNotNone(frontend.free_bytes(win_home[2]))  # measured on the folder it will be made in
+        self.assertTrue(all(kind in ("home", "drive") and os.path.isdir(p) for kind, _, p in choices))
+        self.assertEqual(frontend.human_size(3 * 1024 ** 3), "3.0 GB")
+
+
 class Pdroms(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -1047,6 +1215,18 @@ class LiveMamedev(unittest.TestCase):
         path = mamedev.install(next(g for g in games if g["id"] == "gridlee"), roms)
         self.assertTrue(zipfile.is_zipfile(path))
         print("gridlee.zip holds:", zipfile.ZipFile(path).namelist())
+
+
+@unittest.skipUnless(os.environ.get("RETROSHELF_LIVE_TESTS"),
+                     "talks to ES-DE's GitLab; set RETROSHELF_LIVE_TESTS=1")
+class LiveEsde(unittest.TestCase):
+    """ES-DE's release list still names a Windows portable build with a checksum (run by CI, not by default)."""
+
+    def test_release_list(self):
+        version, pkg = frontend.esde_release()
+        print(f"\nES-DE {version}: {pkg}")
+        self.assertTrue(pkg["filename"].endswith(".zip") and pkg["url"].startswith("https://"))
+        self.assertRegex(pkg["md5"], r"^[0-9a-f]{32}$")
 
 
 @unittest.skipUnless(os.name == "nt", "real Windows only")

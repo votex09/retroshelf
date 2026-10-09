@@ -17,6 +17,8 @@ Rename… brings file names in line with a template (default: No-Intro order), w
 Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and move together.
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
 Holding folder… lists moved games with artwork and details, and restores or permanently deletes them.
+Set up RetroDECK… (Windows: Set up ES-DE…) installs the frontend for people who don't have it yet, letting them pick
+where games go (see lib/frontend.py); it opens by itself the first time no ROMs folder can be found.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
 Homebrew Hub… browses free GB / GBC / GBA / NES homebrew and files it into roms (see lib/homebrew.py); itch.io
 homebrew… and PDRoms homebrew… do the same for free retro homebrew on itch.io and pdroms.de, downloaded in the
@@ -46,8 +48,10 @@ import homebrew_gui  # noqa: E402
 import itch_gui  # noqa: E402
 import mamedev_gui  # noqa: E402
 import pdroms_gui  # noqa: E402
+import setup_gui  # noqa: E402
 import scraper  # noqa: E402
 import desktop  # noqa: E402
+import frontend  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
@@ -465,11 +469,14 @@ def valid_exts(folder, system):
 find_gamelist = scraper.find_gamelist
 
 
-def guess_roms_root():
-    for p in (os.path.join(APP_DIR, "..", "retrodeck", "roms"), os.path.join(APP_DIR, "..", "roms"),
-              os.path.join(APP_DIR, "..", "..", "roms"), os.path.expanduser("~/retrodeck/roms"),
-              os.path.expanduser("~/ROMs")):
-        if os.path.isdir(p):
+def guess_roms_root(esde_bases=()):
+    """The ROMs folder of the RetroDECK / ES-DE on this computer (RetroDECK's config says where its folder went;
+    ES-DE's settings, or the portable copies RetroShelf set up, say where its ROMs are), else a usual spot."""
+    for p in ([frontend.retrodeck_roms()] + frontend.esde_installs(esde_bases) +
+              [os.path.join(APP_DIR, "..", "retrodeck", "roms"), os.path.join(APP_DIR, "..", "roms"),
+               os.path.join(APP_DIR, "..", "..", "roms"), os.path.expanduser("~/retrodeck/roms"),
+               os.path.expanduser("~/ROMs")]):
+        if p and os.path.isdir(p):
             return os.path.realpath(p)
     return ""
 
@@ -492,7 +499,8 @@ class App:
 
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
                     "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True,
-                    "system_state": {}, "show_details": True, "emulator_dirs": {}}
+                    "system_state": {}, "show_details": True, "emulator_dirs": {}, "esde_bases": [],
+                    "setup_offered": False}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -504,7 +512,7 @@ class App:
         except OSError:
             pass
         if not self.cfg["roms_root"] or not os.path.isdir(self.cfg["roms_root"]):
-            self.cfg["roms_root"] = guess_roms_root()
+            self.cfg["roms_root"] = guess_roms_root(self.cfg["esde_bases"])
         nps.emulator_dirs.update(self.cfg["emulator_dirs"])  # Windows: RPCS3 / Vita3K folders picked by hand
 
         self.units = {}          # key -> {"paths": [abs path], "size": int}
@@ -530,6 +538,8 @@ class App:
         root.bind_class("Toplevel", "<Map>", self._center_dialog, add="+")
         self.load_roms_root(self.cfg["roms_root"])
         root.protocol("WM_DELETE_WINDOW", self._close)
+        if not self.cfg["roms_root"] and not self.cfg["setup_offered"]:  # no library anywhere: offer to set one up
+            root.after(600, lambda: setup_gui.open_window(self))
         if self.cfg["check_updates"]:
             root.after(1500, lambda: self.check_updates(quiet=True))
 
@@ -953,6 +963,8 @@ class App:
         lib.add_command(label="Export move list…", command=self.export)
         mb.add_cascade(label="Library", menu=lib)
         tools = self.tools_menu = tk.Menu(mb, tearoff=0)
+        tools.add_command(label=setup_gui.title() + "…", command=lambda: setup_gui.open_window(self))
+        tools.add_separator()
         tools.add_command(label="Scrape metadata…", command=self.scrape_dialog)
         tools.add_command(label="Rename files…", command=self.rename_dialog)
         tools.add_command(label="NoPayStation…", command=lambda: nps_gui.open_window(self))
