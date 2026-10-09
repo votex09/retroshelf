@@ -474,6 +474,12 @@ class HomebrewHub(unittest.TestCase):
         self.assertTrue(hb.can_download(hh_entry(license="MIT")))
         self.assertTrue(hb.can_download({"slug": "x", "license": "mit"}))  # what the API calls it
         self.assertEqual(hb.license_text({"slug": "x", "license": "Zlib"}), "Zlib")
+        # licence texts seen in the real catalogue
+        for ok in ("MIT", "GPL-3.0-only", "GPL-3.0", "GPL-3.0-or-later", "ZLib", "CC-BY-SA 4.0", "CC-BY-NC-ND-4.0",
+                   "CC-BY-NC-SA", "MIT / CC-BY-4.0 (Assets)", "Unlicense", "GPL-2.0-or-later", "BSD-3-Clause"):
+            self.assertTrue(hb.open_license(ok), ok)
+        for no in ("", "CC-BY ish", "All rights reserved", "Proprietary", "MIT / proprietary assets", "Freeware"):
+            self.assertFalse(hb.open_license(no), no)
         self.assertTrue(hb.can_download(hh_entry(license={"spdx": "GPL-3.0-only"})))
         self.assertTrue(hb.can_download(hh_entry(tags=["Open Source"])))
         self.assertTrue(hb.can_download(hh_entry(**{"third-party": ["retroshelf"]})))

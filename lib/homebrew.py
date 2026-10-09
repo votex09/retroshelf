@@ -2,7 +2,7 @@
 
 The catalogue comes from Homebrew Hub's public API and is cached in cache/homebrew/. Homebrew Hub lets authors
 choose which apps may download their games into a user's library, so RetroShelf only downloads directly when an
-entry is open source (an open gameLicense or the "Open Source" tag) or names RetroShelf in "third-party". For every
+entry is open source (an open licence or the "Open Source" tag) or names RetroShelf in "third-party". For every
 other entry, "Open on Homebrew Hub" opens the game's page in the user's browser, the user downloads it there, and
 DownloadWatcher picks the file up from the Downloads folder and files it into the right roms/<system> folder.
 """
@@ -23,13 +23,10 @@ PLATFORM_NAMES = {"GB": "Game Boy", "GBC": "Game Boy Color", "GBA": "Game Boy Ad
 ROM_EXTS = {"GB": (".gb", ".gbc"), "GBC": (".gbc", ".gb", ".cgb"), "GBA": (".gba",), "NES": (".nes",)}
 TYPES = ["game", "demo", "tool", "music", "hackrom"]
 PARTIAL_EXT = (".part", ".crdownload", ".tmp", ".download", ".opdownload")
-OPEN_LICENSES = {  # SPDX ids whose terms allow passing the game on
-    "MIT", "MIT-0", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "0BSD", "ISC", "Zlib", "Unlicense", "WTFPL",
-    "CC0-1.0", "CC-BY-3.0", "CC-BY-4.0", "CC-BY-SA-3.0", "CC-BY-SA-4.0", "CC-BY-NC-4.0", "CC-BY-NC-SA-4.0",
-    "MPL-2.0", "LGPL-2.1-only", "LGPL-2.1-or-later", "LGPL-3.0-only", "LGPL-3.0-or-later",
-    "GPL-2.0-only", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later", "AGPL-3.0-only", "AGPL-3.0-or-later",
-}
-OPEN_UPPER = {x.upper() for x in OPEN_LICENSES}
+# licence families whose terms let the game be passed on (any version; "-only" / "-or-later" variants included)
+OPEN_LICENSE_RE = re.compile(
+    r"(?:MIT(?:-0)?|0?BSD(?:-[234]-CLAUSE)?|ISC|ZLIB|UNLICENSE|WTFPL|CC0|APACHE|MPL|(?:A|L)?GPL"
+    r"|CC-BY(?:-NC)?(?:-SA|-ND)?)(?:-?V?[\d.]+)?(?:-ONLY|-OR-LATER|\+)?")
 CACHE_DAYS = 7
 
 
@@ -108,8 +105,17 @@ def can_download(entry):
     source or names RetroShelf among the apps allowed to fetch it. Everything else goes through the website."""
     if downloads_disabled(entry):
         return False
-    return (game_license(entry).upper() in OPEN_UPPER or "Open Source" in (entry.get("tags") or [])
+    return (open_license(game_license(entry)) or "Open Source" in (entry.get("tags") or [])
             or CLIENT in (entry.get("third-party") or []))
+
+
+def open_license(text):
+    """True when every licence named is an open one: "MIT", "GPL-3.0", "CC-BY-SA 4.0", "MIT / CC-BY-4.0 (Assets)".
+    Anything vague ("CC-BY ish", "free to share") or unknown is False, so it goes through the website instead."""
+    text = re.sub(r"\([^)]*\)", "", text.upper())  # "(Assets)", "(code)"
+    parts = [p.strip().replace(" ", "-") for p in re.split(r"/|,|;|\bAND\b|&", text)]
+    parts = [p for p in parts if p]
+    return bool(parts) and all(OPEN_LICENSE_RE.fullmatch(p) for p in parts)
 
 
 def rom_file(entry):
