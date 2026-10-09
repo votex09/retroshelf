@@ -1,15 +1,19 @@
 """NoPayStation: browse the NPS lists, download PS3 / PS Vita / PSP packages and install them for RetroDECK.
 
-PS3  -> pkg decrypted here into RPCS3's dev_hdd0/game/<id>/, rap copied to exdata, .desktop shortcut in roms/ps3;
+PS3  -> pkg decrypted here into RPCS3's dev_hdd0/game/<id>/, rap copied to exdata, a shortcut in roms/ps3
+        (.desktop for RetroDECK on Linux, .lnk to rpcs3.exe on Windows, like RPCS3's own "Create shortcut");
         updates for installed games come from Sony's update server (NPS doesn't list PS3 updates)
 PSV  -> Vita3K --pkg/--zrif (headless), <name>.psvita in roms/psvita holding the title id
+On Windows the emulators are the standalone builds: found in ES-DE portable's Emulators folder or on PATH, or
+picked by hand (Emulators… in the NoPayStation window, saved as emulator_dirs in config.json).
 PSP  -> pkg decrypted here, USRDIR/CONTENT/EBOOT.PBP written as roms/psp/<name>.pbp (PPSSPP plays it as-is)
 PSX is left out on purpose: PS1 Classics come out as encrypted PBPs that DuckStation / Beetle refuse to load.
 """
-import csv, ctypes, ctypes.util, hashlib, json, os, re, shutil, ssl, struct, subprocess, urllib.error, urllib.request
+import csv, ctypes, ctypes.util, hashlib, json, os, re, shutil, ssl, struct, subprocess, sys
+import urllib.error, urllib.request
 import xml.etree.ElementTree as ET
 
-from fsutil import is_windows
+from fsutil import NO_WINDOW, is_windows, make_shortcut, shortcut_text
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(APP_DIR, "cache", "nps")
@@ -17,11 +21,6 @@ TSV_URL = "https://nopaystation.com/tsv/{}.tsv"
 USER_AGENT = "RetroShelf/1.0"
 FLATPAK = "net.retrodeck.retrodeck"
 FLATPAK_CONFIG = os.path.expanduser(f"~/.var/app/{FLATPAK}/config")
-
-
-def supported():
-    """Installing needs RetroDECK's (Linux) RPCS3 / Vita3K layout for now; on Windows the menu entry is greyed out."""
-    return not is_windows()
 
 
 # ES-DE system -> (NPS console, {type label: TSV name})
@@ -182,10 +181,11 @@ def owned_ids(system, roms_root):
                     and os.path.exists(os.path.join(game, d, "PARAM.SFO"))}
         except OSError:
             pass
+        cfg = rpcs3_config_dir(roms_root)
         try:
-            with open(os.path.join(FLATPAK_CONFIG, "rpcs3", "games.yml"), encoding="utf-8") as f:
+            with open(os.path.join(cfg, "games.yml"), encoding="utf-8") as f:
                 ids |= set(re.findall(r"^([A-Z]{4}\d{5}):", f.read(), re.M))
-        except OSError:
+        except (OSError, TypeError):  # TypeError: no RPCS3 found
             pass
     elif system == "psvita":
         try:
@@ -197,8 +197,12 @@ def owned_ids(system, roms_root):
 
 def firmware_problem(system, roms_root):
     """A short warning if the emulator's firmware is missing, else None."""
+    missing = emulator_problem(system, roms_root)
+    if missing:
+        return missing
     if system == "ps3":
-        flash = rpcs3_vfs("/dev_flash/") or os.path.join(retrodeck_root(roms_root), "storage", "rpcs3", "dev_flash")
+        flash = rpcs3_vfs("/dev_flash/", roms_root) or os.path.join(retrodeck_root(roms_root), "storage", "rpcs3",
+                                                                    "dev_flash")
         if not os.path.exists(os.path.join(flash, "vsh", "module", "vsh.self")):
             return ("RPCS3 has no PS3 firmware installed, so games won't boot. Get PS3UPDAT.PUP from "
                     "playstation.com and install it in RPCS3 (File → Install Firmware).")
@@ -239,35 +243,111 @@ def save_state():
 
 # ---------- paths ----------
 def retrodeck_root(roms_root):
-    return os.path.dirname(os.path.realpath(roms_root).rstrip("/"))
+    """The folder holding roms: retrodeck/ on RetroDECK, the ES-DE folder for ES-DE portable on Windows."""
+    return os.path.dirname(os.path.realpath(roms_root))
 
 
-def rpcs3_vfs(mount):
-    """Host folder RPCS3 maps a device to (e.g. "/dev_hdd0/"), from its vfs.yml, or None."""
+EMULATOR_EXES = {"rpcs3": "rpcs3.exe", "vita3k": "Vita3K.exe"}
+EMULATOR_NAMES = {"rpcs3": "RPCS3", "vita3k": "Vita3K"}
+SYSTEM_EMULATOR = {"ps3": "rpcs3", "psvita": "vita3k"}
+emulator_dirs = {}  # Windows: "rpcs3" / "vita3k" -> folder picked by hand; the app fills it from config.json
+
+
+def find_emulator(name, roms_root):
+    """Windows: the folder with rpcs3.exe / Vita3K.exe. The one picked by hand, else ES-DE portable's Emulators
+    folder next to ROMs (Emulators/RPCS3, Emulators/Vita3K-…), else PATH. None if not found."""
+    exe = EMULATOR_EXES[name]
+    picked = emulator_dirs.get(name)
+    if picked:
+        return picked if os.path.isfile(os.path.join(picked, exe)) else None
+    emus = os.path.join(retrodeck_root(roms_root), "Emulators")
     try:
-        with open(os.path.join(FLATPAK_CONFIG, "rpcs3", "vfs.yml"), encoding="utf-8") as f:
+        candidates = sorted((d for d in os.listdir(emus) if name in d.lower()), key=len)
+    except OSError:
+        candidates = []
+    for d in candidates:
+        if os.path.isfile(os.path.join(emus, d, exe)):
+            return os.path.join(emus, d)
+    found = shutil.which(exe)
+    return os.path.dirname(found) if found else None
+
+
+def emulator_problem(system, roms_root):
+    """Windows: a short message when the emulator for system isn't found, else None."""
+    name = SYSTEM_EMULATOR.get(system)
+    if not is_windows() or not name or find_emulator(name, roms_root):
+        return None
+    return (f"{EMULATOR_NAMES[name]} wasn't found. Pick the folder with {EMULATOR_EXES[name]} with Emulators… "
+            f"below (ES-DE portable's Emulators folder and PATH were checked).")
+
+
+def rpcs3_base(roms_root):
+    """Windows: RPCS3's data folder (its own folder, or the portable/ folder in it). None elsewhere / not found."""
+    folder = find_emulator("rpcs3", roms_root) if is_windows() else None
+    if not folder:
+        return None
+    portable = os.path.join(folder, "portable")
+    return portable if os.path.isdir(portable) else folder
+
+
+def rpcs3_config_dir(roms_root):
+    """Where RPCS3 keeps vfs.yml and games.yml."""
+    if is_windows():
+        base = rpcs3_base(roms_root)
+        return os.path.join(base, "config") if base else None
+    return os.path.join(FLATPAK_CONFIG, "rpcs3")
+
+
+def rpcs3_vfs(mount, roms_root):
+    """Host folder RPCS3 maps a device to (e.g. "/dev_hdd0/"), from its vfs.yml, or None. On Windows a missing
+    vfs.yml or entry means RPCS3's default, <its folder>/dev_hdd0 etc."""
+    vfs, cfg = {}, rpcs3_config_dir(roms_root)
+    try:
+        if not cfg:
+            raise FileNotFoundError("RPCS3 not found")
+        with open(os.path.join(cfg, "vfs.yml"), encoding="utf-8") as f:
             vfs = dict(re.findall(r"^(\S+): (.*)$", f.read(), re.M))
     except OSError:
-        return None
-    emu = vfs.get("$(EmulatorDir)", "").strip('"')
-    path = vfs.get(mount, "").strip('"').replace("$(EmulatorDir)", emu)
-    return path.rstrip("/") or None
+        if not is_windows():
+            return None
+    base = rpcs3_base(roms_root)
+    emu = vfs.get("$(EmulatorDir)", "").strip().strip('"') or (base + os.sep if base else "")
+    path = vfs.get(mount, "").strip().strip('"') or (f"$(EmulatorDir){mount.strip('/')}/" if base else "")
+    path = path.replace("$(EmulatorDir)", emu)
+    return os.path.normpath(path) if path.strip("/\\") else None
 
 
 def rpcs3_hdd0(roms_root):
     """RPCS3's dev_hdd0 (RetroDECK points it into retrodeck/storage)."""
-    return rpcs3_vfs("/dev_hdd0/") or os.path.join(retrodeck_root(roms_root), "storage", "rpcs3", "dev_hdd0")
+    return rpcs3_vfs("/dev_hdd0/", roms_root) or os.path.join(retrodeck_root(roms_root), "storage", "rpcs3",
+                                                              "dev_hdd0")
 
 
 def vita3k_pref(roms_root):
+    """Vita3K's emulated file system (ux0/, vs0/ …): config.yml's pref-path, else its default."""
+    if is_windows():
+        folder = find_emulator("vita3k", roms_root)
+        portable = os.path.join(folder, "portable") if folder else None
+        if portable and os.path.isdir(portable):
+            config, default = os.path.join(portable, "config.yml"), os.path.join(portable, "fs")
+        else:
+            appdata = os.environ.get("APPDATA") or os.path.expanduser(os.path.join("~", "AppData", "Roaming"))
+            config = os.path.join(folder, "config.yml") if folder else None
+            default = os.path.join(appdata, "Vita3K", "Vita3K")  # SDL's pref path
+    else:
+        config = os.path.join(FLATPAK_CONFIG, "Vita3K", "config.yml")
+        default = os.path.join(retrodeck_root(roms_root), "storage", "psvita", "Vita3K")
     try:
-        with open(os.path.join(FLATPAK_CONFIG, "Vita3K", "config.yml"), encoding="utf-8") as f:
+        if not config:
+            raise FileNotFoundError("Vita3K not found")
+        with open(config, encoding="utf-8") as f:
             m = re.search(r"^pref-path: (.+)$", f.read(), re.M)
-        if m and m.group(1).strip():
-            return m.group(1).strip().rstrip("/")
+        pref = m.group(1).strip().strip("'\"") if m else ""
+        if pref:
+            return os.path.normpath(pref)
     except OSError:
         pass
-    return os.path.join(retrodeck_root(roms_root), "storage", "psvita", "Vita3K")
+    return default
 
 
 def safe_name(s):
@@ -446,6 +526,10 @@ class _OpenSSLCtr:
     def load(cls):
         if cls.lib is None:
             names = [ctypes.util.find_library("crypto"), "libcrypto.so.3", "libcrypto.so.1.1", "libcrypto.so"]
+            if is_windows():  # the copy Python ships for its ssl module
+                dlls = os.path.join(sys.base_prefix, "DLLs")
+                names = [os.path.join(dlls, n) for n in ("libcrypto-3.dll", "libcrypto-3-x64.dll", "libcrypto-1_1.dll",
+                                                         "libcrypto-1_1-x64.dll")] + names
             for name in filter(None, names):
                 try:
                     lib = ctypes.CDLL(name)
@@ -549,6 +633,12 @@ def install_ps3(row, pkg_file, roms_root, log, progress, cancelled):
     existing = ps3_shortcut(roms_root, game_id)
     if existing:
         row["entry"] = os.path.join(roms_root, "ps3", existing)
+    elif row["kind"] in ("Games", "Demos") and is_windows():
+        shortcut = row["entry"] = os.path.join(roms_root, "ps3", rom_name(row) + ".lnk")
+        os.makedirs(os.path.dirname(shortcut), exist_ok=True)
+        exe = os.path.join(find_emulator("rpcs3", roms_root), EMULATOR_EXES["rpcs3"])
+        make_shortcut(shortcut, exe, f'--no-gui "%RPCS3_GAMEID%:{game_id}"', os.path.dirname(exe), exe, row["name"])
+        log(f"Shortcut added: roms/ps3/{os.path.basename(shortcut)}")
     elif row["kind"] in ("Games", "Demos"):
         shortcut = row["entry"] = os.path.join(roms_root, "ps3", rom_name(row) + ".desktop")
         os.makedirs(os.path.dirname(shortcut), exist_ok=True)
@@ -563,34 +653,44 @@ def install_ps3(row, pkg_file, roms_root, log, progress, cancelled):
     return True
 
 
+SHORTCUT_EXT = (".desktop", ".lnk")
+GAME_ID_RE = re.compile(r'%:([A-Z]{4}\d{5})"')  # %RPCS3_GAMEID%:NPUB30133" (.desktop: %%RPCS3_GAMEID%%:)
+
+
+def shortcut_game_id(path):
+    """The PS3 title id an RPCS3 shortcut (.desktop or Windows .lnk) boots, or None."""
+    if path.lower().endswith(".lnk"):
+        text = shortcut_text(path)
+    else:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            return None
+    m = GAME_ID_RE.search(text)
+    return m.group(1) if m else None
+
+
 def ps3_shortcut(roms_root, game_id):
-    """An existing roms/ps3 .desktop that launches game_id (e.g. one RPCS3 or RetroDECK made), or None."""
+    """An existing roms/ps3 shortcut that launches game_id (e.g. one RPCS3 or RetroDECK made), or None."""
     folder = os.path.join(roms_root, "ps3")
     try:
-        names = [n for n in os.listdir(folder) if n.endswith(".desktop")]
+        names = [n for n in os.listdir(folder) if n.lower().endswith(SHORTCUT_EXT)]
     except OSError:
         return None
-    for n in names:
-        try:
-            with open(os.path.join(folder, n), encoding="utf-8", errors="replace") as f:
-                if f'%:{game_id}"' in f.read():
-                    return n
-        except OSError:
-            pass
-    return None
+    return next((n for n in names if shortcut_game_id(os.path.join(folder, n)) == game_id), None)
 
 
 def linked_data(system, entry, roms_root):
-    """Installed emulator data behind a roms entry that is only a launcher: a PS3 .desktop shortcut -> RPCS3's
+    """Installed emulator data behind a roms entry that is only a launcher: a PS3 shortcut -> RPCS3's
     dev_hdd0/game/<id> plus its .rap licenses; a .psvita file -> Vita3K's app/addcont/patch/license/<id>.
     Saves are left out on purpose. -> list of existing paths ([] for ordinary ROMs)."""
     try:
-        if system == "ps3" and entry.endswith(".desktop"):
-            with open(entry, encoding="utf-8", errors="replace") as f:
-                m = re.search(r'%:([A-Z]{4}\d{5})"', f.read())
-            if not m:
+        if system == "ps3" and entry.lower().endswith(SHORTCUT_EXT):
+            gid = shortcut_game_id(entry)
+            if not gid:
                 return []
-            hdd0, gid = rpcs3_hdd0(roms_root), m.group(1)
+            hdd0 = rpcs3_hdd0(roms_root)
             exdata = os.path.join(hdd0, "home", "00000001", "exdata")
             raps = [os.path.join(exdata, n) for n in os.listdir(exdata) if f"-{gid}_" in n] \
                 if os.path.isdir(exdata) else []
@@ -632,7 +732,12 @@ def install_psp(row, pkg_file, roms_root, log, progress, cancelled):
     return True
 
 
-def vita3k_command(pkg_dir):
+def vita3k_command(pkg_dir, roms_root):
+    if is_windows():
+        folder = find_emulator("vita3k", roms_root)
+        if not folder:
+            raise RuntimeError(emulator_problem("psvita", roms_root))
+        return [os.path.join(folder, EMULATOR_EXES["vita3k"])]
     if shutil.which("flatpak") and subprocess.run(["flatpak", "info", FLATPAK], capture_output=True).returncode == 0:
         # the sandbox can't see every host folder (e.g. /tmp), so grant the package's folder for this run
         return ["flatpak", "run", f"--filesystem={os.path.realpath(pkg_dir)}:ro", "--command=sh", FLATPAK, "-c",
@@ -646,8 +751,9 @@ def vita3k_command(pkg_dir):
 def install_psv(row, pkg_file, roms_root, log, progress, cancelled):
     log("Installing with Vita3K …")
     progress(0, 0)
-    r = subprocess.run(vita3k_command(os.path.dirname(pkg_file)) + ["-z", "--pkg", pkg_file, "--zrif", row["zrif"]],
-                       capture_output=True, text=True, timeout=3600)
+    r = subprocess.run(vita3k_command(os.path.dirname(pkg_file), roms_root)
+                       + ["-z", "--pkg", pkg_file, "--zrif", row["zrif"]],
+                       capture_output=True, text=True, timeout=3600, creationflags=NO_WINDOW)
     target = install_target(row, roms_root)
     if not os.path.isdir(target):
         tail = "\n".join((r.stdout + r.stderr).strip().splitlines()[-5:])
@@ -666,4 +772,7 @@ INSTALLERS = {"PS3": install_ps3, "PSP": install_psp, "PSV": install_psv}
 
 
 def install(row, pkg_file, roms_root, log, progress, cancelled):
+    problem = emulator_problem({"PS3": "ps3", "PSV": "psvita"}.get(row["console"], ""), roms_root)
+    if problem:  # Windows: nowhere to install to
+        raise RuntimeError(problem)
     return INSTALLERS[row["console"]](row, pkg_file, roms_root, log, progress, cancelled)

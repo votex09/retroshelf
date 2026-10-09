@@ -47,3 +47,34 @@ def held_rel(path, base, pathmod=os.path):
     if rel == pathmod.pardir or rel.startswith(pathmod.pardir + pathmod.sep):
         rel = pathmod.join("external", outside_rel(path, pathmod))
     return rel
+
+
+# a shortcut's settings travel as environment variables, so paths need no quoting inside the script
+_LNK_SCRIPT = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:RS_LNK); "
+               "$s.TargetPath = $env:RS_TARGET; $s.Arguments = $env:RS_ARGS; $s.WorkingDirectory = $env:RS_DIR; "
+               "$s.IconLocation = $env:RS_ICON; $s.Description = $env:RS_DESC; $s.Save()")
+
+
+def make_shortcut(path, target, args="", workdir="", icon="", description=""):
+    """Windows .lnk via PowerShell's WScript.Shell (every Windows has it). Raises OSError if it can't."""
+    env = dict(os.environ, RS_LNK=path, RS_TARGET=target, RS_ARGS=args, RS_DIR=workdir, RS_ICON=icon,
+               RS_DESC=description)
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                            "-Command", _LNK_SCRIPT], env=env, capture_output=True, text=True, timeout=60,
+                           creationflags=NO_WINDOW)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise OSError(f"PowerShell didn't run: {e}") from e
+    if r.returncode or not os.path.exists(path):
+        raise OSError(f"PowerShell couldn't make the shortcut: {(r.stderr or r.stdout).strip()[:300]}")
+
+
+def shortcut_text(path):
+    """The readable text of a .lnk (target, arguments, folders are UTF-16 inside it), for searching; "" if
+    unreadable. Strings can start at an odd offset, so both alignments are decoded."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read(1 << 20)
+    except OSError:
+        return ""
+    return data.decode("utf-16-le", "replace") + "\n" + data[1:].decode("utf-16-le", "replace")

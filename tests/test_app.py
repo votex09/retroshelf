@@ -210,6 +210,33 @@ class AppTest(unittest.TestCase):
         self.assertLessEqual(self.root.winfo_width(), self.root.winfo_screenwidth())
         self.assertLessEqual(self.root.winfo_height(), self.root.winfo_screenheight())
 
+    def test_nopaystation_window_on_windows(self):
+        """Windows mode: missing RPCS3 is reported, and picking its folder fixes that and is remembered."""
+        nps, nps_gui = sys.modules["nps"], sys.modules["nps_gui"]
+        rows = [{"id": "NPUB30133", "name": "Braid", "region": "US", "kind": "Games", "console": "PS3",
+                 "size": 1 << 20, "content_id": "UP0001-NPUB30133_00-BRAID0000000001", "rap": "NOT REQUIRED",
+                 "url": "http://example.invalid/braid.pkg", "zrif": "", "sha256": "", "sha1": "", "subtype": "",
+                 "version": "0"}]
+        self.addCleanup(nps.emulator_dirs.clear)
+        with mock.patch.object(nps, "is_windows", return_value=True), \
+                mock.patch.object(nps_gui, "is_windows", return_value=True), \
+                mock.patch.object(nps.shutil, "which", return_value=None), \
+                mock.patch.object(nps, "load_list", return_value=rows), \
+                mock.patch.object(nps_gui.filedialog, "askdirectory") as ask:
+            self.app.load_system("ps3")  # listed even without a folder, so it can be filled
+            w = nps_gui.open_window(self.app)
+            self.root.update()
+            self.assertIn("RPCS3 wasn't found", w.fw_lbl.cget("text"))
+            rpcs3 = os.path.join(self.base, "Emulators", "RPCS3")
+            os.makedirs(rpcs3, exist_ok=True)
+            open(os.path.join(rpcs3, "rpcs3.exe"), "w").close()
+            ask.return_value = rpcs3
+            button(w.win, "Emulators…").invoke()
+            self.root.update()
+            self.assertIn("firmware", w.fw_lbl.cget("text"))  # found now; firmware is the next thing missing
+            self.assertEqual(self.cfg()["emulator_dirs"], {"rpcs3": os.path.normpath(rpcs3)})
+            w.close()
+
     def test_rename_dialog_and_undo(self):
         a = self.app
         a.rename_dialog()

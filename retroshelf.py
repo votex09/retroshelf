@@ -485,7 +485,7 @@ class App:
 
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
                     "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True,
-                    "system_state": {}, "show_details": True}
+                    "system_state": {}, "show_details": True, "emulator_dirs": {}}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -498,6 +498,7 @@ class App:
             pass
         if not self.cfg["roms_root"] or not os.path.isdir(self.cfg["roms_root"]):
             self.cfg["roms_root"] = guess_roms_root()
+        nps.emulator_dirs.update(self.cfg["emulator_dirs"])  # Windows: RPCS3 / Vita3K folders picked by hand
 
         self.units = {}          # key -> {"paths": [abs path], "size": int}
         self.file_to_unit = {}
@@ -1166,13 +1167,12 @@ class App:
             self.cfg["roms_root"] = path
             self.save_cfg()
             # NoPayStation systems are listed even when their folder is missing; installing creates it
-            fillable = set(nps.CONSOLES) if nps.supported() else set()
-            for d in sorted(set(os.listdir(path)) | fillable):
+            for d in sorted(set(os.listdir(path)) | set(nps.CONSOLES)):
                 full = os.path.join(path, d)
-                if d.startswith((".", "_")) or not (os.path.isdir(full) or d in fillable):
+                if d.startswith((".", "_")) or not (os.path.isdir(full) or d in nps.CONSOLES):
                     continue
                 n = len(list_entries(full, valid_exts(full, d)))
-                if n == 0 and d not in fillable:  # NoPayStation systems stay pickable so they can be filled
+                if n == 0 and d not in nps.CONSOLES:  # NoPayStation systems stay pickable so they can be filled
                     continue
                 name, fullname, _ = read_systeminfo(full)
                 self.system_codes.append(d)
@@ -1203,7 +1203,7 @@ class App:
             f"This folder's systeminfo.txt is for '{name}', so it's ignored (ES-DE may have written it there).")
         self.root.title(f"RetroShelf — {self.fullname or system}")
         self.tools_menu.entryconfig(self._menu_item(self.tools_menu, "NoPayStation"),
-                                    state="normal" if system in nps.CONSOLES and nps.supported() else "disabled")
+                                    state="normal" if system in nps.CONSOLES else "disabled")
         self.restore_state()
         self._refresh_platform_choices()
         self.rescan()
