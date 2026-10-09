@@ -11,9 +11,10 @@ browser_downloads = False when the site's page is only for reading (no Downloads
 leave that column out."""
 import base64, io, os, queue, threading, urllib.request, webbrowser
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, messagebox
 
 import downloads
+import dialogs
 import scraper
 import ui
 
@@ -183,8 +184,7 @@ class CatalogWindow:
         return self.app.cfg.get("homebrew_downloads") or downloads.downloads_dir()
 
     def browse_dir(self):
-        path = filedialog.askdirectory(initialdir=self.dl_dir(), title="Where your browser saves downloads",
-                                       parent=self.win)
+        path = dialogs.ask_directory(self.win, "Where your browser saves downloads", self.dl_dir())
         if path:
             self.app.cfg["homebrew_downloads"] = path
             self.app.save_cfg()

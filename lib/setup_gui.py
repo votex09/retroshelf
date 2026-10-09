@@ -2,9 +2,10 @@
 and point RetroShelf at the new ROMs folder (see lib/frontend.py for how each install works)."""
 import os, queue, threading, webbrowser
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, messagebox
 
 import frontend
+import dialogs
 from fsutil import is_windows
 
 POLL_MS = 2000
@@ -125,8 +126,7 @@ class SetupWindow:
         ttk.Button(self.foot, text="I already have a ROMs folder…", command=pick).pack(side="left")
 
     def _pick_custom(self):
-        path = filedialog.askdirectory(parent=self.win, title="Where should your games go?",
-                                       initialdir=os.path.expanduser("~"))
+        path = dialogs.ask_directory(self.win, "Where should your games go?", os.path.expanduser("~"))
         if path:
             self.custom = os.path.normpath(path)
             self.custom_lbl.config(text=f"{frontend.human_size(frontend.free_bytes(path))} free   {self.custom}")
