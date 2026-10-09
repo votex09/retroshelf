@@ -401,7 +401,8 @@ class NpsLayouts(unittest.TestCase):
             self.assertIn("Vita3K wasn't found", nps.emulator_problem("psvita", self.roms))
             with self.assertRaisesRegex(RuntimeError, "Vita3K wasn't found"):
                 nps.install({"console": "PSV"}, "x.pkg", self.roms, print, print, lambda: False)
-        self.assertIsNone(nps.emulator_problem("ps3", self.roms))  # not on Linux
+        with mock.patch.object(nps, "is_windows", return_value=False):
+            self.assertIsNone(nps.emulator_problem("ps3", self.roms))  # Linux uses RetroDECK's, nothing to find
 
     def test_vita3k_paths(self):
         vita = os.path.dirname(self.touch("ES-DE", "Emulators", "Vita3K", "Vita3K.exe"))
