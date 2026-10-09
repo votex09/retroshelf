@@ -18,6 +18,7 @@ Multi-file games (cue/bin tracks, multi-disc + m3u) are handled as one unit and 
 Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outside roms so ES-DE won't list them.
 Holding folder… lists moved games with artwork and details, and restores or permanently deletes them.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
+Homebrew Hub… browses free GB / GBC / GBA / NES homebrew and files it into roms (see lib/homebrew.py).
 Updates come from GitHub releases (git clones: the main branch): checked at startup (can be turned off) or with Check
 for updates (see lib/updater.py).
 Add to app menu (or --install-desktop) installs a .desktop entry (Windows: a Start menu shortcut); retroshelf.sh
@@ -38,6 +39,7 @@ import sv_ttk  # noqa: E402  (vendored Sun Valley theme, MIT)
 import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import nps_gui  # noqa: E402
+import homebrew_gui  # noqa: E402
 import scraper  # noqa: E402
 import desktop  # noqa: E402
 import details  # noqa: E402
@@ -449,13 +451,7 @@ def valid_exts(folder, system):
     return exts if name == system else None
 
 
-def find_gamelist(roms_root, system):
-    for base in (os.path.join(roms_root, "..", "ES-DE"), os.path.expanduser("~/ES-DE"),
-                 os.path.expanduser("~/.emulationstation")):
-        p = os.path.join(base, "gamelists", system, "gamelist.xml")
-        if os.path.exists(p):
-            return p
-    return None
+find_gamelist = scraper.find_gamelist
 
 
 def guess_roms_root():
@@ -949,6 +945,7 @@ class App:
         tools.add_command(label="Scrape metadata…", command=self.scrape_dialog)
         tools.add_command(label="Rename files…", command=self.rename_dialog)
         tools.add_command(label="NoPayStation…", command=lambda: nps_gui.open_window(self))
+        tools.add_command(label="Homebrew Hub…", command=lambda: homebrew_gui.open_window(self))
         tools.add_separator()
         tools.add_command(label="Download LaunchBox data", command=self.update_lb)
         mb.add_cascade(label="Tools", menu=tools)
@@ -1259,8 +1256,7 @@ class App:
 
     # ---------- scraper ----------
     def gamelist_path(self):
-        return find_gamelist(self.cfg["roms_root"], self.system) or os.path.realpath(
-            os.path.join(self.cfg["roms_root"], "..", "ES-DE", "gamelists", self.system, "gamelist.xml"))
+        return scraper.gamelist_path(self.cfg["roms_root"], self.system)
 
     def scrape_dialog(self):
         if not self.platform:

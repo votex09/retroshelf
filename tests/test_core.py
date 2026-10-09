@@ -1,6 +1,6 @@
 """Name parsing, presets, region dupes, rename planning, LaunchBox matching and file helpers. No window needed,
 but retroshelf.py imports tkinter, so run these with a Python that has it (tests/run.sh picks one)."""
-import json, ntpath, os, posixpath, shutil, subprocess, sys, tempfile, unittest
+import io, json, ntpath, os, posixpath, shutil, subprocess, sys, tempfile, unittest, zipfile
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
@@ -13,6 +13,7 @@ except ImportError as e:  # no tkinter
     raise unittest.SkipTest(f"can't import retroshelf: {e}")
 import fsutil  # noqa: E402  (lib/ is on sys.path once retroshelf is imported)
 import desktop  # noqa: E402
+import homebrew as hb  # noqa: E402
 import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import scraper  # noqa: E402
@@ -442,6 +443,198 @@ class NpsLayouts(unittest.TestCase):
                          "UP0001-NPUB30133_00-BRAID0000000001.rap")
         with self.win:
             self.assertEqual(nps.linked_data("ps3", lnk, self.roms), [game, rap])
+
+
+def hh_entry(slug="pong", title="Pong: Deluxe", platform="GB", license=None, tags=(), files=None, **kw):
+    """A Homebrew Hub manifest like the API returns."""
+    e = {"slug": slug, "title": title, "platform": platform, "typetag": "game", "tags": list(tags),
+         "developer": [{"name": "Ann"}, "Bo"], "basepath": "database", "screenshots": ["shot.png"],
+         "files": files if files is not None else [{"filename": "game.gb", "playable": True, "default": True}]}
+    if license:
+        e["gameLicense"] = license
+    e.update(kw)
+    return e
+
+
+class HomebrewHub(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.roms = os.path.join(self.dir, "roms")
+        self.dl = os.path.join(self.dir, "Downloads")
+        os.makedirs(self.dl)
+
+    def write(self, folder, name, data=b"ROM"):
+        p = os.path.join(folder, name)
+        with open(p, "wb") as f:
+            f.write(data)
+        return p
+
+    def test_who_may_be_downloaded_directly(self):
+        self.assertTrue(hb.can_download(hh_entry(license="MIT")))
+        self.assertTrue(hb.can_download({"slug": "x", "license": "mit"}))  # what the API calls it
+        self.assertEqual(hb.license_text({"slug": "x", "license": "Zlib"}), "Zlib")
+        # licence texts seen in the real catalogue
+        for ok in ("MIT", "GPL-3.0-only", "GPL-3.0", "GPL-3.0-or-later", "ZLib", "CC-BY-SA 4.0", "CC-BY-NC-ND-4.0",
+                   "CC-BY-NC-SA", "MIT / CC-BY-4.0 (Assets)", "Unlicense", "GPL-2.0-or-later", "BSD-3-Clause"):
+            self.assertTrue(hb.open_license(ok), ok)
+        for no in ("", "CC-BY ish", "All rights reserved", "Proprietary", "MIT / proprietary assets", "Freeware"):
+            self.assertFalse(hb.open_license(no), no)
+        self.assertTrue(hb.can_download(hh_entry(license={"spdx": "GPL-3.0-only"})))
+        self.assertTrue(hb.can_download(hh_entry(tags=["Open Source"])))
+        self.assertTrue(hb.can_download(hh_entry(**{"third-party": ["retroshelf"]})))
+        self.assertFalse(hb.can_download(hh_entry()))  # no license: the author decides, so via the website
+        self.assertFalse(hb.can_download(hh_entry(**{"third-party": ["sameboy"]})))
+        self.assertFalse(hb.can_download(hh_entry(license="MIT", **{"use-requirements": {"disable-downloads": True}})))
+        with self.assertRaises(PermissionError):
+            hb.install(hh_entry(), self.roms)
+
+    def test_entry_helpers(self):
+        files = [{"filename": "manual.pdf"}, {"filename": "a.gb", "playable": True},
+                 {"filename": "b.gb", "playable": True, "default": True}]
+        self.assertEqual(hb.rom_file(hh_entry(files=files))["filename"], "b.gb")
+        self.assertEqual(hb.rom_file(hh_entry(files=[{"filename": "x.gb"}]))["filename"], "x.gb")
+        self.assertIsNone(hb.rom_file(hh_entry(files=[])))
+        e = hh_entry(slug="my game")
+        self.assertEqual(hb.file_url(e, "a b.gb"), "https://hh3.gbdev.io/static/database/entries/my game/a%20b.gb")
+        self.assertEqual(hb.page_url(e), "https://hh.gbdev.io/game/my%20game")
+        self.assertEqual(hb.developer_text(e["developer"]), "Ann, Bo")
+        self.assertEqual(hb.rom_name(e, ".GB"), "Pong - Deluxe (Homebrew).gb")
+        self.assertEqual(hb.es_de_fields(hh_entry(date="2021-3"))["releasedate"], "20210301T000000")
+        self.assertEqual(hb.es_de_fields(hh_entry())["developer"], "Ann, Bo")
+
+    def test_catalog_is_cached(self):
+        api = mock.Mock(return_value={"entries": [hh_entry(), hh_entry(slug="gba", platform="GBA")]})
+        with mock.patch.object(hb, "CACHE", self.dir), mock.patch.object(hb, "_get_json", api):
+            self.assertEqual([e["slug"] for e in hb.load_catalog("GB")], ["pong"])  # other platforms dropped
+            self.assertIn("platform=GB", api.call_args.args[0])
+            api.return_value = {"entries": [{"slug": "noplat", "title": "No Platform"}]}
+            self.assertEqual(hb.load_catalog("NES", refresh=True)[0]["platform"], "NES")  # filed under nes/
+            hb.load_catalog("GB")
+            self.assertEqual(api.call_count, 2)
+            self.assertLess(hb.cached_age("GB"), 1)
+            hb.load_catalog("GB", refresh=True)
+            self.assertEqual(api.call_count, 3)
+
+    def test_file_rom_and_zip(self):
+        e = hh_entry()
+        path = hb.file_rom(self.write(self.dl, "game.gb"), e, self.roms)
+        self.assertEqual(path, os.path.join(self.roms, "gb", "Pong - Deluxe (Homebrew).gb"))
+        self.assertEqual(hb.installed_path(e, self.roms), path)
+        with self.assertRaises(FileExistsError):
+            hb.file_rom(self.write(self.dl, "game.gb"), e, self.roms)
+        zipped = self.write(self.dl, "racer.zip", self._zip({"readme.txt": "hi", "dist/racer.gbc": b"GBC ROM"}))
+        e2 = hh_entry(slug="racer", title="Racer", platform="GBC", files=[{"filename": "racer.gbc"}])
+        with self.assertRaises(ValueError):
+            hb.file_rom(self.write(self.dl, "empty.zip", self._zip({"readme.txt": "hi"})), e2, self.roms)
+        path = hb.file_rom(zipped, e2, self.roms)
+        self.assertEqual(path, os.path.join(self.roms, "gbc", "Racer (Homebrew).gbc"))
+        with open(path, "rb") as f:
+            self.assertEqual(f.read(), b"GBC ROM")
+        self.assertFalse(os.path.exists(zipped))
+
+    @staticmethod
+    def _zip(members):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            for n, d in members.items():
+                z.writestr(n, d)
+        return buf.getvalue()
+
+    def test_install_open_source_game(self):
+        class Resp(io.BytesIO):
+            headers = {"Content-Length": "3"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+        seen = []
+        with mock.patch.object(hb.urllib.request, "urlopen", side_effect=lambda req, timeout: (
+                seen.append(req.full_url), Resp(b"ROM"))[1]):
+            path = hb.install(hh_entry(license="MIT"), self.roms)
+        self.assertEqual(seen, ["https://hh3.gbdev.io/static/database/entries/pong/game.gb"])
+        self.assertEqual(os.path.basename(path), "Pong - Deluxe (Homebrew).gb")
+
+    def test_watcher_files_what_the_user_downloads(self):
+        self.write(self.dl, "old.gb")  # there before: never touched
+        w = hb.DownloadWatcher(self.dl, self.roms)
+        self.assertEqual(w.poll(), [])
+        a = hh_entry()
+        b = hh_entry(slug="racer", title="Racer", platform="GBC", files=[{"filename": "racer.gbc"}])
+        w.expect(a)
+        w.expect(b)
+        w.expect(a)
+        self.assertEqual(len(w.waiting), 2)
+        self.write(self.dl, "game (1).gb.part")
+        self.write(self.dl, "notes.txt")
+        self.assertEqual(w.poll(), [])
+        self.write(self.dl, "game (1).gb")  # the browser renamed a repeat download
+        self.assertEqual(w.poll(), [])  # first sight: wait until its size settles
+        [(entry, path)] = w.poll()
+        self.assertEqual((entry["slug"], path), ("pong", os.path.join(self.roms, "gb", "Pong - Deluxe (Homebrew).gb")))
+        self.assertTrue(os.path.exists(os.path.join(self.dl, "old.gb")))
+        self.assertEqual([e["slug"] for e in w.waiting], ["racer"])
+        self.write(self.dl, "racer.gbc")
+        w.poll()
+        [(entry, path)] = w.poll()
+        self.assertEqual(path, os.path.join(self.roms, "gbc", "Racer (Homebrew).gbc"))
+        self.assertEqual(w.waiting, [])
+
+    def test_watcher_leaves_ambiguous_files_alone(self):
+        w = hb.DownloadWatcher(self.dl, self.roms)
+        w.expect(hh_entry(slug="a", files=[{"filename": "a.gb"}]))
+        w.expect(hh_entry(slug="b", files=[{"filename": "b.gb"}]))
+        self.write(self.dl, "something-else.gb")  # two GB games waiting: can't tell which this is
+        w.poll()
+        self.assertEqual(w.poll(), [])
+        self.assertEqual(len(w.waiting), 2)
+        w.cancel("a")
+        self.assertEqual([e["slug"] for e in w.waiting], ["b"])
+        w.cancel()
+        self.assertEqual(w.waiting, [])
+
+    def test_downloads_dir(self):
+        cfg = os.path.join(self.dir, "cfg")
+        os.makedirs(cfg)
+        self.write(cfg, "user-dirs.dirs", b'XDG_DOWNLOAD_DIR="$HOME/Telechargements"\n')
+        with mock.patch.object(hb, "is_windows", return_value=False), \
+                mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": cfg}):
+            self.assertEqual(hb.downloads_dir(), os.path.join(os.path.expanduser("~"), "Telechargements"))
+        with mock.patch.object(hb, "is_windows", return_value=True):
+            self.assertEqual(hb.downloads_dir(), os.path.join(os.path.expanduser("~"), "Downloads"))
+
+
+@unittest.skipUnless(os.environ.get("RETROSHELF_LIVE_TESTS"),
+                     "talks to the real Homebrew Hub; set RETROSHELF_LIVE_TESTS=1")
+class LiveHomebrewHub(unittest.TestCase):
+    """Checks the API still has the shape lib/homebrew.py expects (run by CI, not by default)."""
+
+    def test_catalog_entry_and_urls(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        with mock.patch.object(hb, "CACHE", d):
+            entries = hb.load_catalog("GB", refresh=True)
+        self.assertGreater(len(entries), 100)
+        untitled = [e["slug"] for e in entries if not e.get("title")]
+        print(f"\n{len(entries)} GB entries; fields in the search results: {sorted(entries[0])}; "
+              f"{sum(bool(e.get('files')) for e in entries)} list files; untitled: {untitled[:10]}")
+        self.assertTrue(all(e.get("slug") for e in entries))
+        self.assertLess(len(untitled), len(entries) / 10)  # the window shows the slug for these
+        e = next(e for e in entries if e.get("screenshots"))
+        full = hb.load_entry(e["slug"])
+        print(f"entry {e['slug']}: fields {sorted(full)}")
+        import collections
+        print("licenses:", collections.Counter(hb.game_license(x) for x in entries).most_common(15))
+        print("one-click installs:", sum(hb.can_download(x) for x in entries), "of", len(entries))
+        self.assertEqual(full["slug"], e["slug"])
+        self.assertIsNotNone(hb.rom_file(full))
+        for url in (hb.screenshot_url(full), hb.file_url(full, hb.rom_file(full)["filename"])):
+            req = hb.urllib.request.Request(url, headers={"User-Agent": hb.USER_AGENT})
+            with hb.urllib.request.urlopen(req, timeout=30) as r:
+                self.assertEqual(r.status, 200, url)
+                self.assertTrue(r.read(16))
 
 
 @unittest.skipUnless(os.name == "nt", "real Windows only")
