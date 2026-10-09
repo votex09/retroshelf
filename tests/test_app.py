@@ -16,7 +16,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
     raise unittest.SkipTest("no display (run tests/run.sh, which uses xvfb-run)")
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
-               "homebrew", "homebrew_gui"]
+               "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -241,6 +241,7 @@ class AppTest(unittest.TestCase):
     def test_homebrew_hub_window(self):
         """One-click install for an open-source game, and filing a game the user downloads in their browser."""
         hb, hbg, scraper = sys.modules["homebrew"], sys.modules["homebrew_gui"], sys.modules["scraper"]
+        cg = sys.modules["catalog_gui"]
         png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0g"
                                "AAAABJRU5ErkJggg==")  # 1x1 PNG
         game = {"filename": "game.gb", "playable": True, "default": True}
@@ -273,7 +274,7 @@ class AppTest(unittest.TestCase):
         with mock.patch.object(hb, "load_catalog", return_value=entries), \
                 mock.patch.object(hb.urllib.request, "urlopen", side_effect=fake_urlopen), \
                 mock.patch.object(scraper, "es_de_running", return_value=False), \
-                mock.patch.object(hbg.webbrowser, "open", side_effect=opened.append):
+                mock.patch.object(cg.webbrowser, "open", side_effect=opened.append):
             w = hbg.open_window(self.app)
             self.pump(lambda: w.entries)
             self.assertEqual(w.tv.get_children(), ("closed", "open"))  # sorted, NSFW left out
@@ -309,6 +310,52 @@ class AppTest(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(self.p["roms"], "gb", "Closed Quest (Homebrew).gb")))
             self.assertFalse(os.path.exists(os.path.join(downloads, "game.gb")))
             self.assertEqual(w.watcher.waiting, [])
+            w.close()
+
+    def test_itch_window(self):
+        """Blocked feed: Browse on itch.io files any ROM. Listed game: Open on itch.io files it under its title."""
+        itch, cg, scraper = sys.modules["itch"], sys.modules["catalog_gui"], sys.modules["scraper"]
+        downloads = os.path.join(self.base, "home", "Downloads")
+        os.makedirs(downloads, exist_ok=True)
+        self.app.cfg["homebrew_downloads"] = downloads
+        opened = []
+        game = {"url": "https://gee.itch.io/tiny-quest", "title": "Tiny Quest", "author": "gee", "image": "",
+                "description": "A small quest.", "year": "2021", "price": "", "system": "nes"}
+        with mock.patch.object(itch, "load_catalog", side_effect=itch.Blocked("itch.io turned the request away")), \
+                mock.patch.object(scraper, "es_de_running", return_value=False), \
+                mock.patch.object(cg.webbrowser, "open", side_effect=opened.append):
+            self.app.system = "nes"  # the window opens on the system being looked at
+            w = sys.modules["itch_gui"].open_window(self.app)
+            self.pump(lambda: "turned the request away" in w.status.cget("text"))
+            self.assertIn("Browse on itch.io still works", w.status.cget("text"))
+            self.assertEqual(w.tv.get_children(), ())
+            button(w.win, "Browse on itch.io ↗").invoke()
+            self.assertEqual(opened, ["https://itch.io/games/price-free/tag-nes"])
+            with open(os.path.join(downloads, "space_blaster.nes"), "wb") as f:
+                f.write(b"NES")
+            w._watch()
+            w._watch()
+            self.assertTrue(os.path.exists(os.path.join(self.p["roms"], "nes", "space blaster (Homebrew).nes")))
+            self.assertEqual([x["id"] for x in w.watcher.waiting], ["any:nes"])  # still browsing
+
+            itch.load_catalog.side_effect, itch.load_catalog.return_value = None, [game]
+            button(w.win, "Refresh list").invoke()
+            self.pump(lambda: w.tv.get_children() == (game["url"],))
+            self.assertEqual(w.tv.item(game["url"], "text"), "Tiny Quest")
+            w.tv.selection_set(game["url"])
+            self.root.update()
+            self.assertIn("A small quest.", w.info.get("1.0", "end"))
+            button(w.win, "Open on itch.io ↗").invoke()
+            self.assertEqual(opened[-1], "https://gee.itch.io/tiny-quest")
+            with open(os.path.join(downloads, "tinyquest-1.1.nes"), "wb") as f:
+                f.write(b"NES2")
+            w._watch()
+            w._watch()
+            self.assertTrue(os.path.exists(os.path.join(self.p["roms"], "nes", "Tiny Quest (Homebrew).nes")))
+            with open(scraper.gamelist_path(self.p["roms"], "nes"), encoding="utf-8") as f:
+                self.assertIn("<desc>A small quest.</desc>", f.read())
+            self.assertEqual(w.tv.set(game["url"], "status"), "Installed")
+            w.watcher.cancel()
             w.close()
 
     def pump(self, done, timeout=5.0):

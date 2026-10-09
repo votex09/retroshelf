@@ -63,6 +63,14 @@ rename can be undone, and games only go for good when you delete them from the h
 - New games are named `Title (Homebrew).ext` and get Homebrew Hub's description, developer, date and screenshot in
   ES-DE.
 
+**itch.io homebrew (Game Boy, GBA, NES, SNES, Mega Drive, Master System, PC Engine, Atari 2600, PICO-8)**
+- **Tools → itch.io homebrew…** lists free games itch.io tags for the system, from itch.io's official browse feeds.
+- Games download on itch.io in your browser, where their authors can ask for an optional donation: **Open on
+  itch.io** for a listed game, or **Browse on itch.io** to look around. Every ROM for the system that lands in your
+  Downloads folder is put in the right `roms` folder (zips are unpacked; other downloads are left alone).
+- itch.io's Cloudflare protection sometimes turns apps away from its feeds; the list is then empty, and Browse on
+  itch.io still works.
+
 ## Screenshots
 
 <table>
