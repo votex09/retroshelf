@@ -139,8 +139,8 @@ def update(zip_path=None, progress=print):
         by_plat, game_plat, alts, plat_alts = {}, {}, [], {}
         details, images = {}, {}
         depth = 0
-        with zipfile.ZipFile(zip_path) as z:
-            for ev, el in ET.iterparse(z.open("Metadata.xml"), events=("start", "end")):
+        with zipfile.ZipFile(zip_path) as z, z.open("Metadata.xml") as xml:
+            for ev, el in ET.iterparse(xml, events=("start", "end")):
                 if ev == "start":
                     depth += 1
                     continue
