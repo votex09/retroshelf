@@ -12,7 +12,7 @@ try:
     from tkinter import ttk
 except ImportError as e:
     raise unittest.SkipTest(f"no tkinter: {e}")
-if not os.environ.get("DISPLAY"):
+if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
     raise unittest.SkipTest("no display (run tests/run.sh, which uses xvfb-run)")
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil"]
@@ -198,6 +198,17 @@ class AppTest(unittest.TestCase):
             self.assertIn("/somewhere", f.read())
         self.assertEqual(self.app.cfg["roms_root"], os.path.realpath(self.p["roms"]))  # found next to the app
         self.assertFalse(any(n.endswith(".tmp") for n in os.listdir(self.p["app"])))
+
+    def test_default_holding_folder_sits_next_to_roms(self):
+        a = self.app
+        a.cfg["holding_root"] = ""
+        for roms in (self.p["roms"], self.p["roms"] + os.sep):  # a trailing separator mustn't put it inside roms
+            a.cfg["roms_root"] = roms
+            self.assertEqual(a.holding_root(), os.path.join(os.path.dirname(self.p["roms"]), "pruned"))
+
+    def test_window_fits_the_screen(self):
+        self.assertLessEqual(self.root.winfo_width(), self.root.winfo_screenwidth())
+        self.assertLessEqual(self.root.winfo_height(), self.root.winfo_screenheight())
 
     def test_rename_dialog_and_undo(self):
         a = self.app

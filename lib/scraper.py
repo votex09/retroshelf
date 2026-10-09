@@ -1,10 +1,11 @@
 """Fill ES-DE metadata and media from the cached LaunchBox data. Only fills gaps: never overwrites existing
 gamelist fields or media files, and never touches play counts, favorites or other ES-DE-managed fields."""
-import datetime, os, re, shutil, urllib.request
+import datetime, os, re, shutil, subprocess, urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import launchbox as lb
+from fsutil import NO_WINDOW, is_windows
 
 # ES-DE media folder -> (label, LaunchBox image types in order of preference, on by default)
 MEDIA = {
@@ -36,15 +37,30 @@ for _r in ("France", "Germany", "Spain", "Italy", "Netherlands", "Sweden", "Norw
 PRIMARY_EXT = [".m3u", ".cue", ".gdi", ".ccd", ".chd", ".iso", ".cso", ".pbp"]
 
 
+ES_DE_PROCESSES = {"es-de", "emulationstation", "retrodeck"}
+
+
 def es_de_running():
-    for pid in os.listdir("/proc"):
-        if pid.isdigit():
-            try:
-                with open(f"/proc/{pid}/comm") as f:
-                    if f.read().strip().lower() in ("es-de", "emulationstation", "retrodeck"):
-                        return True
-            except OSError:
-                pass
+    """True while ES-DE / RetroDECK runs: it rewrites gamelist.xml on exit, which would undo our edits."""
+    if is_windows():
+        try:
+            out = subprocess.run(["tasklist", "/fo", "csv", "/nh"], capture_output=True, text=True, timeout=15,
+                                 creationflags=NO_WINDOW).stdout
+        except (OSError, subprocess.SubprocessError):
+            return False
+        names = (line.split('","')[0].strip('"') for line in out.splitlines())
+        return any(os.path.splitext(n)[0].lower() in ES_DE_PROCESSES for n in names)
+    try:
+        pids = [p for p in os.listdir("/proc") if p.isdigit()]
+    except OSError:  # no /proc (macOS)
+        return False
+    for pid in pids:
+        try:
+            with open(f"/proc/{pid}/comm") as f:
+                if f.read().strip().lower() in ES_DE_PROCESSES:
+                    return True
+        except OSError:
+            pass
     return False
 
 

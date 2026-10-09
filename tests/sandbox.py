@@ -4,9 +4,10 @@
     tests/sandbox.py                    # build one in a temp folder and print where it is
     tests/sandbox.py --dir /tmp/rs      # build it there (replaced if it exists)
     tests/sandbox.py --run              # build it, then start RetroShelf on it
-    tests/sandbox.py --screenshot a.png # build, start under a virtual display, save a screenshot, quit
+    tests/sandbox.py --screenshot a.png # build, start it (Linux: under a virtual display), save a screenshot, quit
 
-Layout (HOME points at <dir>/home, so ~/ES-DE, ~/.local and the RPCS3 / Vita3K config are fake too):
+Layout (HOME / USERPROFILE point at <dir>/home, so ~/ES-DE, ~/.local, the Start menu and the RPCS3 / Vita3K config
+are fake too):
     <dir>/RetroShelf/            copy of this checkout: config.json, moves.json, cache/ … land here, not in the repo
     <dir>/retrodeck/roms/snes/   No-Intro style names: region dupes, junk, sports, a played game, a .part
     <dir>/retrodeck/roms/psx/    a cue/bin game and a two-disc game with an .m3u
@@ -52,7 +53,9 @@ PSX_GAMES = [  # (unit name, LaunchBox name, rating, votes, genres)
 
 def _write(path, data=b"\0" * 1024):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb" if isinstance(data, bytes) else "w") as f:
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    with open(path, "wb") as f:
         f.write(data)
 
 
@@ -169,8 +172,11 @@ def build(base, with_launchbox=True):
 
 
 def env(base, extra=None):
-    e = dict(os.environ, HOME=os.path.join(base, "home"), XDG_DATA_HOME=os.path.join(base, "home", ".local", "share"),
-             XDG_CONFIG_HOME=os.path.join(base, "home", ".config"))
+    home = os.path.join(base, "home")
+    e = dict(os.environ, HOME=home, XDG_DATA_HOME=os.path.join(home, ".local", "share"),
+             XDG_CONFIG_HOME=os.path.join(home, ".config"),
+             USERPROFILE=home, APPDATA=os.path.join(home, "AppData", "Roaming"),  # Windows' idea of home
+             LOCALAPPDATA=os.path.join(home, "AppData", "Local"))
     e.update(extra or {})
     return e
 
@@ -192,9 +198,24 @@ def launch(paths, screenshot=None, wait=6.0):
     cmd = [py, os.path.join(paths["app"], "retroshelf.py")]
     e = env(paths["base"])
     if screenshot is None:
-        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             sys.exit("No display. Use --screenshot to run under a virtual one (needs xvfb-run and ImageMagick).")
         sys.exit(subprocess.call(cmd, env=e))
+    if not sys.platform.startswith("linux"):  # Windows / macOS: the real desktop, grabbed with Pillow
+        try:
+            from PIL import ImageGrab
+        except ImportError:
+            sys.exit("--screenshot needs Pillow here (pip install pillow)")
+        proc = subprocess.Popen(cmd, env=e)
+        try:
+            time.sleep(wait)
+            if proc.poll() is not None:
+                sys.exit(f"RetroShelf exited early (code {proc.returncode})")
+            ImageGrab.grab().save(os.path.abspath(screenshot))
+        finally:
+            proc.terminate()
+        print(f"Screenshot: {os.path.abspath(screenshot)}")
+        return
     if not shutil.which("xvfb-run") or not shutil.which("import"):
         sys.exit("--screenshot needs xvfb-run (xvfb) and import (imagemagick)")
     shot = os.path.abspath(screenshot)
