@@ -3,7 +3,7 @@
 # RetroShelf
 
 A desktop tool for tidying up an [ES-DE](https://es-de.org/) / [RetroDECK](https://retrodeck.net/) game library on
-Linux. Point it at your `roms` folder, pick a system, and it helps you decide what to keep, fills in metadata and
+Linux or Windows. Point it at your `roms` folder, pick a system, and it helps you decide what to keep, fills in metadata and
 artwork, gives your files consistent names, and installs PS3 / PS Vita / PSP games through NoPayStation.
 
 Nothing is deleted unless you ask: pruned games are moved to a holding folder outside `roms`, every move and
@@ -73,9 +73,14 @@ rename can be undone, and games only go for good when you delete them from the h
 
 ## Requirements
 
-- Linux with Python 3.9 or newer and Tk (`tkinter`). Most desktop distros ship both; on Debian / Ubuntu run
+- **Linux:** Python 3.9 or newer and Tk (`tkinter`). Most desktop distros ship both; on Debian / Ubuntu run
   `sudo apt install python3-tk`.
-- No other Python packages are needed. With Pillow installed (`python3-pil.imagetk` on Debian / Ubuntu, `python-pillow` on Arch), the details panel
+- **Windows:** Python 3.9 or newer from [python.org](https://www.python.org/downloads/windows/) (it includes Tk).
+  Works with both the installer and the portable release of ES-DE: RetroShelf finds `C:\Users\<you>\ROMs` and
+  `C:\Users\<you>\ES-DE`, or `ES-DE\ROMs` next to `ES-DE\ES-DE` for the portable one. NoPayStation installs are
+  Linux / RetroDECK only for now.
+- No other Python packages are needed. With Pillow installed (`python3-pil.imagetk` on Debian / Ubuntu, `python-pillow` on Arch,
+  `py -m pip install pillow` on Windows), the details panel
   can show JPEG artwork too; without it only PNG artwork is shown.
 - PS3 / PSP package decryption uses the `cryptography` module if it's installed
   and the system's OpenSSL library otherwise.
@@ -95,12 +100,13 @@ and unpack it anywhere.
 ## Run
 
 ```sh
-./retroshelf.sh            # or: python3 retroshelf.py
+./retroshelf.sh            # Linux, or: python3 retroshelf.py
+retroshelf.bat             # Windows: double-click it, or: py retroshelf.py
 ```
 
-- **App menu:** use **Help → Add to app menu** (or run `./retroshelf.sh --install-desktop`) to add RetroShelf
-  to your desktop's application menu with its icon. If you move the folder, add it again.
-- **Steam / Steam Deck:** add `retroshelf.sh` to Steam as a non-Steam game.
+- **App menu:** use **Help → Add to app menu** (Windows: **Add to Start menu**), or run the launcher with
+  `--install-desktop`, to add RetroShelf to your application menu with its icon. If you move the folder, add it again.
+- **Steam / Steam Deck:** add `retroshelf.sh` (Windows: `retroshelf.bat`) to Steam as a non-Steam game.
 
 On first start, run **Tools → Download LaunchBox data** (about 110 MB) to enable ratings, genres, matching and scraping.
 
@@ -133,12 +139,14 @@ SNES and PlayStation games, a small offline LaunchBox database, and `HOME` point
 
 ```sh
 tests/run.sh                        # whole suite (uses xvfb-run when there's no display)
+py -m unittest discover -s tests -t . -v   # the same on Windows
 tests/run.sh -v tests.test_app      # just the end-to-end window tests
 tests/sandbox.py --run              # open RetroShelf on a throwaway library to try changes by hand
 tests/sandbox.py --screenshot a.png # same, headless: saves a screenshot (needs xvfb and ImageMagick)
 ```
 
-The tests need Python with Tk (`python3-tk`); the window tests also need a display or `xvfb-run`.
+The tests need Python with Tk (`python3-tk`); the window tests also need a display or `xvfb-run`. CI runs them
+on both Linux and Windows.
 
 ## Credits
 

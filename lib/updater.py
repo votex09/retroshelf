@@ -4,6 +4,8 @@ its files (cache/, config and logs aren't in the archive, so they're left alone)
 follow the main branch instead."""
 import json, os, re, shutil, subprocess, sys, tempfile, urllib.error, urllib.request, zipfile
 
+from fsutil import NO_WINDOW, is_windows
+
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = "votex09/retroshelf"
 BRANCH = "main"
@@ -13,7 +15,8 @@ SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 
 def _git(*args, timeout=60):
-    return subprocess.run(["git", "-C", APP_DIR, *args], capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(["git", "-C", APP_DIR, *args], capture_output=True, text=True, timeout=timeout,
+                          creationflags=NO_WINDOW)
 
 
 def is_git():
@@ -155,4 +158,8 @@ def apply(tag=None):
 
 
 def restart():
-    os.execv(sys.executable, [sys.executable, os.path.join(APP_DIR, "retroshelf.py")] + sys.argv[1:])
+    args = [sys.executable, os.path.join(APP_DIR, "retroshelf.py")] + sys.argv[1:]
+    if is_windows():  # execv on Windows doesn't replace the process and mangles arguments with spaces
+        subprocess.Popen(args, cwd=APP_DIR, close_fds=True)
+        os._exit(0)
+    os.execv(sys.executable, args)

@@ -20,7 +20,8 @@ Holding folder… lists moved games with artwork and details, and restores or pe
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
 Updates come from GitHub releases (git clones: the main branch): checked at startup (can be turned off) or with Check
 for updates (see lib/updater.py).
-Add to app menu (or --install-desktop) installs a .desktop entry; retroshelf.sh is a launcher for Steam / file managers.
+Add to app menu (or --install-desktop) installs a .desktop entry (Windows: a Start menu shortcut); retroshelf.sh
+(Windows: retroshelf.bat) is a launcher for Steam / file managers.
 """
 import datetime, json, os, queue, re, shutil, sys, threading
 import xml.etree.ElementTree as ET
@@ -40,12 +41,13 @@ import nps_gui  # noqa: E402
 import scraper  # noqa: E402
 import desktop  # noqa: E402
 import details  # noqa: E402
-from fsutil import write_json  # noqa: E402
+from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
 import updater  # noqa: E402
 
 UI_FONTS = ["Inter", "Segoe UI", "Noto Sans", "Cantarell", "Ubuntu", "DejaVu Sans"]
-MONO_FONTS = ["JetBrains Mono", "Fira Code", "Noto Sans Mono", "DejaVu Sans Mono", "monospace"]
+MONO_FONTS = ["JetBrains Mono", "Fira Code", "Cascadia Mono", "Consolas", "Noto Sans Mono", "DejaVu Sans Mono",
+              "monospace"]
 PALETTE = {
     "dark": {"field": "#272727", "fg": "#fafafa", "border": "#3a3a3a", "accent": "#57c8ff", "sel": "#2f60d8",
              "muted": "#9a9a9a", "stripe": "#232323", "manual": "#ffb347", "keep": "#7fd17f", "move": "#ff8a80",
@@ -230,6 +232,8 @@ ANY_TAG_RE = re.compile(r"[\(\[][^\)\]]*[\)\]]")
 LANG_RE = re.compile(r"[A-Z][a-z](?:[+-][A-Z][a-z])*(?:,\s*[A-Z][a-z](?:[+-][A-Z][a-z])*)*")
 REV_RE = re.compile(r"Rev\s*[\w.]+|v\d[\w.]*|Version\s*[\w.]+", re.I)
 REF_EXT = (".cue", ".m3u", ".gdi")  # text files that name the game's other files
+WIN_RESERVED_RE = re.compile(r"(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", re.I)  # device names Windows won't use
+WIN_MAX_PATH = 259  # longer paths fail unless long paths are switched on in Windows
 
 
 def split_ext(name):
@@ -304,7 +308,13 @@ def plan_renames(units, template):
             if not base:
                 row["status"] = "empty name"
                 continue
+            if WIN_RESERVED_RE.fullmatch(base) or (not ext and base.endswith(".")):
+                row["status"] = "name Windows can't use"  # also on Linux: the drive may be shared with Windows
+                continue
             row["new"] = os.path.join(os.path.dirname(p), base + parts + ext)
+            if is_windows() and len(os.path.abspath(row["new"])) > WIN_MAX_PATH:
+                row["status"] = "path too long for Windows"
+                continue
             if row["new"] != p:
                 row["status"] = "rename"
     sources = {os.path.normcase(r["old"]) for r in rows if r["status"] == "rename"}
@@ -468,7 +478,10 @@ class App:
             self.big_icon = self.icons[0].subsample(2)  # 128 px, for the details panel's welcome
         except tk.TclError:
             pass
-        root.geometry("1600x950")
+        # 1600x950 at 96 dpi, scaled for high-DPI screens and kept on screen (Steam Deck: 1280x800)
+        scale = max(1.0, root.winfo_fpixels("1i") / 96)
+        root.geometry(f"{min(round(1600 * scale), root.winfo_screenwidth())}x"
+                      f"{min(round(950 * scale), root.winfo_screenheight() - round(60 * scale))}")
 
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
                     "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True,
@@ -580,10 +593,11 @@ class App:
         try:
             desktop.install()
         except OSError as e:
-            messagebox.showerror("Couldn't add to app menu", str(e))
+            messagebox.showerror(f"Couldn't {desktop.menu_label().lower()}", str(e))
             return
-        self.help_menu.entryconfig(self._menu_item(self.help_menu, "Add to app menu"), state="disabled")
-        self.toast("Added to your app menu. If you move the RetroShelf folder, add it again from Help.")
+        self.help_menu.entryconfig(self._menu_item(self.help_menu, desktop.menu_label()), state="disabled")
+        where = "the Start menu" if is_windows() else "your app menu"
+        self.toast(f"Added to {where}. If you move the RetroShelf folder, add it again from Help.")
 
     # ---------- updates ----------
     def check_updates(self, quiet=False):
@@ -713,7 +727,8 @@ class App:
             pass
 
     def holding_root(self):
-        return self.cfg["holding_root"] or os.path.join(os.path.dirname(self.cfg["roms_root"].rstrip("/")), "pruned")
+        return self.cfg["holding_root"] or os.path.join(os.path.dirname(os.path.normpath(self.cfg["roms_root"])),
+                                                        "pruned")
 
     # ---------- UI ----------
     def _build(self):
@@ -946,7 +961,7 @@ class App:
         hlp.add_command(label="Name pattern help", command=self.pattern_help)
         hlp.add_separator()
         hlp.add_command(label="Check for updates", command=self.check_updates)
-        hlp.add_command(label="Add to app menu", command=self.install_desktop,
+        hlp.add_command(label=desktop.menu_label(), command=self.install_desktop,
                         state="disabled" if desktop.is_installed() else "normal")
         mb.add_cascade(label="Help", menu=hlp)
         self.root.config(menu=mb)
@@ -1151,12 +1166,13 @@ class App:
             self.cfg["roms_root"] = path
             self.save_cfg()
             # NoPayStation systems are listed even when their folder is missing; installing creates it
-            for d in sorted(set(os.listdir(path)) | set(nps.CONSOLES)):
+            fillable = set(nps.CONSOLES) if nps.supported() else set()
+            for d in sorted(set(os.listdir(path)) | fillable):
                 full = os.path.join(path, d)
-                if d.startswith((".", "_")) or not (os.path.isdir(full) or d in nps.CONSOLES):
+                if d.startswith((".", "_")) or not (os.path.isdir(full) or d in fillable):
                     continue
                 n = len(list_entries(full, valid_exts(full, d)))
-                if n == 0 and d not in nps.CONSOLES:  # NoPayStation systems stay pickable so they can be filled
+                if n == 0 and d not in fillable:  # NoPayStation systems stay pickable so they can be filled
                     continue
                 name, fullname, _ = read_systeminfo(full)
                 self.system_codes.append(d)
@@ -1187,7 +1203,7 @@ class App:
             f"This folder's systeminfo.txt is for '{name}', so it's ignored (ES-DE may have written it there).")
         self.root.title(f"RetroShelf — {self.fullname or system}")
         self.tools_menu.entryconfig(self._menu_item(self.tools_menu, "NoPayStation"),
-                                    state="normal" if system in nps.CONSOLES else "disabled")
+                                    state="normal" if system in nps.CONSOLES and nps.supported() else "disabled")
         self.restore_state()
         self._refresh_platform_choices()
         self.rescan()
@@ -1415,7 +1431,7 @@ class App:
     def show_holding(self):
         """Footer shows the last two folders only, so a long path can't push the status text under the buttons."""
         parts = os.path.normpath(self.holding_root()).split(os.sep)
-        self.hold_lbl.config(text=os.sep.join(parts[-2:]) if len(parts) <= 3 else "…/" + "/".join(parts[-2:]))
+        self.hold_lbl.config(text=os.sep.join(parts[-2:] if len(parts) <= 3 else ["…"] + parts[-2:]))
 
     def _disk_tip(self):
         try:
@@ -1747,14 +1763,12 @@ class App:
                                                    f"into\n{dest_dir}/ ?{extra_note}{space_note}"):
             return
         os.makedirs(dest_dir, exist_ok=True)
-        base = os.path.dirname(os.path.realpath(self.cfg["roms_root"]).rstrip("/"))
+        base = os.path.dirname(os.path.realpath(self.cfg["roms_root"]))
         moved, failed, done = 0, [], []
         for k in self.to_move:
             for p in self.units[k]["paths"] + self.units[k]["extra"]:
                 if p in self.units[k]["extra"]:  # keep the path under retrodeck/ so it can be moved back by hand
-                    rel = os.path.relpath(os.path.realpath(p), base)
-                    target = os.path.join(dest_dir, "installed", rel if not rel.startswith("..") else
-                                          os.path.join("external", os.path.realpath(p).lstrip("/")))
+                    target = os.path.join(dest_dir, "installed", held_rel(os.path.realpath(p), base))
                     os.makedirs(os.path.dirname(target), exist_ok=True)
                 else:
                     target = os.path.join(dest_dir, os.path.basename(p))
@@ -2557,6 +2571,12 @@ def prune_empty(folder, stop):
 
 if __name__ == "__main__":
     if "--install-desktop" in sys.argv[1:]:
-        print(f"Added RetroShelf to the app menu: {desktop.install()}")
+        print(f"Added RetroShelf to the {'Start' if is_windows() else 'app'} menu: {desktop.install()}")
         sys.exit()
+    if is_windows():
+        try:  # crisp text on high-DPI screens instead of a blurry bitmap-stretched window
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (AttributeError, OSError):
+            pass
     App(tk.Tk(className="retroshelf")).root.mainloop()

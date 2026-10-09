@@ -1,6 +1,6 @@
 """Name parsing, presets, region dupes, rename planning, LaunchBox matching and file helpers. No window needed,
 but retroshelf.py imports tkinter, so run these with a Python that has it (tests/run.sh picks one)."""
-import json, os, shutil, sys, tempfile, unittest
+import json, ntpath, os, posixpath, shutil, subprocess, sys, tempfile, unittest
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
@@ -12,7 +12,9 @@ try:
 except ImportError as e:  # no tkinter
     raise unittest.SkipTest(f"can't import retroshelf: {e}")
 import fsutil  # noqa: E402  (lib/ is on sys.path once retroshelf is imported)
+import desktop  # noqa: E402
 import launchbox as lb  # noqa: E402
+import scraper  # noqa: E402
 import updater  # noqa: E402
 import sandbox  # noqa: E402
 
@@ -75,7 +77,7 @@ class Renames(unittest.TestCase):
 
     def touch(self, name, text=""):
         p = os.path.join(self.dir, name)
-        with open(p, "w") as f:
+        with open(p, "w", encoding="utf-8") as f:
             f.write(text)
         return p
 
@@ -250,6 +252,97 @@ class Updater(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 updater.apply()
             self.assertTrue(m.call_args.args[0].full_url.endswith("/zip/refs/heads/main"))
+
+
+class Windows(unittest.TestCase):
+    """Windows code paths, checked on any system by pretending (and for real on the Windows CI runner)."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+
+    def test_emulator_data_on_another_drive(self):
+        self.assertEqual(rs.held_rel(r"D:\Emu\rpcs3\dev_hdd0\game\X", r"C:\Users\me", ntpath),
+                         r"external\D\Emu\rpcs3\dev_hdd0\game\X")
+        self.assertEqual(rs.held_rel(r"C:\Users\me\storage\x", r"C:\Users\me", ntpath), r"storage\x")
+        self.assertEqual(rs.held_rel(r"\\nas\share\x", r"C:\Users\me", ntpath), r"external\nas\share\x")
+        # same answers as before on Linux
+        self.assertEqual(rs.held_rel("/home/me/.var/x", "/home/me/retrodeck", posixpath), "external/home/me/.var/x")
+        self.assertEqual(rs.held_rel("/home/me/retrodeck/storage/x", "/home/me/retrodeck", posixpath), "storage/x")
+
+    def test_es_de_running_uses_tasklist(self):
+        out = '"System Idle Process","0","Services","0","8 K"\n"ES-DE.exe","4242","Console","1","200,000 K"\n'
+        with mock.patch.object(scraper, "is_windows", return_value=True), \
+                mock.patch.object(scraper.subprocess, "run",
+                                  return_value=subprocess.CompletedProcess([], 0, out, "")) as run:
+            self.assertTrue(scraper.es_de_running())
+            self.assertEqual(run.call_args.args[0][0], "tasklist")
+            run.return_value = subprocess.CompletedProcess([], 0, out.replace("ES-DE.exe", "notepad.exe"), "")
+            self.assertFalse(scraper.es_de_running())
+            run.side_effect = OSError("no tasklist")
+            self.assertFalse(scraper.es_de_running())
+
+    def test_es_de_running_without_proc(self):
+        with mock.patch.object(scraper, "is_windows", return_value=False), \
+                mock.patch.object(scraper.os, "listdir", side_effect=FileNotFoundError("/proc")):
+            self.assertFalse(scraper.es_de_running())  # macOS: no /proc, no crash
+
+    def test_start_menu_shortcut(self):
+        appdata = os.path.join(self.dir, "Roaming")
+
+        def powershell(cmd, env, **kw):
+            self.assertEqual(cmd[0], "powershell")
+            with open(env["RS_LNK"], "wb") as f:  # what WScript.Shell would write, roughly
+                f.write(b"L\0\0\0" + env["RS_DIR"].encode("utf-16-le"))
+            self.env = env
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with mock.patch.object(desktop, "is_windows", return_value=True), \
+                mock.patch.dict(os.environ, {"APPDATA": appdata}), \
+                mock.patch.object(desktop.subprocess, "run", side_effect=powershell):
+            self.assertEqual(desktop.menu_label(), "Add to Start menu")
+            self.assertFalse(desktop.is_installed())
+            path = desktop.install()
+            self.assertEqual(path, os.path.join(appdata, "Microsoft", "Windows", "Start Menu", "Programs",
+                                                "RetroShelf.lnk"))
+            self.assertTrue(desktop.is_installed())
+            self.assertTrue(self.env["RS_ICON"].endswith("icon.ico") and os.path.exists(self.env["RS_ICON"]))
+            self.assertIn("retroshelf.py", self.env["RS_ARGS"])
+
+    def test_start_menu_shortcut_failure_is_an_oserror(self):
+        with mock.patch.object(desktop, "is_windows", return_value=True), \
+                mock.patch.dict(os.environ, {"APPDATA": self.dir}), \
+                mock.patch.object(desktop.subprocess, "run",
+                                  return_value=subprocess.CompletedProcess([], 1, "", "blocked by policy")):
+            with self.assertRaisesRegex(OSError, "blocked by policy"):
+                desktop.install()
+
+    def test_windowed_python(self):
+        for name in ("python.exe", "pythonw.exe"):
+            open(os.path.join(self.dir, name), "w").close()
+        with mock.patch.object(desktop.sys, "executable", os.path.join(self.dir, "python.exe")):
+            self.assertEqual(desktop.windowed_python(), os.path.join(self.dir, "pythonw.exe"))
+
+    def test_restart_starts_a_new_process(self):
+        with mock.patch.object(updater, "is_windows", return_value=True), \
+                mock.patch.object(updater.subprocess, "Popen") as popen, \
+                mock.patch.object(updater.os, "_exit", side_effect=SystemExit) as exit_, \
+                mock.patch.object(updater.os, "execv") as execv:
+            with self.assertRaises(SystemExit):
+                updater.restart()
+            self.assertTrue(popen.call_args.args[0][1].endswith("retroshelf.py"))
+            exit_.assert_called_once_with(0)
+            execv.assert_not_called()
+
+    def test_names_windows_cant_use(self):
+        rows = rs.plan_renames([("k", [os.path.join(self.dir, "x (USA).sfc")], None, False)], "CON")
+        self.assertEqual(rows[0]["status"], "name Windows can't use")
+        rows = rs.plan_renames([("k", [os.path.join(self.dir, "Game (USA).sfc")], None, False)], "Con Man")
+        self.assertEqual(rows[0]["status"], "rename")
+        long_name = "A" * 300
+        with mock.patch.object(rs, "is_windows", return_value=True):
+            rows = rs.plan_renames([("k", [os.path.join(self.dir, "x.sfc")], None, False)], long_name)
+        self.assertEqual(rows[0]["status"], "path too long for Windows")
 
 
 if __name__ == "__main__":
