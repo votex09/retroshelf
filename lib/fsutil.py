@@ -78,3 +78,15 @@ def shortcut_text(path):
     except OSError:
         return ""
     return data.decode("utf-16-le", "replace") + "\n" + data[1:].decode("utf-16-le", "replace")
+
+
+def open_folder(path):
+    """Show a folder in the file manager. Raises OSError if it can't."""
+    if is_windows():
+        os.startfile(path)
+        return
+    opener = "open" if os.uname().sysname == "Darwin" else "xdg-open"
+    try:
+        subprocess.Popen([opener, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except (OSError, ValueError) as e:
+        raise OSError(f"{opener} didn't run: {e}") from e

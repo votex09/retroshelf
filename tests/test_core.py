@@ -1,6 +1,6 @@
 """Name parsing, presets, region dupes, rename planning, LaunchBox matching and file helpers. No window needed,
 but retroshelf.py imports tkinter, so run these with a Python that has it (tests/run.sh picks one)."""
-import io, json, ntpath, os, posixpath, shutil, subprocess, sys, tempfile, unittest, zipfile
+import io, json, ntpath, os, posixpath, shutil, struct, subprocess, sys, tempfile, unittest, zipfile
 import xml.etree.ElementTree as ET
 from unittest import mock
 
@@ -24,7 +24,10 @@ import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import scraper  # noqa: E402
 import updater  # noqa: E402
+import romimport as ri  # noqa: E402
+import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
+import discs  # noqa: E402
 
 
 class Names(unittest.TestCase):
@@ -1121,6 +1124,249 @@ class Mamedev(unittest.TestCase):
     def test_arcade_systems_are_not_renamed(self):
         self.assertIn("mame", rs.ARCADE_SYSTEMS)
         self.assertNotIn("snes", rs.ARCADE_SYSTEMS)
+
+
+def zip_bytes(members):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n, d in members.items():
+            z.writestr(n, d)
+    return buf.getvalue()
+
+
+class SevenZip(unittest.TestCase):
+    """lib/sevenzip.py: 7z archives unpacked with Python's own lzma."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_unpacks_and_streams(self):
+        files = {"Game (USA)/Game (USA).iso": discs.ps2(), "readme.txt": b"hi" * 500, "b.bin": os.urandom(5000)}
+        z = sevenzip.SevenZip(io.BytesIO(discs.seven_zip(files)))
+        self.assertEqual([e.name for e in z.files()], list(files))
+        out = os.path.join(self.tmp, "out")
+        z.extract_all(out)
+        for name, data in files.items():
+            with open(os.path.join(out, *name.split("/")), "rb") as f:
+                self.assertEqual(f.read(), data)
+        s = z.open(z.files()[2])
+        s.seek(4000)
+        self.assertEqual(s.read(10), files["b.bin"][4000:4010])
+        s.seek(3)  # back: decodes again from the start
+        self.assertEqual(s.read(4), files["b.bin"][3:7])
+
+    def test_wanted_skips_files(self):
+        z = sevenzip.SevenZip(io.BytesIO(discs.seven_zip({"a.gba": b"x" * 100, "tool.exe": b"MZ" * 50})))
+        out = os.path.join(self.tmp, "out")
+        z.extract_all(out, wanted=lambda e: not e.name.endswith(".exe"))
+        self.assertEqual(os.listdir(out), ["a.gba"])
+
+    def test_damage_and_bad_paths_are_caught(self):
+        data = bytearray(discs.seven_zip({"a.gba": os.urandom(3000)}))
+        data[40] ^= 0xFF  # inside the packed data
+        with self.assertRaises(ValueError):
+            sevenzip.SevenZip(io.BytesIO(bytes(data))).extract_all(os.path.join(self.tmp, "x"))
+        with self.assertRaisesRegex(ValueError, "unsafe"):
+            sevenzip.SevenZip(io.BytesIO(discs.seven_zip({"../evil.gba": b"x"}))).extract_all(self.tmp + "/y")
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "evil.gba")))
+
+    @unittest.skipUnless(shutil.which("7z") or shutil.which("7zz"), "7-Zip isn't installed")
+    def test_what_7zip_makes(self):
+        """Archives from the real 7-Zip, with each method it offers: all the ones games use unpack."""
+        exe = shutil.which("7z") or shutil.which("7zz")
+        src = os.path.join(self.tmp, "src")
+        os.makedirs(os.path.join(src, "sub"))
+        files = {"game.iso": discs.ps2() + os.urandom(20000), "sub/notes.txt": b"text " * 2000,
+                 "tool.exe": b"MZ\x90\x00" + b"\xe8\x10\x00\x00\x00\x55\x8b\xec" * 20000}
+        for name, data in files.items():
+            with open(os.path.join(src, *name.split("/")), "wb") as f:
+                f.write(data)
+        for i, opts in enumerate([["-m0=lzma"], ["-m0=lzma2"], ["-m0=lzma2", "-ms=off"], ["-m0=bcj", "-m1=lzma2"],
+                                  ["-m0=delta:4", "-m1=lzma"], ["-m0=deflate"], ["-m0=bzip2"], ["-m0=copy"],
+                                  ["-mhc=off"], ["-mx=9"]]):
+            arc = os.path.join(self.tmp, f"t{i}.7z")
+            subprocess.run([exe, "a", "-bd", "-y", *opts, arc, "game.iso", "sub", "tool.exe"], cwd=src,
+                           capture_output=True, check=True)
+            out = os.path.join(self.tmp, f"out{i}")
+            with sevenzip.SevenZip(arc) as z:  # -mx=9 packs .exe files with BCJ2, which only 7-Zip reads
+                z.extract_all(out, wanted=(lambda e: not e.name.endswith(".exe")) if "-mx=9" in opts else None)
+            for name, data in files.items():
+                if name.endswith(".exe") and "-mx=9" in opts:
+                    continue
+                with open(os.path.join(out, *name.split("/")), "rb") as f:
+                    self.assertEqual(f.read(), data, f"{name} with {opts}")
+        arc = os.path.join(self.tmp, "locked.7z")
+        subprocess.run([exe, "a", "-bd", "-psecret", arc, "game.iso"], cwd=src, capture_output=True, check=True)
+        with self.assertRaises(sevenzip.Encrypted), sevenzip.SevenZip(arc) as z:
+            z.extract_all(os.path.join(self.tmp, "locked"))
+
+
+class RomImport(unittest.TestCase):
+    """lib/romimport.py: which system a game is for, and filing it."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.roms = os.path.join(self.tmp, "roms")
+        self.inbox = os.path.join(self.tmp, "import")
+        os.makedirs(self.roms)
+        os.makedirs(self.inbox)
+
+    def put(self, rel, data, base=None):
+        p = os.path.join(base or self.inbox, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(data if isinstance(data, bytes) else data.encode())
+        return p
+
+    def sniff(self, name, data):
+        return ri.sniff_rom(name, io.BytesIO(data), len(data))[0]
+
+    def test_discs_say_what_they_are(self):
+        self.assertEqual(self.sniff("a.iso", discs.ps2()), "ps2")
+        self.assertEqual(self.sniff("a.iso", discs.ps1()), "psx")
+        self.assertEqual(self.sniff("a.bin", discs.raw(discs.ps1())), "psx")
+        self.assertEqual(self.sniff("a.bin", discs.raw(discs.ps1(), mode=1)), "psx")
+        self.assertEqual(self.sniff("a.iso", discs.psp()), "psp")
+        self.assertEqual(self.sniff("a.cso", discs.cso(discs.psp())), "psp")
+        self.assertEqual(self.sniff("a.cso", discs.cso(discs.ps2())), "ps2")
+        self.assertEqual(self.sniff("a.iso", discs.gamecube()), "gc")
+        self.assertEqual(self.sniff("a.iso", discs.gamecube(wii=True)), "wii")
+        self.assertEqual(self.sniff("a.bin", discs.raw(discs.saturn(), mode=1)), "saturn")
+        self.assertIsNone(self.sniff("a.iso", discs.iso({"DATA.BIN": b"x"})))
+        self.assertIsNone(self.sniff("a.iso", discs.iso({"PS3_DISC.SFB": b"x"}, system_id=b"PS3VOLUME")))
+
+    def test_roms_and_containers(self):
+        self.assertEqual(self.sniff("Metroid.gba", b"x"), "gba")
+        self.assertEqual(self.sniff("Sonic.md", bytes(0x100) + b"SEGA MEGA DRIVE " + bytes(100)), "megadrive")
+        self.assertIsNone(self.sniff("README.md", b"# Read me\n" * 40))
+        self.assertEqual(self.sniff("Sonic.bin", bytes(0x100) + b"SEGA GENESIS    " + bytes(100)), "megadrive")
+        self.assertEqual(self.sniff("Knuckles.bin", bytes(0x100) + b"SEGA 32X        " + bytes(100)), "sega32x")
+        pbp = b"\x00PBP" + bytes(0x20) + struct.pack("<I", 0x40) + bytes(0x18)
+        self.assertEqual(self.sniff("EBOOT.PBP", pbp + b"PSISOIMG0000"), "psx")
+        self.assertEqual(self.sniff("EBOOT.PBP", pbp + b"NPUMDIMG"), "psp")
+        self.assertEqual(self.sniff("a.rvz", b"RVZ\x01" + bytes(0x44) + struct.pack(">I", 2)), "wii")
+        self.assertEqual(self.sniff("a.gcz", b"\x01\xc0\x0b\xb1" + struct.pack("<I", 0)), "gc")
+
+        def chd(tag):
+            head = bytearray(124)
+            head[:8], head[12:16], head[48:56] = b"MComprHD", struct.pack(">I", 5), struct.pack(">Q", 124)
+            return bytes(head) + tag + bytes(4) + struct.pack(">Q", 0)
+        self.assertEqual(self.sniff("a.chd", chd(b"CHGD")), "dreamcast")
+        self.assertEqual(self.sniff("a.chd", chd(b"DVD ")), "ps2")
+        self.assertIsNone(self.sniff("a.chd", chd(b"CHT2")))
+
+    def test_folder_names_help_when_the_file_cant(self):
+        self.assertEqual(ri.hint("/x/Sony - PlayStation 2/game.chd"), "ps2")
+        self.assertEqual(ri.hint("/x/PS1 games/Disc/game.chd"), "psx")
+        self.assertEqual(ri.hint(r"C:\Games\Sega Saturn\a.chd".replace("\\", os.sep)), "saturn")
+        self.assertIsNone(ri.hint("/home/me/Downloads/a.chd"))
+        self.assertIsNone(ri.hint("/x/psxtools/a.chd"))  # whole words only
+        p = self.put("PS1/Crash.chd", b"MComprHD" + bytes(200))
+        row = ri.scan(ri.collect([p])[0])
+        self.assertEqual((row.system(), row.unit.how), ("psx", "folder name"))
+
+    def test_cue_sheets_keep_their_tracks(self):
+        cue = ('FILE "Game (Track 1).bin" BINARY\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n'
+               'FILE "Game (Track 2).bin" BINARY\n  TRACK 02 MODE1/2352\n    INDEX 01 00:00:00\n')
+        self.put("Game.cue", cue)
+        self.put("Game (Track 1).bin", bytes(2352 * 4))
+        self.put("Game (Track 2).bin", discs.raw(discs.saturn(), mode=1))
+        self.put("Other.gba", b"x")
+        rows = [ri.scan(r) for r in ri.collect([self.inbox], self.inbox)]
+        game = next(r for r in rows if r.name == "Game.cue")
+        self.assertEqual(game.unit.files, ["Game.cue", "Game (Track 1).bin", "Game (Track 2).bin"])
+        self.assertEqual(game.system(), "saturn")
+        self.assertEqual(sorted(r.name for r in rows), ["Game.cue", "Other.gba"])
+        # picking just one track brings the whole game
+        picked = ri.collect([os.path.join(self.inbox, "Game (Track 2).bin")])
+        self.assertEqual([r.unit.files for r in picked], [["Game.cue", "Game (Track 1).bin", "Game (Track 2).bin"]])
+
+    def test_importing_archives_and_loose_files(self):
+        self.put("Gran Turismo 4 (USA).7z", discs.seven_zip({"Gran Turismo 4 (USA).iso": discs.ps2(),
+                                                             "Readme.txt": b"hi"}))
+        z = io.BytesIO()
+        with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("Crash (USA)/Crash (USA).cue", 'FILE "Crash (USA).bin" BINARY\n  TRACK 01 MODE2/2352\n'
+                                                       '    INDEX 01 00:00:00\n')
+            zf.writestr("Crash (USA)/Crash (USA).bin", discs.raw(discs.ps1()))
+            zf.writestr("Crash (USA)/README.md", "# notes")
+        self.put("Crash (USA).zip", z.getvalue())
+        self.put("Spyro (USA).bin", discs.raw(discs.ps1()))
+        self.put("mame/gridlee.zip", zip_bytes({"gridlee.1": b"\x01" * 50}))
+        self.put("mystery.zip", zip_bytes({"a.1": b"x"}))
+        self.put("notes.txt", "keep me")
+        outside = self.put("Metroid (USA).gba", b"M" * 64, base=os.path.join(self.tmp, "elsewhere"))
+        rows = ri.collect([self.inbox], self.inbox) + ri.collect([outside], self.inbox)
+        for r in rows:
+            ri.scan(r)
+        by = {r.name: r for r in rows}
+        self.assertEqual({n: r.system() for n, r in by.items()},
+                         {"Gran Turismo 4 (USA).7z": "ps2", "Crash (USA).zip": "psx", "Spyro (USA).bin": "psx",
+                          "gridlee.zip": "mame", "mystery.zip": None, "Metroid (USA).gba": "gba"})
+        self.assertIn("arcade", by["mystery.zip"].status)
+        self.assertFalse(by["Metroid (USA).gba"].inbox)
+        with self.assertRaisesRegex(ValueError, "pick one"):
+            ri.import_row(ri.Row(os.path.join(self.inbox, "x.bin"), self.inbox, ri.Unit(["x.bin"])), self.roms)
+        by["mystery.zip"].override = "fbneo"
+        for r in rows:
+            for unit, res in ri.import_row(r, self.roms):
+                self.assertNotIsInstance(res, Exception, r.name)
+        listing = {d: sorted(os.listdir(os.path.join(self.roms, d))) for d in os.listdir(self.roms)}
+        self.assertEqual(listing, {"ps2": ["Gran Turismo 4 (USA).iso"],
+                                   "psx": ["Crash (USA).bin", "Crash (USA).cue", "Spyro (USA).bin", "Spyro (USA).cue"],
+                                   "mame": ["gridlee.zip"], "fbneo": ["mystery.zip"], "gba": ["Metroid (USA).gba"]})
+        with open(os.path.join(self.roms, "psx", "Spyro (USA).cue")) as f:
+            self.assertIn('FILE "Spyro (USA).bin" BINARY\n  TRACK 01 MODE2/2352', f.read())
+        with open(os.path.join(self.roms, "ps2", "Gran Turismo 4 (USA).iso"), "rb") as f:
+            self.assertEqual(f.read(), discs.ps2())
+        left = sorted(os.path.relpath(os.path.join(d, n), self.inbox) for d, _, fs in os.walk(self.inbox) for n in fs)
+        self.assertEqual(left, ["notes.txt"])  # the import folder empties; things that aren't games stay
+        self.assertTrue(os.path.exists(outside))  # games added from elsewhere are copied
+        self.assertFalse(os.path.exists(ri.staging_dir(self.roms)))
+        # importing it again: already there, and the source is left alone
+        again = self.put("Spyro (USA).bin", discs.raw(discs.ps1()))
+        row = ri.scan(ri.collect([again], self.inbox)[0])
+        with self.assertRaises(FileExistsError):
+            ri.import_row(row, self.roms)
+        self.assertTrue(os.path.exists(again))
+
+    def test_split_archives_and_no_space(self):
+        data = discs.seven_zip({"Game.iso": discs.ps2() + os.urandom(3000)})
+        self.put("Game.7z.001", data[:1000])
+        self.put("Game.7z.002", data[1000:])
+        rows = ri.collect([self.inbox], self.inbox)
+        self.assertEqual([r.name for r in rows], ["Game.7z.001"])
+        ri.scan(rows[0])
+        self.assertEqual(rows[0].system(), "ps2")
+        with mock.patch.object(ri, "free_bytes", return_value=10):
+            with self.assertRaisesRegex(OSError, "not enough space"):
+                ri.import_row(rows[0], self.roms)
+        ri.import_row(rows[0], self.roms)
+        self.assertEqual(os.listdir(os.path.join(self.roms, "ps2")), ["Game.iso"])
+        self.assertEqual(os.listdir(self.inbox), [])
+
+    def test_full_xbox_dumps_are_cut_to_the_game(self):
+        with mock.patch.object(ri, "XBOX_REDUMP_OFFSET", 0x20000):
+            game = bytes(0x10000) + ri.XBOX_MAGIC + bytes(5000)
+            p = self.put("Halo.iso", bytes(0x20000) + game)
+            row = ri.scan(ri.collect([p], self.inbox)[0])
+            self.assertEqual(row.system(), "xbox")
+            ri.import_row(row, self.roms)
+        with open(os.path.join(self.roms, "xbox", "Halo.iso"), "rb") as f:
+            self.assertEqual(f.read(), game)
+
+    @unittest.skipUnless(ri.find_tool()[1], "no 7-Zip / unrar / bsdtar installed")
+    def test_a_real_unpacker_takes_over(self):
+        """Archives the built-in readers can't do go to an installed 7-Zip."""
+        with mock.patch.object(sevenzip, "_pipeline", side_effect=sevenzip.Unsupported("7z method PPMd")):
+            self.put("Game.7z", discs.seven_zip({"Game.gba": b"G" * 300}))
+            row = ri.scan(ri.collect([self.inbox], self.inbox)[0])
+            self.assertEqual(row.system(), "gba")
+            ri.import_row(row, self.roms)
+        with open(os.path.join(self.roms, "gba", "Game.gba"), "rb") as f:
+            self.assertEqual(f.read(), b"G" * 300)
 
 
 @unittest.skipUnless(os.environ.get("RETROSHELF_LIVE_TESTS"),
