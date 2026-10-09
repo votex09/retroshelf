@@ -240,7 +240,7 @@ def downloads_dir():
                                    "user-dirs.dirs"), encoding="utf-8") as f:
                 m = re.search(r'^XDG_DOWNLOAD_DIR="(.+)"', f.read(), re.M)
             if m:
-                return os.path.expandvars(m.group(1).replace("$HOME", home))
+                return os.path.normpath(os.path.expandvars(m.group(1).replace("$HOME", home)))
         except OSError:
             pass
     return os.path.join(home, "Downloads")
