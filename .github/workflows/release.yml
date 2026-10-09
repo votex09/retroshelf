@@ -1,6 +1,7 @@
 # Every change to the app that lands on main is tested and published as a release, versioned by date
 # (v2026.10.09, then v2026.10.09.2 for a second one that day). Zip copies of RetroShelf update from these releases.
 # Changes that only touch docs, tests or CI don't make a release; "Run workflow" on the Actions tab forces one.
+# Pull requests run the tests only.
 name: Release
 
 on:
@@ -12,10 +13,11 @@ on:
       - "tests/**"
       - ".claude/**"
       - ".github/**"
+  pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: release
+  group: ${{ github.event_name == 'pull_request' && format('test-{0}', github.ref) || 'release' }}
   cancel-in-progress: false
 
 jobs:
@@ -32,6 +34,7 @@ jobs:
 
   release:
     needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
