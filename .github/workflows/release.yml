@@ -1,0 +1,48 @@
+# Every change to the app that lands on main is tested and published as a release, versioned by date
+# (v2026.10.09, then v2026.10.09.2 for a second one that day). Zip copies of RetroShelf update from these releases.
+# Changes that only touch docs, tests or CI don't make a release; "Run workflow" on the Actions tab forces one.
+# Pull requests run the tests only.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "tests/**"
+      - ".claude/**"
+      - ".github/**"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('test-{0}', github.ref) || 'release' }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tk and a virtual display
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends python3-tk python3-pil.imagetk xvfb xauth
+      - name: Run tests
+        run: tests/run.sh -v
+
+  release:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags and history, for the version number and the notes
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release.sh

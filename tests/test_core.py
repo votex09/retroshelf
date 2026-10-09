@@ -13,6 +13,7 @@ except ImportError as e:  # no tkinter
     raise unittest.SkipTest(f"can't import retroshelf: {e}")
 import fsutil  # noqa: E402  (lib/ is on sys.path once retroshelf is imported)
 import launchbox as lb  # noqa: E402
+import updater  # noqa: E402
 import sandbox  # noqa: E402
 
 
@@ -186,6 +187,69 @@ class LaunchBox(unittest.TestCase):
             with self.assertRaises(OSError):
                 lb.update(progress=lambda m: None)
         self.assertEqual(set(os.listdir(tempfile.gettempdir())) - before, set())
+
+
+class Updater(unittest.TestCase):
+    """Zip copies (not a git checkout) follow releases; GitHub's API is faked."""
+    LOCAL = "a" * 40
+
+    def check(self, api):
+        def fake(path):
+            r = api(path)
+            if isinstance(r, Exception):
+                raise r
+            return r
+        with mock.patch.object(updater, "is_git", return_value=False), \
+                mock.patch.object(updater, "local_sha", return_value=self.LOCAL), \
+                mock.patch.object(updater, "_api", side_effect=fake) as m:
+            return updater.check(), [c.args[0] for c in m.call_args_list]
+
+    @staticmethod
+    def http(code):
+        return updater.urllib.error.HTTPError("u", code, "x", {}, None)
+
+    def release(self, path, status="ahead", ahead=2):
+        if path == "releases/latest":
+            return {"tag_name": "v2026.10.09", "body": "## Changes"}
+        return {"status": status, "ahead_by": ahead,
+                "commits": [{"commit": {"message": "Old\n\nbody"}}, {"commit": {"message": "New"}}]}
+
+    def test_newer_release(self):
+        res, calls = self.check(self.release)
+        self.assertEqual(calls[1], f"compare/{self.LOCAL}...v2026.10.09")
+        self.assertEqual((res["behind"], res["tag"], res["commits"]), (2, "v2026.10.09", ["New", "Old"]))
+        self.assertEqual(res["notes"], "## Changes")
+
+    def test_up_to_date_or_newer_than_the_release(self):
+        for status in ("identical", "behind"):
+            res, _ = self.check(lambda p: self.release(p, status, 0))
+            self.assertEqual(res["behind"], 0, status)
+
+    def test_no_release_yet_follows_main(self):
+        res, calls = self.check(lambda p: self.http(404) if p == "releases/latest" else self.release(p))
+        self.assertEqual(calls[1], f"compare/{self.LOCAL}...main")
+        self.assertIsNone(res["tag"])
+        self.assertEqual(res["behind"], 2)
+
+    def test_unknown_version(self):
+        res, _ = self.check(lambda p: self.http(404) if p.startswith("compare") else self.release(p))
+        self.assertIsNone(res["behind"])
+
+    def test_offline(self):
+        with self.assertRaises(RuntimeError):
+            self.check(lambda p: updater.urllib.error.URLError("no network"))
+
+    def test_apply_downloads_the_release(self):
+        with mock.patch.object(updater, "is_git", return_value=False), \
+                mock.patch.object(updater.urllib.request, "urlopen", side_effect=OSError("stop")) as m, \
+                mock.patch.object(updater, "APP_DIR", tempfile.mkdtemp()) as d:
+            self.addCleanup(shutil.rmtree, d)
+            with self.assertRaises(RuntimeError):
+                updater.apply("v2026.10.09")
+            self.assertTrue(m.call_args.args[0].full_url.endswith("/zip/refs/tags/v2026.10.09"))
+            with self.assertRaises(RuntimeError):
+                updater.apply()
+            self.assertTrue(m.call_args.args[0].full_url.endswith("/zip/refs/heads/main"))
 
 
 if __name__ == "__main__":
