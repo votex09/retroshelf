@@ -19,6 +19,8 @@ SYSTEM_EXTS = {
     "gamegear": (".gg",), "pcengine": (".pce",), "atari2600": (".a26",), "pico8": (".p8.png", ".p8"),
     "n64": (".z64", ".n64", ".v64"), "nds": (".nds",), "lynx": (".lnx",), "ngp": (".ngp", ".ngc"),
     "wonderswan": (".ws", ".wsc"), "vectrex": (".vec",), "colecovision": (".col",), "msx": (".rom", ".mx2"),
+    "atari5200": (".a52",), "virtualboy": (".vb", ".vboy"), "sega32x": (".32x",), "pokemini": (".min",),
+    "intellivision": (".int",),
 }
 DUP_RE = re.compile(r" ?\(\d+\)(?=\.[^.]+$)")  # browsers save repeats as "game (1).gb"
 

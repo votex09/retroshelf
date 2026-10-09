@@ -1,6 +1,6 @@
 """End-to-end: the real RetroShelf window on the sandbox library (see sandbox.py), driven through its own methods
 and buttons. Needs tkinter and a display; tests/run.sh supplies a virtual one with xvfb-run."""
-import base64, importlib.util, io, json, os, shutil, sys, tempfile, time, unittest
+import base64, importlib.util, io, json, os, shutil, sys, tempfile, time, unittest, zipfile
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
@@ -16,7 +16,8 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
     raise unittest.SkipTest("no display (run tests/run.sh, which uses xvfb-run)")
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
-               "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui"]
+               "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
+               "pdroms_gui", "mamedev", "mamedev_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -29,6 +30,14 @@ def widgets(w):
 
 def button(win, text):
     return next(b for b in widgets(win) if isinstance(b, ttk.Button) and b.cget("text") == text)
+
+
+def zip_bytes(members):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n, d in members.items():
+            z.writestr(n, d)
+    return buf.getvalue()
 
 
 class AppTest(unittest.TestCase):
@@ -357,6 +366,91 @@ class AppTest(unittest.TestCase):
             self.assertEqual(w.tv.set(game["url"], "status"), "Installed")
             w.watcher.cancel()
             w.close()
+
+    def test_pdroms_window(self):
+        """Details load when a game is picked; Open on PDRoms files the download with them."""
+        pdroms, cg, scraper = sys.modules["pdroms"], sys.modules["catalog_gui"], sys.modules["scraper"]
+        downloads = os.path.join(self.base, "home", "Downloads")
+        os.makedirs(downloads, exist_ok=True)
+        self.app.cfg["homebrew_downloads"] = downloads
+        url = "https://pdroms.de/files/nintendo-game-boy-gb-gbc/alpha-wing"
+        game = {"url": url, "title": "Alpha Wing", "added": "2007", "thumb": "", "system": "gb"}
+        opened = []
+        with mock.patch.object(pdroms, "load_catalog", return_value=[game]), \
+                mock.patch.object(pdroms, "load_details",
+                                  return_value={"author": "kedo", "description": "A shooter.", "image": ""}), \
+                mock.patch.object(scraper, "es_de_running", return_value=False), \
+                mock.patch.object(cg.webbrowser, "open", side_effect=opened.append):
+            self.app.system = "gb"  # the window opens on the system being looked at
+            w = sys.modules["pdroms_gui"].open_window(self.app)
+            self.pump(lambda: w.tv.get_children() == (url,))
+            self.assertEqual(w.tv.set(url, "license"), "2007")
+            w.tv.selection_set(url)
+            self.pump(lambda: "A shooter." in w.info.get("1.0", "end"))
+            self.assertIn("kedo", w.info.get("1.0", "end"))
+            pdroms.load_details.assert_called_once()
+            button(w.win, "Open on PDRoms ↗").invoke()
+            self.assertEqual(opened, [url])
+            with open(os.path.join(downloads, "alpha_wing.zip"), "wb") as f:
+                f.write(zip_bytes({"alpha.gb": b"GB", "readme.txt": b"hi"}))
+            w._watch()
+            w._watch()
+            rom = os.path.join(self.p["roms"], "gb", "Alpha Wing (Homebrew).gb")
+            self.assertTrue(os.path.exists(rom))
+            with open(scraper.gamelist_path(self.p["roms"], "gb"), encoding="utf-8") as f:
+                text = f.read()
+            self.assertIn("<desc>A shooter.</desc>", text)
+            self.assertIn("<developer>kedo</developer>", text)
+            button(w.win, "Browse on PDRoms ↗").invoke()
+            self.assertEqual(opened[-1], "https://pdroms.de/system/nintendo-game-boy-gb-gbc/games/")
+            w.watcher.cancel()
+            w.close()
+
+    def test_mamedev_window(self):
+        """Nothing downloads until the user confirms non-commercial use; the set keeps MAME's file name."""
+        mamedev, scraper = sys.modules["mamedev"], sys.modules["scraper"]
+        game = {"id": "gridlee", "title": "Gridlee", "year": "1982", "company": "Videa, Inc.", "thumb": "",
+                "page": "https://www.mamedev.org/roms/gridlee/", "image": "",
+                "zips": ["https://www.mamedev.org/roms/gridlee/gridlee.zip"],
+                "notice": "Gridlee has been made available for free, non-commercial use.", "description": "Never sold."}
+        rom = os.path.join(self.p["roms"], "mame", "gridlee.zip")
+        with mock.patch.object(mamedev, "load_catalog", return_value=[game]), \
+                mock.patch.object(mamedev, "_fetch", return_value=zip_bytes({"gridlee.1": b"ROM"})), \
+                mock.patch.object(scraper, "es_de_running", return_value=False):
+            w = sys.modules["mamedev_gui"].open_window(self.app)
+            self.pump(lambda: w.tv.get_children() == ("gridlee",))
+            w.tv.selection_set("gridlee")
+            self.root.update()
+            self.assertIn("non-commercial", w.info.get("1.0", "end"))
+            self.boxes["askyesno"].return_value = False
+            button(w.win, "Install").invoke()
+            self.root.update()
+            self.assertIn("non-commercial use only", self.boxes["askyesno"].call_args[0][1])
+            mamedev._fetch.assert_not_called()
+            self.assertFalse(os.path.exists(rom))
+            self.boxes["askyesno"].return_value = True
+            button(w.win, "Install").invoke()
+            self.pump(lambda: w.tv.set("gridlee", "status") == "Installed")
+            self.assertTrue(os.path.exists(rom))
+            with open(scraper.gamelist_path(self.p["roms"], "mame"), encoding="utf-8") as f:
+                text = f.read()
+            self.assertIn("<path>./gridlee.zip</path>", text)
+            self.assertIn("<name>Gridlee</name>", text)
+            self.assertNoErrors()
+            w.tv.selection_set("gridlee")
+            with mock.patch.object(sys.modules["catalog_gui"].webbrowser, "open") as web:
+                button(w.win, "Open on mamedev.org ↗").invoke()
+            web.assert_called_once_with("https://www.mamedev.org/roms/gridlee/")
+            self.assertEqual(w.watcher.waiting, [])  # just a page to read: Install is how sets arrive
+            self.assertNotIn("license", w.tv["displaycolumns"])
+            w.close()
+
+    def test_rename_leaves_arcade_systems_alone(self):
+        self.app.system = "mame"
+        with mock.patch.object(self.rs.tk, "Toplevel") as top:
+            self.app.rename_dialog()
+        top.assert_not_called()
+        self.assertIn("ROM set", self.boxes["showinfo"].call_args[0][1])
 
     def pump(self, done, timeout=5.0):
         """Run Tk's event loop until done() is true (background work finishes through after() polls)."""
