@@ -17,7 +17,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -451,6 +451,104 @@ class AppTest(unittest.TestCase):
             self.app.rename_dialog()
         top.assert_not_called()
         self.assertIn("ROM set", self.boxes["showinfo"].call_args[0][1])
+
+    def test_setup_retrodeck(self):
+        """Pick an SD card, install, and RetroShelf follows RetroDECK's own setup to the new roms folder."""
+        fe, sg = sys.modules["frontend"], sys.modules["setup_gui"]
+        home = os.environ["HOME"]
+        sd = os.path.join(self.base, "sdcard")
+        os.makedirs(sd, exist_ok=True)
+        logged = []
+
+        def install(log, cancelled):
+            log("Installing net.retrodeck.retrodeck")
+            logged.append(True)
+
+        with mock.patch.object(sg, "is_windows", return_value=False), \
+                mock.patch.object(fe, "is_windows", return_value=False), \
+                mock.patch.object(sg, "POLL_MS", 30), \
+                mock.patch.object(fe, "flatpak", return_value="/usr/bin/flatpak"), \
+                mock.patch.object(fe, "retrodeck_installed", return_value=False), \
+                mock.patch.object(fe, "install_retrodeck", side_effect=install), \
+                mock.patch.object(fe, "launch_retrodeck") as launch, \
+                mock.patch.object(fe, "storage_choices",
+                                  return_value=[("home", "Home folder", home), ("drive", "SD card", sd)]):
+            w = sg.open_window(self.app)
+            w.choice.set(f"drive:{sd}")
+            w._update_target()
+            self.assertIn(os.path.join(sd, "retrodeck", "roms"), w.target_lbl.cget("text"))
+            button(w.win, "Install").invoke()
+            self.pump(lambda: launch.called)
+            self.assertTrue(logged)
+            self.assertEqual(self.root.clipboard_get(), sd)  # ready to paste into RetroDECK's folder picker
+            self.assertIn("Waiting", w.status.cget("text"))
+            roms = os.path.join(sd, "retrodeck", "roms")  # what RetroDECK's setup makes
+            os.makedirs(os.path.join(roms, "snes"))
+            with open(os.path.join(roms, "snes", "Game (USA).sfc"), "wb") as f:
+                f.write(b"x")
+            cfg = fe.rd_config_dir()
+            os.makedirs(cfg, exist_ok=True)
+            with open(os.path.join(cfg, "retrodeck.json"), "w") as f:
+                json.dump({"paths": {"rd_home_path": os.path.dirname(roms), "roms_path": roms}}, f)
+            open(os.path.join(cfg, ".lock"), "w").close()
+            self.pump(lambda: self.app.cfg["roms_root"] == roms)
+            self.assertIn("snes", self.app.system_codes)
+            self.assertIn("RetroDECK is set up", "\n".join(lbl.cget("text") for lbl in widgets(w.win)
+                                                             if isinstance(lbl, ttk.Label)))
+            w.close()
+        shutil.rmtree(os.path.join(home, ".var"), ignore_errors=True)
+
+    def test_setup_esde_on_windows(self):
+        """Pick a drive: ES-DE's portable build is downloaded, unpacked and its ROMs folder becomes the library."""
+        fe, sg = sys.modules["frontend"], sys.modules["setup_gui"]
+        drive = os.path.join(self.base, "D")
+        os.makedirs(drive, exist_ok=True)
+
+        def download(url, dest, md5=None, progress=lambda d, t: None, cancelled=lambda: False):
+            with zipfile.ZipFile(dest, "w") as z:
+                z.writestr("ES-DE/ES-DE.exe", b"MZ")
+                z.writestr("ES-DE/ROMs_ALL/gb/systeminfo.txt", b"gb")
+                z.writestr("ES-DE/ROMs_ALL/snes/systeminfo.txt", b"snes")
+            progress(5, 10)
+            progress(10, 10)
+            return dest
+
+        pkg = {"filename": "ES-DE_x64_Portable.zip", "url": "https://gitlab.com/x", "md5": "ab"}
+        with mock.patch.object(sg, "is_windows", return_value=True), \
+                mock.patch.object(fe, "is_windows", return_value=True), \
+                mock.patch.object(fe, "esde_release", return_value=("3.5.0", pkg)), \
+                mock.patch.object(fe, "download", side_effect=download) as dl, \
+                mock.patch.object(fe, "add_esde_shortcut") as shortcut, \
+                mock.patch.object(fe, "storage_choices", return_value=[("drive", "Drive D:", drive)]):
+            w = sg.open_window(self.app)
+            self.assertEqual(w.win.title(), "Set up ES-DE")
+            button(w.win, "Install").invoke()
+            roms = os.path.join(drive, "ES-DE", "ROMs")
+            self.pump(lambda: self.app.cfg["roms_root"] == roms)
+            self.assertEqual(dl.call_args[0][2], "ab")  # the checksum is checked
+            self.assertEqual(sorted(os.listdir(roms)), ["gb", "snes"])
+            self.assertFalse(os.path.exists(os.path.join(drive, pkg["filename"])))  # the zip is cleaned up
+            shortcut.assert_called_once_with(drive)
+            self.assertEqual(self.app.cfg["esde_bases"], [drive])
+            self.assertIn(os.path.join(drive, "ES-DE", "Emulators"),
+                          "\n".join(lbl.cget("text") for lbl in widgets(w.win) if isinstance(lbl, ttk.Label)))
+            w.close()
+        self.restart()  # found again next time from the remembered install
+        self.assertEqual(self.app.cfg["roms_root"], roms)
+
+    def test_first_start_without_a_library_offers_setup(self):
+        with open(os.path.join(self.p["app"], "config.json"), "w") as f:
+            json.dump({"roms_root": ""}, f)
+        with mock.patch.object(self.rs, "guess_roms_root", return_value=""):
+            self.restart()
+            self.pump(lambda: getattr(self.app, "setup_window", None))
+            self.app.setup_window.close()
+            self.assertTrue(self.cfg()["setup_offered"])
+            self.restart()
+            for _ in range(10):
+                self.root.update()
+                time.sleep(0.07)
+            self.assertIsNone(getattr(self.app, "setup_window", None))  # offered once, not on every start
 
     def pump(self, done, timeout=5.0):
         """Run Tk's event loop until done() is true (background work finishes through after() polls)."""

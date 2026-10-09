@@ -139,6 +139,24 @@ and unpack it anywhere.
 retroshelf.bat             # Windows: double-click it, or: py retroshelf.py
 ```
 
+### No RetroDECK or ES-DE yet?
+
+On first start without a games library, RetroShelf offers to set one up (later: **Tools → Set up RetroDECK…**,
+or **Set up ES-DE…** on Windows). Pick where your games should go (your home folder, an SD card or drive, or any
+folder, each with its free space), and RetroShelf does the rest:
+
+- **Linux:** installs [RetroDECK](https://retrodeck.net) from Flathub for your user (no password needed; Flatpak
+  must be installed, which it is on Steam Deck and most desktops). RetroDECK then runs its own first-time setup,
+  which asks where its data goes: RetroShelf tells you which button to press and copies the folder path for you.
+  When the setup finishes, RetroShelf switches to the new `retrodeck/roms` folder by itself.
+- **Windows:** downloads the official portable build of [ES-DE](https://es-de.org) (its checksum is checked),
+  unpacks it to `<your folder>\ES-DE`, creates a folder for each system in `ES-DE\ROMs` and can add ES-DE to the
+  Start menu. ES-DE has no emulators of its own: add the ones you want to `ES-DE\Emulators` or install them
+  normally.
+
+RetroShelf also finds an existing RetroDECK wherever its data folder is (from RetroDECK's own settings), and an
+existing ES-DE from its settings.
+
 - **App menu:** use **Help → Add to app menu** (Windows: **Add to Start menu**), or run the launcher with
   `--install-desktop`, to add RetroShelf to your application menu with its icon. If you move the folder, add it again.
 - **Steam / Steam Deck:** add `retroshelf.sh` (Windows: `retroshelf.bat`) to Steam as a non-Steam game.
