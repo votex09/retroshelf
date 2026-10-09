@@ -609,9 +609,14 @@ class LiveHomebrewHub(unittest.TestCase):
         with mock.patch.object(hb, "CACHE", d):
             entries = hb.load_catalog("GB", refresh=True)
         self.assertGreater(len(entries), 100)
-        self.assertTrue(all(e.get("slug") and e.get("title") for e in entries))
+        untitled = [e["slug"] for e in entries if not e.get("title")]
+        print(f"\n{len(entries)} GB entries; fields in the search results: {sorted(entries[0])}; "
+              f"{sum(bool(e.get('files')) for e in entries)} list files; untitled: {untitled[:10]}")
+        self.assertTrue(all(e.get("slug") for e in entries))
+        self.assertLess(len(untitled), len(entries) / 10)  # the window shows the slug for these
         e = next(e for e in entries if e.get("screenshots"))
         full = hb.load_entry(e["slug"])
+        print(f"entry {e['slug']}: fields {sorted(full)}")
         self.assertEqual(full["slug"], e["slug"])
         self.assertIsNotNone(hb.rom_file(full))
         for url in (hb.screenshot_url(full), hb.file_url(full, hb.rom_file(full)["filename"])):
