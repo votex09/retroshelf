@@ -8,6 +8,8 @@ CLI:
 import argparse, datetime, difflib, gzip, json, os, re, tempfile, unicodedata, urllib.request, zipfile
 import xml.etree.ElementTree as ET
 
+from fsutil import write_json
+
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(APP_DIR, "cache", "launchbox")
 META = os.path.join(CACHE, "_meta.json")
@@ -115,29 +117,30 @@ def resolve_platform(system, fullname, overrides=None):
 def update(zip_path=None, progress=print):
     os.makedirs(CACHE, exist_ok=True)
     tmp = None
-    if not zip_path:
-        tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        progress(f"Downloading {URL} …")
-        # The server 403s Python's default "Python-urllib" user agent.
-        req = urllib.request.Request(URL, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            total, done, step = int(r.headers.get("Content-Length") or 0), 0, 0
-            while chunk := r.read(1 << 20):
-                tmp.write(chunk)
-                done += len(chunk)
-                if done >> 24 > step:
-                    step = done >> 24
-                    progress(f"Downloading … {done >> 20} / {total >> 20} MB" if total else f"Downloading … {done >> 20} MB")
-        tmp.close()
-        zip_path = tmp.name
-
     try:
+        if not zip_path:
+            tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)  # removed below, even if this fails
+            progress(f"Downloading {URL} …")
+            # The server 403s Python's default "Python-urllib" user agent.
+            req = urllib.request.Request(URL, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                total, done, step = int(r.headers.get("Content-Length") or 0), 0, 0
+                while chunk := r.read(1 << 20):
+                    tmp.write(chunk)
+                    done += len(chunk)
+                    if done >> 24 > step:
+                        step = done >> 24
+                        progress(f"Downloading … {done >> 20} / {total >> 20} MB" if total
+                                 else f"Downloading … {done >> 20} MB")
+            tmp.close()
+            zip_path = tmp.name
+
         progress("Parsing LaunchBox metadata …")
         by_plat, game_plat, alts, plat_alts = {}, {}, [], {}
         details, images = {}, {}
         depth = 0
-        with zipfile.ZipFile(zip_path) as z:
-            for ev, el in ET.iterparse(z.open("Metadata.xml"), events=("start", "end")):
+        with zipfile.ZipFile(zip_path) as z, z.open("Metadata.xml") as xml:
+            for ev, el in ET.iterparse(xml, events=("start", "end")):
                 if ev == "start":
                     depth += 1
                     continue
@@ -174,6 +177,7 @@ def update(zip_path=None, progress=print):
                 el.clear()
     finally:
         if tmp:
+            tmp.close()
             os.unlink(tmp.name)
 
     alts_by_plat = {}
@@ -188,9 +192,8 @@ def update(zip_path=None, progress=print):
         with gzip.open(os.path.join(CACHE, safe(plat) + ".details.json.gz"), "wt", encoding="utf-8") as f:
             json.dump(extra, f, ensure_ascii=False)
     stamp = datetime.datetime.now().isoformat(timespec="seconds")
-    with open(META, "w", encoding="utf-8") as f:
-        json.dump({"updated": stamp, "platforms": sorted(by_plat), "platform_alts": plat_alts, "details": True},
-                  f, indent=0)
+    write_json(META, {"updated": stamp, "platforms": sorted(by_plat), "platform_alts": plat_alts, "details": True},
+               indent=0)
     progress(f"LaunchBox data updated: {len(by_plat)} platforms, {len(game_plat)} games")
 
 
@@ -229,8 +232,7 @@ def set_manual(platform, title, gid, clear=False):
         plat[title] = gid
     if not plat:
         del data[platform]
-    with open(MANUAL, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=1, ensure_ascii=False)
+    write_json(MANUAL, data, indent=1, ensure_ascii=False)
 
 
 def copy_manual(platform, titles):
@@ -244,8 +246,7 @@ def copy_manual(platform, titles):
             plat[new] = plat[old]
             changed = True
     if changed:
-        with open(MANUAL, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=1, ensure_ascii=False)
+        write_json(MANUAL, data, indent=1, ensure_ascii=False)
 
 
 class Matcher:
@@ -355,8 +356,7 @@ class Matcher:
     def save(self):
         if self.ok and self.dirty:
             os.makedirs(os.path.dirname(self.memo_path), exist_ok=True)
-            with open(self.memo_path, "w", encoding="utf-8") as f:
-                json.dump({"stamp": self.stamp, "titles": self.memo}, f, ensure_ascii=False)
+            write_json(self.memo_path, {"stamp": self.stamp, "titles": self.memo}, ensure_ascii=False)
             self.dirty = False
 
 

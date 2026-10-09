@@ -39,6 +39,7 @@ import nps_gui  # noqa: E402
 import scraper  # noqa: E402
 import desktop  # noqa: E402
 import details  # noqa: E402
+from fsutil import write_json  # noqa: E402
 import ui  # noqa: E402
 import updater  # noqa: E402
 
@@ -474,7 +475,12 @@ class App:
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
-        except (OSError, ValueError):
+        except ValueError:  # unreadable: set it aside instead of overwriting it with defaults on the next save
+            try:
+                os.replace(CONFIG, CONFIG + ".bad")
+            except OSError:
+                pass
+        except OSError:
             pass
         if not self.cfg["roms_root"] or not os.path.isdir(self.cfg["roms_root"]):
             self.cfg["roms_root"] = guess_roms_root()
@@ -571,7 +577,7 @@ class App:
 
     def install_desktop(self):
         try:
-            path = desktop.install()
+            desktop.install()
         except OSError as e:
             messagebox.showerror("Couldn't add to app menu", str(e))
             return
@@ -700,8 +706,7 @@ class App:
     # ---------- config ----------
     def save_cfg(self):
         try:
-            with open(CONFIG, "w", encoding="utf-8") as f:
-                json.dump(self.cfg, f, indent=1)
+            write_json(CONFIG, self.cfg, indent=1)
         except OSError:
             pass
 
@@ -1762,8 +1767,7 @@ class App:
         if done:
             self._log_moves({"time": datetime.datetime.now().isoformat(timespec="seconds"), "system": self.system,
                              "dest": self.dest.get(), "games": len(self.to_move), "size": size, "moves": done})
-        self.manual = {}
-        self.rescan()
+        self.rescan()  # drops the moved games' flips; "keep" flips on games that stayed are kept
         if failed:
             messagebox.showerror(f"Moved {moved} files, {len(failed)} failed", "\n".join(failed[:30]))
         else:
@@ -1783,10 +1787,7 @@ class App:
             return []
 
     def _write_moves(self, batches):
-        tmp = self.moves_log() + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(batches, f, indent=1)
-        os.replace(tmp, self.moves_log())
+        write_json(self.moves_log(), batches, indent=1)
 
     def _merge_old_log(self):
         """Older versions logged moves in <holding>/moves.json; fold that into the current log once, so Restore and
@@ -2212,8 +2213,7 @@ class App:
             return []
 
     def _write_renames(self, batches):
-        with open(self.renames_log(), "w", encoding="utf-8") as f:
-            json.dump(batches, f, indent=1, ensure_ascii=False)
+        write_json(self.renames_log(), batches, indent=1, ensure_ascii=False)
 
     def _carry_over(self, done, failed):
         """ES-DE media + gamelist follow the renamed files. -> short summary for the result message."""

@@ -122,6 +122,20 @@ These files live next to `retroshelf.py` and are never part of the repository:
 | `matches.json` | LaunchBox matches you picked by hand |
 | `cache/` | LaunchBox and NoPayStation data (safe to delete; download it again from the app) |
 
+## Testing
+
+Nothing here touches your real library: tests and the sandbox work on a generated RetroDECK folder with fake
+SNES and PlayStation games, a small offline LaunchBox database, and `HOME` pointed at a temp folder.
+
+```sh
+tests/run.sh                        # whole suite (uses xvfb-run when there's no display)
+tests/run.sh -v tests.test_app      # just the end-to-end window tests
+tests/sandbox.py --run              # open RetroShelf on a throwaway library to try changes by hand
+tests/sandbox.py --screenshot a.png # same, headless: saves a screenshot (needs xvfb and ImageMagick)
+```
+
+The tests need Python with Tk (`python3-tk`); the window tests also need a display or `xvfb-run`.
+
 ## Credits
 
 - Game metadata and images: [LaunchBox Games Database](https://gamesdb.launchbox-app.com/)
