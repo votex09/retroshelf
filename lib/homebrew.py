@@ -4,11 +4,12 @@ The catalogue comes from Homebrew Hub's public API and is cached in cache/homebr
 choose which apps may download their games into a user's library, so RetroShelf only downloads directly when an
 entry is open source (an open licence or the "Open Source" tag) or names RetroShelf in "third-party". For every
 other entry, "Open on Homebrew Hub" opens the game's page in the user's browser, the user downloads it there, and
-DownloadWatcher picks the file up from the Downloads folder and files it into the right roms/<system> folder.
+lib/downloads.py picks the file up from the Downloads folder and files it into the right roms/<system> folder.
 """
-import json, os, re, shutil, tempfile, time, urllib.parse, urllib.request, zipfile
+import json, os, re, shutil, tempfile, time, urllib.parse, urllib.request
 
-from fsutil import is_windows, write_json
+import downloads
+from fsutil import write_json
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(APP_DIR, "cache", "homebrew")
@@ -22,7 +23,6 @@ PLATFORMS = {"GB": "gb", "GBC": "gbc", "GBA": "gba", "NES": "nes"}
 PLATFORM_NAMES = {"GB": "Game Boy", "GBC": "Game Boy Color", "GBA": "Game Boy Advance", "NES": "NES"}
 ROM_EXTS = {"GB": (".gb", ".gbc"), "GBC": (".gbc", ".gb", ".cgb"), "GBA": (".gba",), "NES": (".nes",)}
 TYPES = ["game", "demo", "tool", "music", "hackrom"]
-PARTIAL_EXT = (".part", ".crdownload", ".tmp", ".download", ".opdownload")
 # licence families whose terms let the game be passed on (any version; "-only" / "-or-later" variants included)
 OPEN_LICENSE_RE = re.compile(
     r"(?:MIT(?:-0)?|0?BSD(?:-[234]-CLAUSE)?|ISC|ZLIB|UNLICENSE|WTFPL|CC0|APACHE|MPL|(?:A|L)?GPL"
@@ -139,28 +139,17 @@ def page_url(entry):
     return f"{SITE}/game/{urllib.parse.quote(entry['slug'])}"
 
 
-def safe_title(title):
-    s = re.sub(r"\s*:\s*", " - ", title.strip()).replace("/", "-").replace("\\", "-")
-    s = re.sub(r'[<>"|?*\x00-\x1f]', "", s)
-    return re.sub(r"[\s.]+$", "", " ".join(s.split())) or "Homebrew"
+def entry_title(entry):
+    return entry.get("title") or entry["slug"]
 
 
 def rom_name(entry, ext):
-    """File name in roms/<system>: the Homebrew Hub title, tagged so it's clearly homebrew (No-Intro style)."""
-    return f"{safe_title(entry.get('title') or entry['slug'])} (Homebrew){ext.lower()}"
+    return downloads.homebrew_name(entry_title(entry), ext)
 
 
 def installed_path(entry, roms_root):
     """The ROM RetroShelf filed for this entry, if it's still there."""
-    folder = os.path.join(roms_root, PLATFORMS[entry_platform(entry)])
-    stem = os.path.splitext(rom_name(entry, ".x"))[0]
-    try:
-        for n in os.listdir(folder):
-            if os.path.splitext(n)[0] == stem:
-                return os.path.join(folder, n)
-    except OSError:
-        pass
-    return None
+    return downloads.find_installed(os.path.join(roms_root, PLATFORMS[entry_platform(entry)]), entry_title(entry))
 
 
 def entry_platform(entry, default="GB"):
@@ -169,43 +158,19 @@ def entry_platform(entry, default="GB"):
 
 
 # ---------- filing a ROM ----------
-def _pick_from_zip(zpath, platform, want=None):
-    """(member name, data) of the ROM inside a zip: the expected file name if given, else the only/largest ROM."""
-    with zipfile.ZipFile(zpath) as z:
-        roms = [i for i in z.infolist() if not i.is_dir() and i.filename.lower().endswith(ROM_EXTS[platform])]
-        if want:
-            named = [i for i in roms if os.path.basename(i.filename) == os.path.basename(want)]
-            roms = named or roms
-        if not roms:
-            raise ValueError("no ROM inside the zip")
-        best = max(roms, key=lambda i: i.file_size)
-        return best.filename, z.read(best)
+def want(entry):
+    """What the Downloads watcher waits for when the user downloads this entry from its page."""
+    platform = entry_platform(entry)
+    return {"id": entry["slug"], "title": entry_title(entry), "system": PLATFORMS[platform],
+            "exts": ROM_EXTS[platform], "filename": (rom_file(entry) or {}).get("filename"),
+            "stem": entry_title(entry), "item": entry}
 
 
 def file_rom(src, entry, roms_root, keep_source=False):
     """Put a downloaded ROM (or a zip holding one) into roms/<system>/ under the entry's name. -> path."""
-    platform = entry_platform(entry)
-    folder = os.path.join(roms_root, PLATFORMS[platform])
-    os.makedirs(folder, exist_ok=True)
-    want = (rom_file(entry) or {}).get("filename")
-    if src.lower().endswith(".zip") and not (want or "").lower().endswith(".zip"):
-        member, data = _pick_from_zip(src, platform, want)
-        ext = os.path.splitext(member)[1]
-        dest = os.path.join(folder, rom_name(entry, ext))
-        if os.path.exists(dest):
-            raise FileExistsError(f"{os.path.basename(dest)} is already in roms/{PLATFORMS[platform]}")
-        with open(dest + ".part", "wb") as f:
-            f.write(data)
-        os.replace(dest + ".part", dest)
-        if not keep_source:
-            os.unlink(src)
-        return dest
-    ext = os.path.splitext(src)[1]
-    dest = os.path.join(folder, rom_name(entry, ext))
-    if os.path.exists(dest):
-        raise FileExistsError(f"{os.path.basename(dest)} is already in roms/{PLATFORMS[platform]}")
-    (shutil.copy2 if keep_source else shutil.move)(src, dest)
-    return dest
+    w = want(entry)
+    return downloads.file_rom(src, os.path.join(roms_root, w["system"]), w["stem"], w["exts"], w["filename"],
+                              keep_source)
 
 
 def install(entry, roms_root, progress=lambda done, total: None):
@@ -238,89 +203,3 @@ def es_de_fields(entry):
     return {"name": entry.get("title") or "", "desc": (entry.get("description") or "").strip(),
             "developer": developer_text(entry.get("developer")), "publisher": "Homebrew",
             "releasedate": release, "genre": (entry.get("typetag") or "").capitalize()}
-
-
-# ---------- watching the Downloads folder ----------
-def downloads_dir():
-    """The user's Downloads folder (XDG's on Linux, %USERPROFILE%\\Downloads on Windows)."""
-    home = os.path.expanduser("~")
-    if not is_windows():
-        try:
-            with open(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config"),
-                                   "user-dirs.dirs"), encoding="utf-8") as f:
-                m = re.search(r'^XDG_DOWNLOAD_DIR="(.+)"', f.read(), re.M)
-            if m:
-                return os.path.normpath(os.path.expandvars(m.group(1).replace("$HOME", home)))
-        except OSError:
-            pass
-    return os.path.join(home, "Downloads")
-
-
-class DownloadWatcher:
-    """Waits for ROMs the user downloads from Homebrew Hub pages and files them. Call poll() now and then (the
-    window does it on a timer); it returns [(entry, path or Exception)] for what it handled.
-
-    A new file counts once its size stops changing. It's matched to a waiting entry by the file name Homebrew Hub
-    serves (from the entry's manifest), or, when that name is generic or unknown, by extension to the single entry
-    waiting for that kind of ROM."""
-
-    def __init__(self, folder, roms_root):
-        self.folder, self.roms_root = folder, roms_root
-        self.waiting = []  # entries, oldest first
-        self.seen = self._listing()
-        self.sizes = {}
-
-    def _listing(self):
-        try:
-            return {n: os.path.getmtime(os.path.join(self.folder, n)) for n in os.listdir(self.folder)}
-        except OSError:
-            return {}
-
-    def expect(self, entry):
-        if all(e["slug"] != entry["slug"] for e in self.waiting):
-            self.waiting.append(entry)
-
-    def cancel(self, slug=None):
-        self.waiting = [e for e in self.waiting if slug and e["slug"] != slug]
-
-    def _match(self, name):
-        low = re.sub(r" ?\(\d+\)(?=\.[^.]+$)", "", name.lower())  # browsers save repeats as "game (1).gb"
-        for e in self.waiting:
-            f = rom_file(e)
-            if f and os.path.basename(f["filename"]).lower() == low:
-                return e
-        exts = [e for e in self.waiting
-                if low.endswith(".zip") or low.endswith(ROM_EXTS[entry_platform(e)])]
-        return exts[0] if len(exts) == 1 else None
-
-    def poll(self):
-        if not self.waiting:
-            self.seen = self._listing()
-            return []
-        now, done = self._listing(), []
-        for name, mtime in now.items():
-            if self.seen.get(name) == mtime or name.lower().endswith(PARTIAL_EXT) or name.startswith("."):
-                continue
-            low = name.lower()
-            if not (low.endswith(".zip") or any(low.endswith(ROM_EXTS[p]) for p in ROM_EXTS)):
-                self.seen[name] = mtime  # not a ROM: ignore it from now on
-                continue
-            path = os.path.join(self.folder, name)
-            try:
-                size = os.path.getsize(path)
-            except OSError:
-                continue
-            if self.sizes.get(name) != size:  # still being written: look again next time
-                self.sizes[name] = size
-                continue
-            entry = self._match(name)
-            self.seen[name] = mtime
-            self.sizes.pop(name, None)
-            if not entry:
-                continue
-            try:
-                done.append((entry, file_rom(path, entry, self.roms_root)))
-            except (OSError, ValueError, zipfile.BadZipFile) as e:
-                done.append((entry, e))
-            self.waiting.remove(entry)
-        return done

@@ -31,11 +31,11 @@ jobs:
           sudo apt-get install -y -qq --no-install-recommends python3-tk python3-pil.imagetk xvfb xauth
       - name: Run tests
         run: tests/run.sh -v
-      - name: Check Homebrew Hub's API (live; an outage there doesn't block releases)
+      - name: Check Homebrew Hub's API and itch.io's feeds (live; an outage there doesn't block releases)
         continue-on-error: true
         env:
           RETROSHELF_LIVE_TESTS: "1"
-        run: tests/run.sh -v tests.test_core.LiveHomebrewHub
+        run: tests/run.sh -v tests.test_core.LiveHomebrewHub tests.test_core.LiveItchIo
 
   test-windows:
     runs-on: windows-latest
