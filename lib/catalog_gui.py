@@ -1,8 +1,14 @@
-"""A window for browsing a site's homebrew and getting games into roms/<system>/ (Homebrew Hub, itch.io).
+"""A window for browsing a site's games and getting them into roms/<system>/ (Homebrew Hub, itch.io, PDRoms,
+MAMEDEV).
 
-Each site is a "source" object (see homebrew_gui.HomebrewSource and itch_gui.ItchSource) that lists entries and
-says how to show them. Games the source may fetch itself install with one click; the rest open in the user's browser,
-where they download them, and the Downloads watcher (lib/downloads.py) files what lands there."""
+Each site is a "source" object (see homebrew_gui, itch_gui, pdroms_gui and mamedev_gui) that lists
+entries and says how to show them. Games the source may fetch itself install with one click; the rest open in the
+user's browser, where they download them, and the Downloads watcher (lib/downloads.py) files what lands there.
+
+Optional source hooks: fill(e) -> dict of details fetched when a game is picked (for lists that only carry titles),
+confirm(e) -> text the user must agree to before a one-click install, one_click_filter (default: one_click),
+browser_downloads = False when the site's page is only for reading (no Downloads watching), license_header = None to
+leave that column out."""
 import base64, io, os, queue, threading, urllib.request, webbrowser
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -94,7 +100,7 @@ class CatalogWindow:
         search.pack(side="left", fill="x", expand=True)
         search.focus_set()
         self.one_click = tk.BooleanVar(value=False)
-        if src.one_click:
+        if getattr(src, "one_click_filter", src.one_click):
             ttk.Checkbutton(flt, text="One-click only", variable=self.one_click,
                             command=self.render).pack(side="left", padx=(12, 0))
         self.hide_have = tk.BooleanVar(value=False)
@@ -115,11 +121,12 @@ class CatalogWindow:
             browse.pack(side="right", padx=(0, 6))
             ui.Tooltip(browse, lambda: f"Opens {src.name} in your browser. Every {self.system_label()} ROM you "
                                        f"download there is put in roms/{src.system_for(self.code)}.")
-        ttk.Label(foot, text="Downloads").pack(side="left")
-        ttk.Button(foot, text="Change…", command=self.browse_dir).pack(side="left", padx=(8, 0))
         self.dir_lbl = ttk.Label(foot, text=short_path(self.dl_dir()), style="Muted.TLabel")
-        self.dir_lbl.pack(side="left", padx=(8, 0))
-        ui.Tooltip(self.dir_lbl, self.dl_dir)
+        if getattr(src, "browser_downloads", True):
+            ttk.Label(foot, text="Downloads").pack(side="left")
+            ttk.Button(foot, text="Change…", command=self.browse_dir).pack(side="left", padx=(8, 0))
+            self.dir_lbl.pack(side="left", padx=(8, 0))
+            ui.Tooltip(self.dir_lbl, self.dl_dir)
         wait = ttk.Frame(body)
         wait.pack(side="bottom", fill="x", pady=(8, 0))
         self.stop_btn = ttk.Button(wait, text="Stop waiting", command=self.stop_waiting)
@@ -141,10 +148,10 @@ class CatalogWindow:
         tv.heading("#0", text="Title", anchor="w")
         tv.column("#0", width=300, minwidth=160, stretch=True)
         for col, text, width, anchor in cols:
-            tv.heading(col, text=text, anchor=anchor)
+            tv.heading(col, text=text or "", anchor=anchor)
             tv.column(col, width=width, minwidth=50, stretch=False, anchor=anchor)
-        if not src.kinds:
-            tv["displaycolumns"] = ("dev", "license", "status")  # no types to show
+        shown_cols = [c[0] for c in cols if (c[0] != "type" or src.kinds) and (c[0] != "license" or src.license_header)]
+        tv["displaycolumns"] = shown_cols  # no types or licences to show for some sites
         sb = ttk.Scrollbar(f, orient="vertical", command=tv.yview)
         tv.configure(yscrollcommand=sb.set)
         tv.pack(side="left", fill="both", expand=True)
@@ -270,7 +277,7 @@ class CatalogWindow:
         if keep and self.tv.exists(keep[0]):
             self.tv.selection_set(keep)
         text = f"{len(shown):,} shown"
-        if src.one_click:
+        if getattr(src, "one_click_filter", src.one_click):
             text += f"  ·  {sum(src.can_download(e) for e in shown):,} one-click installs"
         self.res_lbl.config(text=text)
         self._select()
@@ -286,17 +293,39 @@ class CatalogWindow:
             self.info.insert("end", "Pick a game to see its details.", "meta")
             self.pic.configure(image="", text="")
         else:
+            filling = self._fill(e)
             bits = [b for b in (src.developer(e), src.year(e), src.license(e)) if b]
             self.info.insert("end", src.title(e) + "\n", "title")
             self.info.insert("end", "  ·  ".join(bits) + "\n\n", "meta")
-            self.info.insert("end", src.description(e) or "No description.")
+            self.info.insert("end", src.description(e) or ("Loading details …" if filling else "No description."))
             if src.one_click and not src.can_download(e):
                 self.info.insert("end", f"\n\nThe author hasn't allowed apps to download this one: use "
                                         f"{src.open_label.rstrip(' ↗')} and download it from the game's page.", "meta")
-            self._show_shot(e)
+            if filling:
+                self.pic.configure(image="", text="")
+            else:
+                self._show_shot(e)
         self.info.configure(state="disabled")
         self.install_btn.state(["!disabled" if self._can_install() else "disabled"])
         self.open_btn.state(["!disabled" if e else "disabled"])
+
+    def _fill(self, e):
+        """Fetch the details a list left out, once per game. -> True while they're on their way."""
+        if not hasattr(self.src, "fill") or "_filled" in e:
+            return False
+        if e.get("_filling"):
+            return True
+        e["_filling"] = True
+
+        def done(res):
+            e.pop("_filling", None)
+            e["_filled"] = not isinstance(res, Exception)
+            if not isinstance(res, Exception):
+                e.update({k: v for k, v in res.items() if v})
+            if self.selected is e:
+                self._select()
+        self._in_thread(lambda: self.src.fill(e), done)
+        return True
 
     def _show_shot(self, e):
         key = self.src.key(e)
@@ -350,6 +379,9 @@ class CatalogWindow:
         e = self.selected
         if not self._can_install():
             return
+        terms = self.src.confirm(e) if hasattr(self.src, "confirm") else None
+        if terms and not messagebox.askyesno(f"Install {self.src.title(e)}", terms, parent=self.win):
+            return
         self.install_btn.state(["disabled"])
         self.status.config(text=f"Downloading {self.src.title(e)} …")
         self._in_thread(lambda: self.src.install(e, self.roms_root),
@@ -360,7 +392,7 @@ class CatalogWindow:
         if not e:
             return
         webbrowser.open(self.src.page_url(e))
-        if self.src.installed_path(e, self.roms_root):
+        if self.src.installed_path(e, self.roms_root) or not getattr(self.src, "browser_downloads", True):
             return  # just looking
         self.watcher.expect(self.src.want(e))
         self._show_waiting()

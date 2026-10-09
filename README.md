@@ -47,6 +47,8 @@ rename can be undone, and games only go for good when you delete them from the h
   follow the game through renames and undo.
 - ES-DE media and `gamelist.xml` entries are renamed along with each game, so play counts, favorites and artwork
   stay with it. File names inside `.cue` / `.m3u` files are updated too.
+- Arcade systems (`mame`, `arcade`, `fbneo`, `neogeo` and the like) are left alone: their emulators find games by
+  ROM set file name, so renaming them would stop them starting.
 
 **NoPayStation (PS3, PS Vita, PSP)**
 - **Tools → NoPayStation…** searches the NoPayStation lists. Queue games, DLC, demos and PS3 updates, and download and install them.
@@ -70,6 +72,20 @@ rename can be undone, and games only go for good when you delete them from the h
   Downloads folder is put in the right `roms` folder (zips are unpacked; other downloads are left alone).
 - itch.io's Cloudflare protection sometimes turns apps away from its feeds; the list is then empty, and Browse on
   itch.io still works.
+
+**PDRoms homebrew (19 systems, from Game Boy, NES and Mega Drive to Lynx, Neo Geo Pocket and WonderSwan)**
+- **Tools → PDRoms homebrew…** lists the games on [PDRoms](https://pdroms.de), a homebrew archive running since
+  1998 that only carries freeware, open-source and legally cleared software. Fan games it marks as
+  copyright-restricted aren't listed.
+- Pick a game to see its author, description and screenshot. Games download on PDRoms in your browser (**Open on
+  PDRoms** or **Browse on PDRoms**) and land in the right `roms` folder, as with itch.io.
+
+**Free arcade games (MAMEDEV)**
+- **Tools → Free arcade games (MAMEDEV)…** lists the [arcade games their owners released for free,
+  non-commercial use](https://www.mamedev.org/roms/) through the MAME team: Gridlee, Robby Roto, Alien Arena, the
+  Exidy classics and more.
+- **Install** asks you to confirm non-commercial use, as mamedev.org does, then downloads the game from mamedev.org
+  into `roms/mame` under the ROM set name MAME needs (`gridlee.zip`), with its description in ES-DE.
 
 ## Screenshots
 
@@ -171,4 +187,6 @@ on both Linux and Windows.
 
 - Game metadata and images: [LaunchBox Games Database](https://gamesdb.launchbox-app.com/)
 - Package lists: [NoPayStation](https://nopaystation.com/)
+- Homebrew: [Homebrew Hub](https://hh.gbdev.io), [itch.io](https://itch.io), [PDRoms](https://pdroms.de); free arcade
+  ROMs: [MAMEDEV](https://www.mamedev.org/roms/)
 - Theme: [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme) (MIT, bundled in `vendor/`)

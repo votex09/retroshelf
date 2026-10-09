@@ -19,7 +19,9 @@ Moved files go to <holding folder>/<to_delete|review_low_value>/<system>/, outsi
 Holding folder… lists moved games with artwork and details, and restores or permanently deletes them.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
 Homebrew Hub… browses free GB / GBC / GBA / NES homebrew and files it into roms (see lib/homebrew.py); itch.io
-homebrew… does the same for free retro homebrew on itch.io, downloaded in the browser (see lib/itch.py).
+homebrew… and PDRoms homebrew… do the same for free retro homebrew on itch.io and pdroms.de, downloaded in the
+browser (see lib/itch.py, lib/pdroms.py). Free arcade games (MAMEDEV)… installs the arcade ROMs their owners released
+for non-commercial use into roms/mame (see lib/mamedev.py). Rename… leaves arcade systems alone (set names matter).
 Updates come from GitHub releases (git clones: the main branch): checked at startup (can be turned off) or with Check
 for updates (see lib/updater.py).
 Add to app menu (or --install-desktop) installs a .desktop entry (Windows: a Start menu shortcut); retroshelf.sh
@@ -42,6 +44,8 @@ import nps  # noqa: E402
 import nps_gui  # noqa: E402
 import homebrew_gui  # noqa: E402
 import itch_gui  # noqa: E402
+import mamedev_gui  # noqa: E402
+import pdroms_gui  # noqa: E402
 import scraper  # noqa: E402
 import desktop  # noqa: E402
 import details  # noqa: E402
@@ -288,6 +292,11 @@ def render_name(template, fields):
     out = re.sub(r"\s*:\s*", " - ", out).replace("/", "-")  # Fate/Unlimited Codes -> Fate-Unlimited Codes
     out = re.sub(r'[<>"\\|?*\x00-\x1f]', "", out)
     return re.sub(r"^[\s-]+|[\s-]+$", "", " ".join(out.split()))
+
+
+# arcade systems whose emulators look games up by ROM set name, so their files must keep the names they have
+ARCADE_SYSTEMS = {"arcade", "mame", "mame-advmame", "mame-mame4all", "fba", "fbneo", "neogeo", "cps", "cps1", "cps2",
+                  "cps3", "naomi", "naomi2", "naomigd", "atomiswave", "model2", "model3", "hikaru", "triforce"}
 
 
 def plan_renames(units, template):
@@ -949,6 +958,8 @@ class App:
         tools.add_command(label="NoPayStation…", command=lambda: nps_gui.open_window(self))
         tools.add_command(label="Homebrew Hub…", command=lambda: homebrew_gui.open_window(self))
         tools.add_command(label="itch.io homebrew…", command=lambda: itch_gui.open_window(self))
+        tools.add_command(label="PDRoms homebrew…", command=lambda: pdroms_gui.open_window(self))
+        tools.add_command(label="Free arcade games (MAMEDEV)…", command=lambda: mamedev_gui.open_window(self))
         tools.add_separator()
         tools.add_command(label="Download LaunchBox data", command=self.update_lb)
         mb.add_cascade(label="Tools", menu=tools)
@@ -2261,6 +2272,12 @@ class App:
     def rename_dialog(self):
         if not self.units:
             messagebox.showinfo("No games", "Pick a system with games first.")
+            return
+        if self.system in ARCADE_SYSTEMS:
+            messagebox.showinfo("Arcade games keep their names",
+                                "MAME and FinalBurn find arcade games by their ROM set's file name (like "
+                                "gridlee.zip), so renaming them would stop them starting. ES-DE shows their full "
+                                "titles anyway.")
             return
         selected = set(self.keep_tv.selection()) | set(self.move_tv.selection())
         scopes = [("All games", list(self.units)), ("Keeping list", list(self.kept)),

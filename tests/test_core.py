@@ -17,6 +17,8 @@ import desktop  # noqa: E402
 import downloads  # noqa: E402
 import homebrew as hb  # noqa: E402
 import itch  # noqa: E402
+import mamedev  # noqa: E402
+import pdroms  # noqa: E402
 import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import scraper  # noqa: E402
@@ -724,6 +726,235 @@ class ItchIo(unittest.TestCase):
         self.assertEqual(downloads.stem_from_download("celeste.p8.png", downloads.SYSTEM_EXTS["pico8"]), "celeste")
 
 
+PDROMS_ARTICLE = """
+\t\t<article class="file_post">
+\t\t<div class="post-title">
+\t\t\t<a href="https://pdroms.de/files/nintendo-entertainment-system-nes-famicom/{slug}" title="{title}">
+\t\t\t\t{title}\t\t\t</a>
+\t\t</div><!--post-title-->
+\t\t<div class="file-meta-data">
+\t\t\tAdded May 28, 2014, Under: <a href="https://pdroms.de/files/nintendo-entertainment-system-nes-famicom/">Nintendo
+ Entertainment System (Famicom)</a> | <a href="https://pdroms.de/files/system/games" rel="tag">Games</a>\t\t</div>
+\t\t\t\t\t<a href="https://pdroms.de/files/nintendo-entertainment-system-nes-famicom/{slug}" aria-label="{title}">
+\t\t\t\t<img width="256" height="150" src="https://pdroms.de/wp-content/uploads/2014/05/{slug}-256x150.png"
+ class="thumbs-in-files wp-post-image" alt="" decoding="async" loading="lazy" />\t\t\t</a>
+\t\t<div class="author-box-small">
+\t\t\tBy <a href="https://pdroms.de/author/kojote" rel="author">Shahzad Sahaib</a>\t\t</div><!--author-box-->
+\t</article>"""
+
+
+def pdroms_page(titles, total):
+    """A PDRoms games page as the site serves it (trimmed)."""
+    arts = "".join(PDROMS_ARTICLE.format(slug=t.lower().replace(" ", "-"), title=t) for t in titles)
+    return (f'<main id="main-content"><h1>NES Games <span class="entry-count">({total})</span></h1>'
+            f'<a href="?show_restricted=1" class="card file-restricted-toggle">Show +18 / copyright-restricted files'
+            f'</a><div class="grid">{arts}</div></main>')
+
+
+PDROMS_FILE = """<h1 class="post-title-big"><a href="https://pdroms.de/files/nes/1k2p" title="1k2p">1k2p</a></h1>
+<dl class="pdr-fact-box">
+\t\t\t\t<div class="pdr-fact-box-row">
+\t\t\t<dt>Author</dt>
+\t\t\t<dd>Sly Dog Studios</dd>
+\t\t</div>
+\t\t\t\t<div class="pdr-fact-box-row">
+\t\t\t<dt>Version</dt>
+\t\t\t<dd>v1</dd>
+\t\t</div>
+\t</dl>
+<div class="file-card">
+\t<div class="file-card-body">
+\t\t<div class="file_thumb_single"><img decoding="async" src="https://pdroms.de/wp-content/uploads/2014/05/1k2p.png"
+ alt="" /></div>
+<p><em>Sly Dog Games</em> made up the very basic version of Pong, named <strong>1k2p</strong>. It&#8217;s a two player
+ only game.<br style="clear:both;" /></p>
+\t\t\t\t\t</div><!--file-card-body-->
+\t\t<div class="download_link file-card-download">
+\t\t\t\t<a href="https://pdroms.de/?__df=540e57153a" class="download-btn">Download 1k2p</a>"""
+
+MAMEDEV_INDEX = """<div class="panel-heading">Exidy Games</div>
+\t\t<table class="table">
+\t\t\t<tr>
+\t\t\t\t<td class="link" width="20%">
+\t\t\t\t\t<a href="circus"><img src="circus/circus-thumb.png" width="80" height="60" alt="Circus" /></a><br/>
+\t\t\t\t\t<a href="circus">Circus</a><br/>
+\t\t\t\t\t&copy;1977 Exidy
+\t\t\t\t</td>
+\t\t\t\t<td class="link" width="20%">
+\t\t\t\t\t<a href="witchcrd"><img src="witchcrd/witchcrd-thumb.png" width="80" height="60" alt="Witch Card" /></a><br/>
+\t\t\t\t\t<a href="witchcrd">Witch Card</a><br/>
+\t\t\t\t\t&copy;1991 Video Klein
+\t\t\t\t</td>
+\t\t\t</tr>
+\t\t</table>"""
+
+
+def mamedev_page(title, zips):
+    links = "".join(f'<h4><a href="{z}" onclick="return isChecked();" title="Download now" class="btn-success">'
+                    f'Download the {title} ROM images</a></h4>' for z in zips)
+    return f"""<div class="container">
+\t<h1 class="page-header" style="text-align: center">{title} (Exidy, 1977)</h1>
+\t<p>
+\tThanks to the kind generosity of H.R. Kauffman, the original ROM images for <b>{title}</b> have been made
+\t\t\t\t\t\t\tavailable for free, non-commercial use.
+\t</p>
+\t<p>
+\tBefore downloading, you must acknowledge that you understand these images are to be used only for
+\tnon-commercial purposes. Do this by checking the box below the download button.
+\t</p>
+\t<script language="JavaScript" type="text/javascript">function isChecked() {{ return true; }}</script>
+\t<center><div class="btn btn-success">{links}
+\t\t\t<form name="agreeform" action="#"><input type="checkbox" name="agree" />
+\t\t\t\t<label for="agree">I understand that these ROM images are for non-commercial use only</label></form>
+\t</div></center>
+\t<h2>Description</h2>
+\t<p>
+\t<b>{title}</b> was one of the first games produced by Exidy
+\tthat used a CPU (6502).
+\t</p>
+\t<p>At least 13,000 units were produced.</p>
+\t<table width="100%"><tr><th colspan="2">Scoring</th></tr><tr><td>Jump</td><td>10 points</td></tr></table>
+\t<div>
+\t\t<h2>Screenshots</h2>
+\t\t<img src="0000.png" width="320" height="240" alt="Exidy Screenshot" />
+\t</div>
+\t<h2>Additional Images</h2>
+\t<img src="circus-cabinet.jpg" width="300" height="547" alt="Exidy cabinet" />
+</div>"""
+
+
+class Pdroms(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.roms = os.path.join(self.dir, "roms")
+        self.dl = os.path.join(self.dir, "Downloads")
+        os.makedirs(self.dl)
+        p = mock.patch.object(pdroms, "CACHE", os.path.join(self.dir, "cache"))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_parse_page(self):
+        games, total = pdroms.parse_page(pdroms_page(["2048", "Robo-Ninja Climb (NES Game)"], 74))
+        self.assertEqual(total, 74)
+        self.assertEqual([g["title"] for g in games], ["2048", "Robo-Ninja Climb"])
+        self.assertEqual(games[0]["url"], "https://pdroms.de/files/nintendo-entertainment-system-nes-famicom/2048")
+        self.assertEqual(games[0]["added"], "2014")
+        self.assertEqual(games[0]["thumb"], "https://pdroms.de/wp-content/uploads/2014/05/2048-256x150.png")
+
+    def test_parse_file_page(self):
+        d = pdroms.parse_file_page(PDROMS_FILE)
+        self.assertEqual((d["author"], d["version"]), ("Sly Dog Studios", "v1"))
+        self.assertEqual(d["image"], "https://pdroms.de/wp-content/uploads/2014/05/1k2p.png")
+        self.assertEqual(d["description"], "Sly Dog Games made up the very basic version of Pong, named 1k2p. "
+                                           "It\u2019s a two player only game.")
+
+    def test_catalog_reads_every_page_and_caches(self):
+        pages = {1: pdroms_page([f"Game {i:02}" for i in range(10)], 23),
+                 2: pdroms_page([f"Game {i:02}" for i in range(10, 20)], 23),
+                 3: pdroms_page(["Game 20", "Game 21", "Game 00"], 23)}
+        urls = []
+
+        def fetch(url, timeout=30):
+            urls.append(url)
+            n = int(url.rstrip("/").rsplit("/", 1)[-1]) if "/page/" in url else 1
+            return pages[n]
+
+        with mock.patch.object(pdroms, "_fetch", side_effect=fetch):
+            games = pdroms.load_catalog("nes", pause=0)
+            self.assertEqual(len(games), 22)  # the repeat on page 3 merged
+            self.assertEqual(urls, ["https://pdroms.de/system/nintendo-entertainment-system-nes-famicom/games/",
+                                    "https://pdroms.de/system/nintendo-entertainment-system-nes-famicom/games/page/2/",
+                                    "https://pdroms.de/system/nintendo-entertainment-system-nes-famicom/games/page/3/"])
+            self.assertTrue(all("show_restricted" not in u for u in urls))  # fan games stay hidden
+            self.assertEqual({g["system"] for g in games}, {"nes"})
+            pdroms.load_catalog("nes")
+            self.assertEqual(len(urls), 3)  # from the cache
+            self.assertLess(pdroms.cached_age("nes"), 1)
+
+    def test_every_system_is_known_to_the_downloads_watcher(self):
+        for system, _, _ in pdroms.SYSTEMS:
+            self.assertTrue(downloads.SYSTEM_EXTS.get(system), system)
+
+    def test_open_game_is_filed_from_its_zip(self):
+        g = dict(pdroms.parse_page(pdroms_page(["Streemerz"], 1))[0][0], system="nes")
+        w = downloads.DownloadWatcher(self.dl, self.roms)
+        w.expect(pdroms.want(g))
+        with open(os.path.join(self.dl, "streemerz_(01-02-2013).zip"), "wb") as f:
+            f.write(HomebrewHub._zip({"readme.txt": b"hi", "streemerz.nes": b"NES"}))
+        w.poll()
+        [(want, path)] = w.poll()
+        self.assertEqual(path, os.path.join(self.roms, "nes", "Streemerz (Homebrew).nes"))
+        self.assertEqual(pdroms.installed_path(g, self.roms), path)
+        fields = pdroms.es_de_fields(dict(g, author="Faux Game Company", description="Infiltrate."))
+        self.assertEqual((fields["developer"], fields["desc"]), ("Faux Game Company", "Infiltrate."))
+        self.assertNotIn("releasedate", fields)  # PDRoms' date is when it was listed, not released
+
+
+class Mamedev(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.roms = os.path.join(self.dir, "roms")
+        p = mock.patch.object(mamedev, "CACHE", os.path.join(self.dir, "cache"))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_parse_index(self):
+        games = mamedev.parse_index(MAMEDEV_INDEX)
+        self.assertEqual([(g["id"], g["title"], g["year"], g["company"]) for g in games],
+                         [("circus", "Circus", "1977", "Exidy"), ("witchcrd", "Witch Card", "1991", "Video Klein")])
+        self.assertEqual(games[0]["page"], "https://www.mamedev.org/roms/circus/")
+        self.assertEqual(games[0]["thumb"], "https://www.mamedev.org/roms/circus/circus-thumb.png")
+
+    def test_parse_game_page(self):
+        page = "https://www.mamedev.org/roms/circus/"
+        d = mamedev.parse_game_page(mamedev_page("Circus", ["circus.zip", "circuso.zip"]), page)
+        self.assertEqual(d["zips"], [page + "circus.zip", page + "circuso.zip"])
+        self.assertEqual(d["notice"], "Thanks to the kind generosity of H.R. Kauffman, the original ROM images for "
+                                      "Circus have been made available for free, non-commercial use.")
+        self.assertEqual(d["description"], "Circus was one of the first games produced by Exidy that used a CPU "
+                                           "(6502).\n\nAt least 13,000 units were produced.")
+        self.assertEqual(d["image"], page + "0000.png")  # a screenshot, not the cabinet
+
+    def test_catalog_and_install_keep_the_set_name(self):
+        def fetch(url, timeout=30):
+            if url == mamedev.SITE:
+                return MAMEDEV_INDEX.encode()
+            if url.endswith(".zip"):
+                return HomebrewHub._zip({"wc.u3": b"ROM"})
+            if "witchcrd" in url:
+                return mamedev_page("Witch Card", ["witchcrde.zip"]).encode()
+            return mamedev_page("Circus", ["circus.zip", "circuso.zip"]).encode()
+
+        with mock.patch.object(mamedev, "_fetch", side_effect=fetch) as f:
+            games = mamedev.load_catalog(pause=0)
+            self.assertEqual(f.call_count, 3)
+            mamedev.load_catalog()
+            self.assertEqual(f.call_count, 3)  # from the cache
+            witch = games[1]
+            self.assertEqual(mamedev.rom_name(witch), "witchcrde.zip")  # MAME's set name, not the page's
+            self.assertIsNone(mamedev.installed_path(witch, self.roms))
+            path = mamedev.install(witch, self.roms)
+            self.assertEqual(path, os.path.join(self.roms, "mame", "witchcrde.zip"))
+            self.assertTrue(zipfile.is_zipfile(path))
+            self.assertEqual(mamedev.installed_path(witch, self.roms), path)
+            with self.assertRaises(FileExistsError):
+                mamedev.install(witch, self.roms)
+        self.assertEqual(mamedev.es_de_fields(witch)["releasedate"], "19910101T000000")
+
+    def test_not_a_zip_is_refused(self):
+        g = {"zips": ["https://www.mamedev.org/roms/x/x.zip"], "title": "X"}
+        with mock.patch.object(mamedev, "_fetch", return_value=b"<html>error</html>"):
+            with self.assertRaises(ValueError):
+                mamedev.install(g, self.roms)
+        self.assertFalse(os.path.exists(os.path.join(self.roms, "mame", "x.zip")))
+
+    def test_arcade_systems_are_not_renamed(self):
+        self.assertIn("mame", rs.ARCADE_SYSTEMS)
+        self.assertNotIn("snes", rs.ARCADE_SYSTEMS)
+
+
 @unittest.skipUnless(os.environ.get("RETROSHELF_LIVE_TESTS"),
                      "talks to the real Homebrew Hub; set RETROSHELF_LIVE_TESTS=1")
 class LiveHomebrewHub(unittest.TestCase):
@@ -775,6 +1006,47 @@ class LiveItchIo(unittest.TestCase):
         print("sample:", {k: v[:60] for k, v in games[0].items()} if games else None)
         self.assertTrue(games)
         self.assertTrue(all(g["url"].startswith("https://") and g["title"] for g in games))
+
+
+@unittest.skipUnless(os.environ.get("RETROSHELF_LIVE_TESTS"),
+                     "talks to the real PDRoms; set RETROSHELF_LIVE_TESTS=1")
+class LivePdroms(unittest.TestCase):
+    """PDRoms' games pages and file pages still have the shape lib/pdroms.py reads (run by CI, not by default)."""
+
+    def test_games_page_and_file_page(self):
+        games, total = pdroms.parse_page(pdroms._fetch(pdroms.games_url("nes")))
+        print(f"\nPDRoms NES games: {total} on the site, {len(games)} on page 1; first: {games[:1]}")
+        self.assertGreater(total or 0, 20)
+        self.assertEqual(len(games), pdroms.PER_PAGE)
+        self.assertTrue(all(g["url"].startswith("https://pdroms.de/files/") and g["title"] for g in games))
+        d = pdroms.load_details(games[0])
+        print("details:", {k: v[:80] for k, v in d.items()})
+        self.assertTrue(d.get("description"))
+        counts = {}
+        for system in ("gb", "gba", "megadrive", "atari2600"):
+            counts[system] = pdroms.parse_page(pdroms._fetch(pdroms.games_url(system)))[1]
+        print("games per system:", counts)
+        self.assertTrue(all(counts.values()))
+
+
+@unittest.skipUnless(os.environ.get("RETROSHELF_LIVE_TESTS"),
+                     "talks to the real mamedev.org; set RETROSHELF_LIVE_TESTS=1")
+class LiveMamedev(unittest.TestCase):
+    """The whole MAMEDEV list reads, and a ROM set downloads as a zip (run by CI, not by default)."""
+
+    def test_catalog_and_download(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        with mock.patch.object(mamedev, "CACHE", d):
+            games = mamedev.load_catalog(refresh=True)
+        print(f"\n{len(games)} MAMEDEV games; sets: {[mamedev.rom_name(g) for g in games]}")
+        print("sample:", {k: (v[:80] if isinstance(v, str) else v) for k, v in games[0].items()})
+        self.assertGreaterEqual(len(games), 20)
+        self.assertTrue(all(g["notice"] and g["zips"] for g in games), [g["id"] for g in games if not g["notice"]])
+        roms = os.path.join(d, "roms")
+        path = mamedev.install(next(g for g in games if g["id"] == "gridlee"), roms)
+        self.assertTrue(zipfile.is_zipfile(path))
+        print("gridlee.zip holds:", zipfile.ZipFile(path).namelist())
 
 
 @unittest.skipUnless(os.name == "nt", "real Windows only")
