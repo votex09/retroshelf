@@ -472,6 +472,8 @@ class HomebrewHub(unittest.TestCase):
 
     def test_who_may_be_downloaded_directly(self):
         self.assertTrue(hb.can_download(hh_entry(license="MIT")))
+        self.assertTrue(hb.can_download({"slug": "x", "license": "mit"}))  # what the API calls it
+        self.assertEqual(hb.license_text({"slug": "x", "license": "Zlib"}), "Zlib")
         self.assertTrue(hb.can_download(hh_entry(license={"spdx": "GPL-3.0-only"})))
         self.assertTrue(hb.can_download(hh_entry(tags=["Open Source"])))
         self.assertTrue(hb.can_download(hh_entry(**{"third-party": ["retroshelf"]})))
@@ -617,6 +619,9 @@ class LiveHomebrewHub(unittest.TestCase):
         e = next(e for e in entries if e.get("screenshots"))
         full = hb.load_entry(e["slug"])
         print(f"entry {e['slug']}: fields {sorted(full)}")
+        import collections
+        print("licenses:", collections.Counter(hb.game_license(x) for x in entries).most_common(15))
+        print("one-click installs:", sum(hb.can_download(x) for x in entries), "of", len(entries))
         self.assertEqual(full["slug"], e["slug"])
         self.assertIsNotNone(hb.rom_file(full))
         for url in (hb.screenshot_url(full), hb.file_url(full, hb.rom_file(full)["filename"])):

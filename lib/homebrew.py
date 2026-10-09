@@ -29,6 +29,7 @@ OPEN_LICENSES = {  # SPDX ids whose terms allow passing the game on
     "MPL-2.0", "LGPL-2.1-only", "LGPL-2.1-or-later", "LGPL-3.0-only", "LGPL-3.0-or-later",
     "GPL-2.0-only", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later", "AGPL-3.0-only", "AGPL-3.0-or-later",
 }
+OPEN_UPPER = {x.upper() for x in OPEN_LICENSES}
 CACHE_DAYS = 7
 
 
@@ -86,11 +87,16 @@ def developer_text(dev):
     return ", ".join(d.get("name", "") if isinstance(d, dict) else str(d) for d in items if d)
 
 
-def license_text(entry):
-    lic = entry.get("gameLicense")
+def game_license(entry):
+    """The game's license as a string ("" if none). The API calls it "license"; the database schema "gameLicense"."""
+    lic = entry.get("license") or entry.get("gameLicense")
     if isinstance(lic, dict):
-        lic = lic.get("name") or lic.get("spdx") or lic.get("id")
-    return str(lic) if lic else ("Open source" if "Open Source" in (entry.get("tags") or []) else "")
+        lic = lic.get("spdx") or lic.get("id") or lic.get("name")
+    return str(lic).strip() if lic else ""
+
+
+def license_text(entry):
+    return game_license(entry) or ("Open source" if "Open Source" in (entry.get("tags") or []) else "")
 
 
 def downloads_disabled(entry):
@@ -102,9 +108,7 @@ def can_download(entry):
     source or names RetroShelf among the apps allowed to fetch it. Everything else goes through the website."""
     if downloads_disabled(entry):
         return False
-    lic = entry.get("gameLicense")
-    lic = lic.get("spdx") or lic.get("id") or lic.get("name") if isinstance(lic, dict) else lic
-    return (lic in OPEN_LICENSES or "Open Source" in (entry.get("tags") or [])
+    return (game_license(entry).upper() in OPEN_UPPER or "Open Source" in (entry.get("tags") or [])
             or CLIENT in (entry.get("third-party") or []))
 
 
