@@ -54,6 +54,15 @@ rename can be undone, and games only go for good when you delete them from the h
 - Parallel, resumable downloads. Right-click the queue to retry failed jobs.
 - PS3 packages are installed into RPCS3, PS Vita packages through Vita3K, PSP packages into your `roms` folder.
 
+**Homebrew Hub (Game Boy, Game Boy Color, Game Boy Advance, NES)**
+- **Tools → Homebrew Hub…** browses the free homebrew on [Homebrew Hub](https://hh.gbdev.io): search by name or
+  developer, filter by system and type (games, demos, tools, music), with screenshots and descriptions.
+- Open-source games install with one click. Homebrew Hub lets each author decide which apps may download their game,
+  so for the others **Open on Homebrew Hub** opens the game's page in your browser; download it there and RetroShelf
+  moves it from your Downloads folder into the right `roms` folder (zips are unpacked).
+- New games are named `Title (Homebrew).ext` and get Homebrew Hub's description, developer, date and screenshot in
+  ES-DE.
+
 ## Screenshots
 
 <table>

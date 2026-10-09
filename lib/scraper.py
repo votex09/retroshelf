@@ -64,6 +64,22 @@ def es_de_running():
     return False
 
 
+def find_gamelist(roms_root, system):
+    """ES-DE's gamelist.xml for a system, where one exists: next to roms (RetroDECK, ES-DE portable) or ~/ES-DE."""
+    for base in (os.path.join(roms_root, "..", "ES-DE"), os.path.expanduser("~/ES-DE"),
+                 os.path.expanduser("~/.emulationstation")):
+        p = os.path.join(base, "gamelists", system, "gamelist.xml")
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def gamelist_path(roms_root, system):
+    """Where a system's gamelist.xml is, or where to create it."""
+    return find_gamelist(roms_root, system) or os.path.realpath(
+        os.path.join(roms_root, "..", "ES-DE", "gamelists", system, "gamelist.xml"))
+
+
 def media_root(roms_root):
     for p in (os.path.join(roms_root, "..", "ES-DE", "downloaded_media"), os.path.expanduser("~/ES-DE/downloaded_media")):
         if os.path.isdir(p):

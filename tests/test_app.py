@@ -1,6 +1,6 @@
 """End-to-end: the real RetroShelf window on the sandbox library (see sandbox.py), driven through its own methods
 and buttons. Needs tkinter and a display; tests/run.sh supplies a virtual one with xvfb-run."""
-import importlib.util, json, os, shutil, sys, tempfile, unittest
+import base64, importlib.util, io, json, os, shutil, sys, tempfile, time, unittest
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
@@ -15,7 +15,8 @@ except ImportError as e:
 if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
     raise unittest.SkipTest("no display (run tests/run.sh, which uses xvfb-run)")
 
-LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil"]
+LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
+               "homebrew", "homebrew_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -236,6 +237,88 @@ class AppTest(unittest.TestCase):
             self.assertIn("firmware", w.fw_lbl.cget("text"))  # found now; firmware is the next thing missing
             self.assertEqual(self.cfg()["emulator_dirs"], {"rpcs3": os.path.normpath(rpcs3)})
             w.close()
+
+    def test_homebrew_hub_window(self):
+        """One-click install for an open-source game, and filing a game the user downloads in their browser."""
+        hb, hbg, scraper = sys.modules["homebrew"], sys.modules["homebrew_gui"], sys.modules["scraper"]
+        png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0g"
+                               "AAAABJRU5ErkJggg==")  # 1x1 PNG
+        game = {"filename": "game.gb", "playable": True, "default": True}
+        entries = [
+            {"slug": "open", "title": "Open Racer", "platform": "GB", "typetag": "game", "gameLicense": "MIT",
+             "developer": "Ann", "date": "2020-05-01", "description": "Fast.", "screenshots": ["s.png"],
+             "basepath": "database", "files": [game]},
+            {"slug": "closed", "title": "Closed Quest", "platform": "GB", "typetag": "game", "developer": "Bo",
+             "screenshots": [], "basepath": "database", "files": [game]},
+            {"slug": "nsfw", "title": "Hidden", "platform": "GB", "nsfw": True, "files": [game]},
+        ]
+
+        class Resp(io.BytesIO):
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_urlopen(req, timeout=None):
+            url = req.full_url if hasattr(req, "full_url") else req
+            return Resp(png if url.endswith(".png") else b"GB ROM")
+
+        downloads = os.path.join(self.base, "home", "Downloads")
+        os.makedirs(downloads, exist_ok=True)
+        self.app.cfg["homebrew_downloads"] = downloads
+        opened = []
+        with mock.patch.object(hb, "load_catalog", return_value=entries), \
+                mock.patch.object(hb.urllib.request, "urlopen", side_effect=fake_urlopen), \
+                mock.patch.object(scraper, "es_de_running", return_value=False), \
+                mock.patch.object(hbg.webbrowser, "open", side_effect=opened.append):
+            w = hbg.open_window(self.app)
+            self.pump(lambda: w.entries)
+            self.assertEqual(w.tv.get_children(), ("closed", "open"))  # sorted, NSFW left out
+            self.assertEqual(w.tv.set("closed", "status"), "via website")
+
+            w.tv.selection_set("open")
+            self.pump(lambda: "open" in w.shots)
+            self.assertIn("Fast.", w.info.get("1.0", "end"))
+            self.assertIsNotNone(w.shots["open"])
+            self.assertNotIn("disabled", button(w.win, "Install").state())
+            button(w.win, "Install").invoke()
+            rom = os.path.join(self.p["roms"], "gb", "Open Racer (Homebrew).gb")
+            self.pump(lambda: os.path.exists(rom))
+            self.pump(lambda: w.tv.set("open", "status") == "Installed")
+            gamelist = scraper.gamelist_path(self.p["roms"], "gb")
+            with open(gamelist, encoding="utf-8") as f:
+                text = f.read()
+            self.assertIn("<desc>Fast.</desc>", text)
+            self.assertIn("<releasedate>20200501T000000</releasedate>", text)
+            shot = os.path.join(scraper.media_root(self.p["roms"]), "gb", "screenshots", "Open Racer (Homebrew).png")
+            self.assertTrue(os.path.exists(shot))
+
+            w.tv.selection_set("closed")
+            self.root.update()
+            self.assertIn("disabled", button(w.win, "Install").state())
+            button(w.win, "Open on Homebrew Hub ↗").invoke()
+            self.assertEqual(opened, ["https://hh.gbdev.io/game/closed"])
+            self.assertEqual(w.tv.set("closed", "status"), "Waiting")
+            with open(os.path.join(downloads, "game.gb"), "wb") as f:  # the user's browser saves it
+                f.write(b"GB ROM")
+            w._watch()
+            w._watch()
+            self.assertTrue(os.path.exists(os.path.join(self.p["roms"], "gb", "Closed Quest (Homebrew).gb")))
+            self.assertFalse(os.path.exists(os.path.join(downloads, "game.gb")))
+            self.assertEqual(w.watcher.waiting, [])
+            w.close()
+
+    def pump(self, done, timeout=5.0):
+        """Run Tk's event loop until done() is true (background work finishes through after() polls)."""
+        end = time.monotonic() + timeout
+        while not done():
+            if time.monotonic() > end:
+                self.fail("timed out waiting for the window")
+            self.root.update()
+            time.sleep(0.02)
 
     def test_rename_dialog_and_undo(self):
         a = self.app
