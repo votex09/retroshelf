@@ -28,7 +28,7 @@ jobs:
       - name: Install Tk and a virtual display
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends python3-tk python3-pil.imagetk xvfb xauth
+          sudo apt-get install -y -qq --no-install-recommends python3-tk python3-pil.imagetk xvfb xauth mame-tools
       - name: Run tests
         run: tests/run.sh -v
       - name: Check Homebrew Hub, itch.io, PDRoms, MAMEDEV and ES-DE's release list (live; an outage there doesn't block releases)

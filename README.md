@@ -95,6 +95,15 @@ rename can be undone, and games only go for good when you delete them from the h
 - Arcade systems (`mame`, `arcade`, `fbneo`, `neogeo` and the like) are left alone: their emulators find games by
   ROM set file name, so renaming them would stop them starting.
 
+**Compress games**
+- **Tools → Compress games…** turns disc images into the compressed formats the emulators read, usually a third
+  to a half smaller: CD games (PlayStation, Saturn, Sega CD, Dreamcast, PC Engine CD, Neo Geo CD, 3DO, PC-FX) and
+  PS2 discs become `.chd`, GameCube and Wii discs become `.rvz`. Select games to do only those.
+- Each new file is written next to the game and checked before anything is replaced. `.m3u` playlists, ES-DE's
+  gamelist entry (play counts, favorites) and artwork follow it, and the originals go to the holding folder
+  (or are deleted, if you tick that), where **Restore a move…** can still put them back.
+- Uses chdman (from RetroDECK or MAME) and dolphin-tool (from RetroDECK or Dolphin), found by themselves.
+
 **NoPayStation (PS3, PS Vita, PSP)**
 - **Tools → NoPayStation…** searches the NoPayStation lists. Queue games, DLC, demos and PS3 updates, and download and install them.
 - Shows which games you already have; can list available updates for installed PS3 games.

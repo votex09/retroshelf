@@ -1,6 +1,6 @@
 """Name parsing, presets, region dupes, rename planning, LaunchBox matching and file helpers. No window needed,
 but retroshelf.py imports tkinter, so run these with a Python that has it (tests/run.sh picks one)."""
-import io, json, ntpath, os, posixpath, shutil, struct, subprocess, sys, tempfile, unittest, zipfile
+import io, json, ntpath, os, posixpath, shutil, struct, subprocess, sys, tempfile, time, unittest, zipfile
 import xml.etree.ElementTree as ET
 from unittest import mock
 
@@ -29,6 +29,7 @@ import romimport as ri  # noqa: E402
 import video  # noqa: E402
 import gamepad  # noqa: E402
 import padhints  # noqa: E402
+import compress  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
 import discs  # noqa: E402
@@ -1353,6 +1354,159 @@ class Gamepad(unittest.TestCase):
         root = mock.Mock()
         pads = gamepad.Gamepads(root, source=src)
         self.assertEqual(pads.style(), "playstation")
+
+
+FAKE_TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_disc_tool.py")
+
+
+class Compress(unittest.TestCase):
+    """lib/compress.py: what becomes a .chd / .rvz, and replacing the originals safely."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.tool = compress.Tool("chdman", "tests", [sys.executable, FAKE_TOOL])
+
+    def put(self, system, rel, data=b"\0" * 4096):
+        p = os.path.join(self.tmp, system, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(data if isinstance(data, bytes) else data.encode())
+        return p
+
+    def units(self, system):
+        folder = os.path.join(self.tmp, system)
+        out = {}
+        for n in sorted(os.listdir(folder)):
+            key = n if os.path.isdir(os.path.join(folder, n)) else rs.unit_key(n)
+            out.setdefault(key, {"paths": []})["paths"].append(os.path.join(folder, n))
+        return out
+
+    def cue(self, system, stem, tracks=1):
+        text = "".join(f'FILE "{stem} (Track {t}).bin" BINARY\n  TRACK {t:02d} MODE2/2352\n    INDEX 01 00:00:00\n'
+                       for t in range(1, tracks + 1))
+        for t in range(1, tracks + 1):
+            self.put(system, f"{stem} (Track {t}).bin")
+        return self.put(system, f"{stem}.cue", text)
+
+    def test_what_each_game_becomes(self):
+        self.cue("psx", "Alpha (USA)", tracks=2)
+        self.put("psx", "Done (USA).chd")
+        for d in (1, 2):
+            self.cue("psx", f"Multi (USA) (Disc {d})")
+        self.put("psx", "Multi (USA).m3u", "Multi (USA) (Disc 1).cue\nMulti (USA) (Disc 2).cue\n")
+        self.put("psx", "Broken (USA).cue", 'FILE "Broken (USA).bin" BINARY\n  TRACK 01 MODE2/2352\n')
+        self.put("psx", "Iso (USA).iso")
+        plan = {k: (jobs, why) for k, jobs, why in compress.plan("psx", self.units("psx"))}
+        jobs, _ = plan["Alpha (USA)"]
+        self.assertEqual([(j.kind, os.path.basename(j.out), len(j.parts)) for j in jobs], [("cd", "Alpha (USA).chd", 3)])
+        self.assertEqual(plan["Done (USA)"], ([], "already compressed"))
+        self.assertEqual(sorted(os.path.basename(j.out) for j in plan["Multi (USA)"][0]),
+                         ["Multi (USA) (Disc 1).chd", "Multi (USA) (Disc 2).chd"])
+        self.assertEqual(plan["Broken (USA)"][0], [])
+        self.assertIn("isn't there", plan["Broken (USA)"][1])
+        self.assertEqual(plan["Iso (USA)"][0][0].kind, "cd")
+        # PS2 images are DVDs; GameCube / Wii become RVZ, but not NKit images or split WBFS
+        self.put("ps2", "Game (USA).iso")
+        self.assertEqual(compress.plan("ps2", self.units("ps2"))[0][1][0].kind, "dvd")
+        self.put("gc", "Cube (USA).iso")
+        self.put("gc", "Trim (USA).nkit.iso")
+        self.put("wii", "Split (USA).wbfs")
+        self.put("wii", "Split (USA).wbf1")
+        gc = {k: (jobs, why) for k, jobs, why in compress.plan("gc", self.units("gc"))}
+        self.assertEqual(gc["Cube (USA)"][0][0].kind, "rvz")
+        self.assertIn("NKit", gc["Trim (USA).nkit"][1])
+        self.assertIn("split", compress.plan("wii", self.units("wii"))[0][2])
+        # a Dreamcast game in its own folder becomes Game.chd next to it
+        self.put("dreamcast", "Shen (USA)/track01.bin")
+        self.put("dreamcast", "Shen (USA)/track02.raw")
+        self.put("dreamcast", "Shen (USA)/disc.gdi", "2\n1 0 4 2352 track01.bin 0\n2 600 0 2352 track02.raw 0\n")
+        (key, jobs, _), = compress.plan("dreamcast", self.units("dreamcast"))
+        self.assertEqual((jobs[0].src.endswith("disc.gdi"), os.path.basename(jobs[0].out)), (True, "Shen (USA).chd"))
+        # systems that aren't disc-based, or whose ES-DE folder doesn't list the format, are left alone
+        self.assertIsNone(compress.supported("snes"))
+        self.assertIsNone(compress.supported("psx", [".cue", ".bin"]))
+        self.assertEqual(compress.supported("psx", [".cue", ".CHD"]), ".chd")
+        self.assertEqual(compress.plan("snes", {}), [])
+
+    def test_convert_then_replace(self):
+        for d in (1, 2):
+            self.cue("psx", f"Multi (USA) (Disc {d})")
+        m3u = self.put("psx", "Multi (USA).m3u", "Multi (USA) (Disc 1).cue\nMulti (USA) (Disc 2).cue\n")
+        folder = os.path.join(self.tmp, "psx")
+        gamelist = self.put("gl", "gamelist.xml", '<?xml version="1.0"?>\n<gameList>\n<game><path>./Multi (USA) '
+                            '(Disc 1).cue</path><name>Multi (USA) (Disc 1)</name><playcount>4</playcount></game>\n'
+                            "</gameList>\n")
+        holding = os.path.join(self.tmp, "pruned", "to_delete", "psx")
+        units = self.units("psx")
+        (_, jobs, _), = compress.plan("psx", units)
+        seen = []
+        size = compress.convert(jobs[0], self.tool, lambda stage, f, w: seen.append((stage, f)))
+        self.assertTrue(os.path.isfile(jobs[0].out))
+        self.assertEqual(size, os.path.getsize(jobs[0].out))
+        self.assertIn(("compress", 1.0), seen)
+        self.assertIn("check", {s for s, _ in seen})  # checked before anything is replaced
+        self.assertEqual([n for n in os.listdir(folder) if n.startswith(".")], [])  # no temporary file left
+        moves, problems = compress.finish(jobs[0], folder, compress.playlists_for(jobs[0], units["Multi (USA)"]["paths"]),
+                                          gamelist, None, holding)
+        self.assertEqual(problems, [])
+        self.assertEqual(sorted(os.path.basename(t) for _, t in moves),
+                         ["Multi (USA) (Disc 1) (Track 1).bin", "Multi (USA) (Disc 1).cue"])
+        self.assertTrue(all(os.path.exists(t) and not os.path.exists(s) for s, t in moves))
+        with open(m3u) as f:
+            self.assertEqual(f.read(), "Multi (USA) (Disc 1).chd\nMulti (USA) (Disc 2).cue\n")
+        with open(gamelist) as f:
+            text = f.read()
+        self.assertIn("<path>./Multi (USA) (Disc 1).chd</path>", text)
+        self.assertIn("<playcount>4</playcount>", text)
+        # deleting instead of holding
+        compress.convert(jobs[1], self.tool, verify=False)
+        moves, _ = compress.finish(jobs[1], folder, [m3u], None, None, None)
+        self.assertEqual(moves, [])
+        self.assertEqual(sorted(os.listdir(folder)), ["Multi (USA) (Disc 1).chd", "Multi (USA) (Disc 2).chd",
+                                                      "Multi (USA).m3u"])
+
+    def test_a_folder_game_brings_its_media_along(self):
+        self.put("dreamcast", "Shen (USA)/track01.bin")
+        self.put("dreamcast", "Shen (USA)/disc.gdi", "1\n1 0 4 2352 track01.bin 0\n")
+        media = os.path.join(self.tmp, "media", "dreamcast")
+        self.put("media", "dreamcast/covers/Shen (USA)/disc.png")
+        folder = os.path.join(self.tmp, "dreamcast")
+        (_, (job,), _), = compress.plan("dreamcast", self.units("dreamcast"))
+        compress.convert(job, self.tool)
+        compress.finish(job, folder, [], None, media, os.path.join(self.tmp, "held"))
+        self.assertTrue(os.path.isfile(os.path.join(media, "covers", "Shen (USA).png")))
+        self.assertEqual(os.listdir(folder), ["Shen (USA).chd"])
+        self.assertTrue(os.path.isdir(os.path.join(self.tmp, "held", "Shen (USA)")))
+
+    def test_a_failure_leaves_the_game_alone(self):
+        cue = self.cue("psx", "Alpha (USA)")
+        (_, (job,), _), = compress.plan("psx", self.units("psx"))
+        with mock.patch.dict(os.environ, {"FAKE_TOOL_FAIL": "1"}):
+            with self.assertRaises(RuntimeError) as cm:
+                compress.convert(job, self.tool)
+        self.assertIn("not valid", str(cm.exception))
+        self.assertEqual(sorted(os.listdir(os.path.dirname(cue))), ["Alpha (USA) (Track 1).bin", "Alpha (USA).cue"])
+        with mock.patch.dict(os.environ, {"FAKE_TOOL_SLOW": "6"}):  # stopping kills the tool and cleans up
+            t0 = time.monotonic()
+            with self.assertRaises(InterruptedError):
+                compress.convert(job, self.tool, cancelled=lambda: time.monotonic() - t0 > 0.5)
+        self.assertEqual(sorted(os.listdir(os.path.dirname(cue))), ["Alpha (USA) (Track 1).bin", "Alpha (USA).cue"])
+
+    @unittest.skipUnless(shutil.which("chdman"), "chdman isn't installed")
+    def test_real_chdman(self):
+        stem = "Real (USA)"
+        self.put("psx", f"{stem} (Track 1).bin", bytes(2352 * 300))
+        self.put("psx", f"{stem}.cue", f'FILE "{stem} (Track 1).bin" BINARY\n  TRACK 01 MODE2/2352\n'
+                                       "    INDEX 01 00:00:00\n")
+        self.put("ps2", "Dvd (USA).iso", bytes(2048 * 600))
+        for system in ("psx", "ps2"):
+            (_, (job,), _), = compress.plan(system, self.units(system))
+            compress.convert(job, compress.find_tool("chdman"))
+            with open(job.out, "rb") as f:
+                self.assertEqual(f.read(8), b"MComprHD")
+            with open(job.out, "rb") as f:
+                self.assertEqual(ri.sniff_chd(f)[0], "ps2" if system == "ps2" else None)
 
 
 class SevenZip(unittest.TestCase):
