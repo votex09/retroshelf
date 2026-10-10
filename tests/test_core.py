@@ -30,6 +30,7 @@ import video  # noqa: E402
 import gamepad  # noqa: E402
 import padhints  # noqa: E402
 import compress  # noqa: E402
+import health  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
 import discs  # noqa: E402
@@ -1509,6 +1510,115 @@ class Compress(unittest.TestCase):
                 self.assertEqual(f.read(8), b"MComprHD")
             with open(job.out, "rb") as f:
                 self.assertEqual(ri.sniff_chd(f)[0], "ps2" if system == "ps2" else None)
+
+
+class Health(unittest.TestCase):
+    """lib/health.py: finding what stops games starting or wastes space, and fixing it."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.roms = os.path.join(self.tmp, "retrodeck", "roms")
+        self.media = os.path.join(self.tmp, "retrodeck", "ES-DE", "downloaded_media")
+        os.makedirs(self.media)
+
+    def put(self, rel, data=b"\0" * 2048, base=None):
+        p = os.path.join(base or self.roms, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(data if isinstance(data, bytes) else data.encode())
+        return p
+
+    def found(self, system=None):
+        return {(p.kind, p.name): p for p in health.scan(self.roms, {system} if system else None)}
+
+    def test_finds_and_fixes(self):
+        raw = discs.raw(discs.ps1())
+        # sheets: a track named in the wrong case (breaks on Linux), a renamed one-file image, a track that's gone
+        self.put("psx/Case (USA).cue", 'FILE "case (usa).bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n')
+        self.put("psx/Case (USA).bin", raw)
+        self.put("psx/Moved (USA).cue", 'FILE "Old Name.bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n')
+        self.put("psx/Moved (USA).bin", raw)
+        self.put("psx/Gone (USA).cue", 'FILE "Gone (USA) (Track 1).bin" BINARY\n  TRACK 01 MODE2/2352\n'
+                                       'FILE "Gone (USA) (Track 2).bin" BINARY\n  TRACK 02 AUDIO\n')
+        self.put("psx/Gone (USA) (Track 1).bin", raw)
+        self.put("psx/Fine (USA).cue", 'FILE "Fine (USA).bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n')
+        self.put("psx/Fine (USA).bin", raw)
+        # a playlist whose discs were compressed since, and one naming a disc that's gone
+        self.put("psx/Multi (USA).m3u", "Multi (USA) (Disc 1).cue\nMulti (USA) (Disc 2).cue\n")
+        self.put("psx/Multi (USA) (Disc 1).chd")
+        self.put("psx/Multi (USA) (Disc 2).chd")
+        self.put("psx/Lost (USA).m3u", "Lost (USA) (Disc 1).chd\n")
+        # a lone raw image; an empty file; downloads: one stale, one still going; one of RetroShelf's temp files
+        self.put("psx/Lone (USA).bin", raw)
+        self.put("psx/Empty (USA).chd", b"")
+        old = self.put("psx/Old (USA).chd.part")
+        os.utime(old, (time.time() - 7200, time.time() - 7200))
+        self.put("psx/Now (USA).chd.part")
+        self.put("psx/.Thing (USA).chd.retroshelf-tmp")
+        # media and gamelist entries for a game that's gone (and ones for games that are there)
+        self.put("psx/covers/Fine (USA).png", base=self.media)
+        self.put("psx/videos/Deleted (USA).mp4", b"v" * 5000, base=self.media)
+        self.put("psx/covers/Deleted (USA).png", base=self.media)
+        gl = self.put("ES-DE/gamelists/psx/gamelist.xml", '<?xml version="1.0"?>\n<gameList>\n'
+                      "<game><path>./Fine (USA).cue</path><name>Fine</name></game>\n"
+                      "<game><path>./Deleted (USA).cue</path><name>Deleted</name></game>\n</gameList>\n",
+                      base=os.path.join(self.tmp, "retrodeck"))
+        f = self.found()
+        self.assertEqual(f[("sheet", "Case (USA).cue")].fix, "Fix the names")
+        self.assertEqual(f[("sheet", "Moved (USA).cue")].data, {"Old Name.bin": "Moved (USA).bin"})
+        self.assertIsNone(f[("sheet", "Gone (USA).cue")].fix)
+        self.assertIn("Track 2", f[("sheet", "Gone (USA).cue")].detail)
+        self.assertNotIn(("sheet", "Fine (USA).cue"), f)
+        self.assertEqual(f[("playlist", "Multi (USA).m3u")].data, {"Multi (USA) (Disc 1).cue": "Multi (USA) (Disc 1).chd",
+                                                                    "Multi (USA) (Disc 2).cue": "Multi (USA) (Disc 2).chd"})
+        self.assertIsNone(f[("playlist", "Lost (USA).m3u")].fix)
+        self.assertEqual(f[("lonebin", "Lone (USA).bin")].fix, "Make a .cue")
+        self.assertNotIn(("lonebin", "Case (USA).bin"), f)  # its .cue names it, in another case
+        self.assertNotIn(("lonebin", "Gone (USA) (Track 1).bin"), f)
+        self.assertIn(("empty", "Empty (USA).chd"), f)
+        self.assertIn(("leftover", "Old (USA).chd.part"), f)
+        self.assertNotIn(("leftover", "Now (USA).chd.part"), f)  # may still be downloading
+        self.assertIn(("leftover", ".Thing (USA).chd.retroshelf-tmp"), f)
+        media = next(p for p in f.values() if p.kind == "media")
+        self.assertEqual(sorted(os.path.basename(p) for p in media.paths), ["Deleted (USA).mp4", "Deleted (USA).png"])
+        entries = next(p for p in f.values() if p.kind == "gamelist")
+        self.assertEqual(entries.data, ["Deleted (USA).cue"])
+        # fix everything that can be fixed
+        for p in f.values():
+            if p.fix:
+                health.fix(p, self.roms, es_de_running=False)
+        with open(os.path.join(self.roms, "psx", "Case (USA).cue")) as fh:
+            self.assertIn('"Case (USA).bin"', fh.read())
+        with open(os.path.join(self.roms, "psx", "Multi (USA).m3u")) as fh:
+            self.assertEqual(fh.read(), "Multi (USA) (Disc 1).chd\nMulti (USA) (Disc 2).chd\n")
+        self.assertTrue(os.path.isfile(os.path.join(self.roms, "psx", "Lone (USA).cue")))
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.isfile(os.path.join(self.media, "psx", "covers", "Fine (USA).png")))
+        self.assertFalse(os.path.exists(os.path.join(self.media, "psx", "videos", "Deleted (USA).mp4")))
+        with open(gl) as fh:
+            text = fh.read()
+        self.assertIn("Fine (USA).cue", text)
+        self.assertNotIn("Deleted (USA).cue", text)
+        # and then it's healthy, apart from what can't be fixed
+        self.assertEqual(sorted(k for k, p in self.found().items()),
+                         [("playlist", "Lost (USA).m3u"), ("sheet", "Gone (USA).cue")])
+
+    def test_media_for_games_in_folders_and_closed_folders(self):
+        self.put("dreamcast/Shen (USA)/disc.gdi", "1\n1 0 4 2352 track01.bin 0\n")
+        self.put("dreamcast/Shen (USA)/track01.bin")
+        self.put("dreamcast/covers/Shen (USA)/disc.png", base=self.media)  # ES-DE mirrors the folder
+        self.put("ps3/Game.ps3/PS3_GAME/PARAM.SFO")  # a folder ES-DE treats as one game: not looked inside
+        self.put("ps3/covers/Game.png", base=self.media)
+        self.put("ps3/manuals/Game.ps3/whatever.pdf", base=self.media)
+        self.assertEqual([p for p in health.scan(self.roms) if p.kind == "media"], [])
+        with mock.patch.object(health.scraper, "es_de_running", return_value=True):
+            gl = self.put("ES-DE/gamelists/ps3/gamelist.xml", '<?xml version="1.0"?>\n<gameList>\n<game><path>'
+                          "./Nope.ps3</path></game>\n</gameList>\n", base=os.path.join(self.tmp, "retrodeck"))
+            (p,) = [p for p in health.scan(self.roms) if p.kind == "gamelist"]
+            with self.assertRaises(RuntimeError):  # ES-DE would write it back when it quits
+                health.fix(p, self.roms)
+        self.assertTrue(os.path.getsize(gl))
 
 
 class SevenZip(unittest.TestCase):

@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -922,6 +922,37 @@ class AppTest(unittest.TestCase):
         self.assertIn("Compressed 1 game,", w.status.cget("text"))
         w.close()
         self.assertIsNone(a.compress_window)
+
+    def test_health_check_window(self):
+        a = self.app
+        gui = sys.modules["health_gui"]
+        psx = os.path.join(self.p["roms"], "psx")
+        lone = os.path.join(psx, "Lone (USA).bin")
+        with open(lone, "wb") as f:
+            f.write(discs.raw(discs.ps1()))
+        media = os.path.join(self.base, "retrodeck", "ES-DE", "downloaded_media", "snes", "videos")
+        os.makedirs(media, exist_ok=True)
+        with open(os.path.join(media, "Long Gone (USA).mp4"), "wb") as f:
+            f.write(b"v" * 4096)
+        w = gui.open_window(a)
+        self.pump(lambda: not w.busy)
+        found = {(p.kind, p.name) for p in w.problems.values()}
+        self.assertIn(("lonebin", "Lone (USA).bin"), found)
+        self.assertIn(("media", "downloaded_media/snes"), found)
+        self.assertEqual(w.fix_btn.cget("text"), f"Fix {sum(1 for p in w.problems.values() if p.fix)}")
+        w.fix()
+        self.assertNoErrors()
+        self.assertTrue(os.path.isfile(os.path.join(psx, "Lone (USA).cue")))
+        self.assertFalse(os.path.exists(os.path.join(media, "Long Gone (USA).mp4")))
+        self.assertTrue(all("fixed" in w.tv.item(i, "tags") for i, p in w.problems.items() if p.fix))
+        self.assertEqual(w.fix_btn.cget("text"), "Fix")
+        # just this system
+        w.scope.current(1)
+        w.scan()
+        self.pump(lambda: not w.busy)
+        self.assertEqual({p.system for p in w.problems.values()} - {a.system}, set())
+        w.close()
+        self.assertIsNone(a.health_window)
 
     def test_pad_hints_for_any_window(self):
         """Windows that don't describe their buttons get hints by the kind of widget; every style draws."""

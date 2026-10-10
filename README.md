@@ -104,6 +104,15 @@ rename can be undone, and games only go for good when you delete them from the h
   (or are deleted, if you tick that), where **Restore a move…** can still put them back.
 - Uses chdman (from RetroDECK or MAME) and dolphin-tool (from RetroDECK or Dolphin), found by themselves.
 
+**Library health check**
+- **Tools → Library health check…** looks through every system folder (or just the current one) for what stops
+  games starting: `.cue` / `.gdi` sheets and `.m3u` playlists naming files that aren't there, and raw `.bin`
+  images with no `.cue`. It also finds what takes space for nothing: empty game files, unfinished downloads,
+  and ES-DE artwork, videos and gamelist entries for games that are gone.
+- Whatever can be fixed is fixed in one go after you confirm: names in the wrong case (which break on Linux),
+  playlists still naming discs that have since been compressed, a missing `.cue` written, leftovers deleted.
+  Problems it can't fix are listed with what's missing.
+
 **NoPayStation (PS3, PS Vita, PSP)**
 - **Tools → NoPayStation…** searches the NoPayStation lists. Queue games, DLC, demos and PS3 updates, and download and install them.
 - Shows which games you already have; can list available updates for installed PS3 games.
