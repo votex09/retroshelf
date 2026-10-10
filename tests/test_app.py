@@ -89,7 +89,7 @@ class AppTest(unittest.TestCase):
     def close(self):
         if self.root:
             for job in self.root.tk.splitlist(self.root.tk.call("after", "info")):  # debounces, toasts
-                self.root.after_cancel(job)
+                self.root.tk.call("after", "cancel", job)  # (after_cancel would also delete commands others own)
             self.app._close()
             self.root = None
 
@@ -763,8 +763,9 @@ class AppTest(unittest.TestCase):
             self.assertEqual(a.details.sound_btn.cget("text"), "🔊")
             a.keys.place(keep, keep.get_children().index("Super Metroid (Japan, USA) (En,Ja)"))
             self.pump(lambda: len(started) == 2)
-            self.assertEqual(started[-1], (os.path.join(self.clip_folder(), "Super Metroid (Japan, USA) (En,Ja).mp4"),
-                                           False))  # the local clip, not a stream
+            clip = os.path.join(self.clip_folder(), "Super Metroid (Japan, USA) (En,Ja).mp4")
+            self.assertTrue(os.path.samefile(started[-1][0], clip))  # the local clip, not a stream
+            self.assertFalse(started[-1][1])
             a.stream_var.set(False)
             a.toggle_streams()
             a.keys.place(keep, keep.get_children().index("Chrono Trigger (USA)"))

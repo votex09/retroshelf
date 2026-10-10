@@ -126,6 +126,35 @@ def missing_for_streams():
     return "mpv and yt-dlp" + (" (on Steam Deck: mpv from Discover, which includes yt-dlp)" if not is_windows() else "")
 
 
+class Timer:
+    """One callback, registered with Tcl once and rescheduled as needed. (widget.after() registers a fresh command
+    each call, named after a throwaway object's id; two of those can share a name, and then running or cancelling
+    one deletes the other's command, which Tk later fails to delete again.)"""
+
+    def __init__(self, widget, func):
+        self.widget, self.id = widget, None
+
+        def run():
+            self.id = None
+            func()
+        self.cmd = widget.register(run)
+
+    def start(self, ms):
+        self.cancel()
+        self.id = self.widget.tk.call("after", int(ms), self.cmd)
+
+    def cancel(self):
+        if self.id:
+            try:
+                self.widget.tk.call("after", "cancel", self.id)
+            except tk.TclError:
+                pass
+        self.id = None
+
+    def pending(self):
+        return self.id is not None
+
+
 # ---------- players ----------
 class MpvPlayer:
     can_sound = True
@@ -240,7 +269,8 @@ class FfmpegPlayer:
                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                      creationflags=NO_WINDOW)
         threading.Thread(target=self._read, daemon=True).start()
-        self.job = frame.after(1000 // FPS, self._paint)
+        self.timer = Timer(frame, self._paint)
+        self.timer.start(1000 // FPS)
 
     def _read(self):
         out = self.proc.stdout
@@ -262,7 +292,6 @@ class FfmpegPlayer:
             self.latest, buf = buf[:need], buf[need:]
 
     def _paint(self):
-        self.job = None
         if not self.proc:
             return
         frame = self.latest
@@ -272,7 +301,7 @@ class FfmpegPlayer:
                 self.shown = frame
             except tk.TclError:
                 pass
-        self.job = self.frame.after(1000 // FPS, self._paint)
+        self.timer.start(1000 // FPS)
 
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
@@ -285,12 +314,7 @@ class FfmpegPlayer:
 
     def stop(self, widgets=True):
         proc, self.proc = self.proc, None
-        if self.job and widgets:
-            try:
-                self.frame.after_cancel(self.job)
-            except tk.TclError:
-                pass
-        self.job = None
+        self.timer.cancel()
         if proc and proc.poll() is None:
             proc.kill()
             proc.wait()
@@ -312,7 +336,8 @@ class Spot:
         self.parent, self.width, self.height, self.bg, self.on_change = parent, width, height, bg, on_change
         self.under = under  # the artwork widget: the video waits behind it until it's playing
         self.frame = tk.Frame(parent, bg="black", width=width, height=height, highlightthickness=0, borderwidth=0)
-        self.player, self.job, self.poll_job = None, None, None
+        self.player = None
+        self.start_timer, self.poll_timer = Timer(parent, self._start), Timer(parent, self._poll)
         self.source, self.kind, self.sound, self.waited = None, None, False, 0
         self.enabled = lambda: True
         parent.bind("<Destroy>", lambda e: self._gone() if e.widget is parent else None, add="+")
@@ -327,10 +352,9 @@ class Spot:
             self.source, self.kind, delay = stream, "stream", STREAM_DELAY_MS
         else:
             return
-        self.job = self.parent.after(delay, self._start)
+        self.start_timer.start(delay)
 
     def _start(self):
-        self.job = None
         kind, prefix = backend()
         if not kind or not self.source or not self.parent.winfo_viewable():
             return
@@ -352,11 +376,10 @@ class Spot:
             return
         self.sound, self.waited = False, 0
         self.on_change("loading", self.kind, False)
-        self.poll_job = self.parent.after(POLL_MS, self._poll)
+        self.poll_timer.start(POLL_MS)
 
     def _poll(self):
         """Bring the video forward once it plays; give up (artwork stays) if the player quits or takes too long."""
-        self.poll_job = None
         if not self.player:
             return
         if not self.player.alive():
@@ -370,11 +393,12 @@ class Spot:
         if self.waited >= LOAD_TIMEOUT_MS[self.kind]:
             self.stop()
             return
-        self.poll_job = self.parent.after(POLL_MS, self._poll)
+        self.poll_timer.start(POLL_MS)
 
     def _gone(self):
-        """The window is closing: only end the player's process (Tk is taking the widgets down itself)."""
-        self.job = self.poll_job = None
+        """The window is closing: end the player's process and timers (Tk is taking the widgets down itself)."""
+        self.start_timer.cancel()
+        self.poll_timer.cancel()
         if self.player:
             self.player.stop(widgets=False)
             self.player = None
@@ -388,13 +412,8 @@ class Spot:
         return self.player is not None
 
     def stop(self):
-        for job in (self.job, self.poll_job):  # pending timers: cancelled, never left to pile up
-            if job:
-                try:
-                    self.parent.after_cancel(job)
-                except tk.TclError:
-                    pass
-        self.job = self.poll_job = None
+        self.start_timer.cancel()
+        self.poll_timer.cancel()
         was = self.player is not None
         if self.player:
             self.player.stop()
