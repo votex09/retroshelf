@@ -7,3 +7,4 @@ matches.json
 renames.json
 config.json.bad
 *.tmp
+screenscraper_dev.json

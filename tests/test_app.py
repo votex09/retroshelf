@@ -1,6 +1,6 @@
 """End-to-end: the real RetroShelf window on the sandbox library (see sandbox.py), driven through its own methods
 and buttons. Needs tkinter and a display; tests/run.sh supplies a virtual one with xvfb-run."""
-import base64, importlib.util, io, json, os, shutil, sys, tempfile, time, unittest, zipfile
+import base64, importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time, unittest, zipfile
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "screenscraper", "videos_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -610,7 +610,11 @@ class AppTest(unittest.TestCase):
     def key(self, widget, seq):
         """Press a key the way a person would: on the widget that has the keyboard."""
         widget.focus_force()
-        self.root.update()
+
+        def focused():  # the virtual display can take a moment to hand focus over
+            f = self.root.focus_get()
+            return f is not None and (f is widget or str(f).startswith(str(widget) + "."))
+        self.pump(focused)
         widget.event_generate(seq)
         self.root.update()
 
@@ -681,6 +685,62 @@ class AppTest(unittest.TestCase):
         self.assertEqual(w.count.cget("text"), f"1 of {len(rows)}")
         self.key(w.win, "<Escape>")
         self.assertIsNone(a.review_window)
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg isn't installed")
+    def test_gameplay_clip_plays_in_the_details_panel(self):
+        vid = sys.modules["video"]
+        folder = os.path.join(os.path.dirname(self.p["roms"]), "ES-DE", "downloaded_media", "snes", "videos")
+        os.makedirs(folder, exist_ok=True)
+        clip = os.path.join(folder, "Chrono Trigger (USA).mp4")
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=24",
+                        "-t", "2", "-pix_fmt", "yuv420p", clip], check=True)
+        keep, spot = self.app.keep_tv, self.app.details.spot
+        with mock.patch.object(vid, "_backend", ("ffmpeg", [shutil.which("ffmpeg")])):
+            self.app.keys.place(keep, keep.get_children().index("Chrono Trigger (USA)"))
+            self.root.update()
+            self.assertFalse(spot.playing())  # not straight away: arrowing past a game doesn't start its clip
+            self.pump(lambda: spot.playing() and spot.player.shown is not None)  # frames are being painted
+            proc = spot.player.proc
+            self.app.keys.place(keep, 0)  # moving on stops it
+            self.root.update()
+            self.assertFalse(spot.playing())
+            self.assertIsNotNone(proc.poll())
+            self.app.keys.place(keep, keep.get_children().index("Chrono Trigger (USA)"))
+            self.app.videos_var.set(False)  # View → Play gameplay videos off
+            self.app.toggle_videos()
+            for _ in range(int(vid.DELAY_MS / 20) + 10):
+                self.root.update()
+                time.sleep(0.02)
+            self.assertFalse(spot.playing())
+            self.assertFalse(self.cfg()["play_videos"])
+
+    def test_download_gameplay_videos(self):
+        ss, vg = sys.modules["screenscraper"], sys.modules["videos_gui"]
+        seen = {}
+
+        def run(jobs, system, media_root, dev, user, password, progress, cancelled):
+            seen.update(jobs=jobs, system=system, dev=dev, user=user, media_root=media_root)
+            progress("Looking up …", 1, len(jobs))
+            return {"videos": 2, "had": 1, "no_video": 3, "not_found": 1, "failed": 0, "stopped": "",
+                    "allowance": "40 / 20000 today"}
+        with mock.patch.dict(os.environ, {"RETROSHELF_SS_DEVID": "rs", "RETROSHELF_SS_DEVPASSWORD": "pw"}), \
+                mock.patch.object(ss, "run", side_effect=run):
+            w = vg.open_window(self.app)
+            w.user.set("player1")
+            w.password.set("hunter2")
+            w.scope.set(1)  # all games
+            button(w.win, "Start").invoke()
+            self.pump(lambda: not w.busy)
+        self.assertEqual(seen["system"], "snes")
+        self.assertEqual(seen["dev"], ("rs", "pw"))
+        self.assertEqual(seen["user"], "player1")
+        self.assertEqual(len(seen["jobs"]), len(self.app.units))
+        self.assertIn(("Chrono Trigger (USA)"), [stem for _, stem in seen["jobs"]])
+        self.assertTrue(seen["media_root"].endswith(os.path.join("ES-DE", "downloaded_media")))
+        self.assertIn("2 downloaded", w.status.cget("text"))
+        self.assertIn("40 / 20000 today", w.status.cget("text"))
+        self.assertEqual((self.cfg()["ss_user"], self.cfg()["ss_password"]), ("player1", "hunter2"))
+        w.close()
 
     def pump(self, done, timeout=5.0):
         """Run Tk's event loop until done() is true (background work finishes through after() polls)."""

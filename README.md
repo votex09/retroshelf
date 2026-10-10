@@ -64,6 +64,15 @@ rename can be undone, and games only go for good when you delete them from the h
 - **Tools → Scrape metadata…** fills ES-DE text (description, developer, release date, genre, rating …) and images (covers,
   screenshots, title screens, marquees, 3D boxes …). It only fills gaps and never overwrites what's already there.
 
+**Gameplay videos**
+- **Tools → Download gameplay videos…** fetches short gameplay clips from [ScreenScraper](https://www.screenscraper.fr)
+  (LaunchBox's free data has none) into ES-DE's `videos` folder, so ES-DE plays them in its menus too. Sign in with
+  your own free ScreenScraper account for a useful daily allowance. Games that already have a clip are skipped.
+- The details panel and the review window play a game's clip, muted and looping, a moment after you land on it
+  (🔇 turns the sound on; ‹ › go back to the pictures). This uses [mpv](https://mpv.io) when it's installed (on
+  Steam Deck: from Discover), else ffmpeg (no sound), else shows the artwork. **View → Play gameplay videos** turns
+  it off.
+
 **Rename files**
 - **Tools → Rename files…** renames ROMs to a pattern, by default the No-Intro order:
   `{title} ({region}) ({lang}) ({rev}) {tags}`. This also strips set numbers like `0012 - `.
@@ -142,6 +151,7 @@ rename can be undone, and games only go for good when you delete them from the h
 - No other Python packages are needed. With Pillow installed (`python3-pil.imagetk` on Debian / Ubuntu, `python-pillow` on Arch,
   `py -m pip install pillow` on Windows), the details panel
   can show JPEG artwork too; without it only PNG artwork is shown.
+- Optional, for videos inside RetroShelf: `mpv` (or `ffmpeg`).
 - PS3 / PSP package decryption uses the `cryptography` module if it's installed
   and the system's OpenSSL library otherwise.
 - For PS Vita installs: Vita3K (the RetroDECK flatpak or a standalone build).
@@ -236,6 +246,8 @@ on both Linux and Windows.
 
 - Game metadata and images: [LaunchBox Games Database](https://gamesdb.launchbox-app.com/)
 - Package lists: [NoPayStation](https://nopaystation.com/)
+- Gameplay videos: [ScreenScraper](https://www.screenscraper.fr); system IDs from
+  [ES-DE](https://es-de.org)'s scraper (MIT)
 - Homebrew: [Homebrew Hub](https://hh.gbdev.io), [itch.io](https://itch.io), [PDRoms](https://pdroms.de); free arcade
   ROMs: [MAMEDEV](https://www.mamedev.org/roms/)
 - Theme: [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme) (MIT, bundled in `vendor/`)

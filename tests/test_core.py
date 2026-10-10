@@ -1,6 +1,6 @@
 """Name parsing, presets, region dupes, rename planning, LaunchBox matching and file helpers. No window needed,
 but retroshelf.py imports tkinter, so run these with a Python that has it (tests/run.sh picks one)."""
-import io, json, ntpath, os, posixpath, shutil, struct, subprocess, sys, tempfile, unittest, zipfile
+import io, json, ntpath, os, posixpath, shutil, struct, subprocess, sys, tempfile, unittest, urllib.parse, zipfile
 import xml.etree.ElementTree as ET
 from unittest import mock
 
@@ -26,6 +26,8 @@ import scraper  # noqa: E402
 import updater  # noqa: E402
 import dialogs  # noqa: E402
 import romimport as ri  # noqa: E402
+import screenscraper  # noqa: E402
+import video  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
 import discs  # noqa: E402
@@ -273,7 +275,9 @@ class Updater(unittest.TestCase):
             self.addCleanup(shutil.rmtree, d)
             with self.assertRaises(RuntimeError):
                 updater.apply("v2026.10.09")
-            self.assertTrue(m.call_args.args[0].full_url.endswith("/zip/refs/tags/v2026.10.09"))
+            urls = [c.args[0].full_url for c in m.call_args_list]
+            self.assertTrue(urls[0].endswith("/releases/download/v2026.10.09/retroshelf-v2026.10.09.zip"))
+            self.assertTrue(urls[1].endswith("/zip/refs/tags/v2026.10.09"))  # then the source archive
             with self.assertRaises(RuntimeError):
                 updater.apply()
             self.assertTrue(m.call_args.args[0].full_url.endswith("/zip/refs/heads/main"))
@@ -1200,6 +1204,129 @@ class Dialogs(unittest.TestCase):
         with self.env(), mock.patch.object(dialogs.filedialog, "askdirectory", return_value="/tk") as tk_dialog:
             self.assertEqual(dialogs.ask_directory(None, "x", self.tmp), "/tk")
         tk_dialog.assert_called_once()
+
+
+class ScreenScraper(unittest.TestCase):
+    """lib/screenscraper.py: looking games up and downloading their clips."""
+    GAME = """<?xml version="1.0" encoding="UTF-8"?>
+<Data><ssuser><id>me</id><niveau>1</niveau><requeststoday>12</requeststoday><maxrequestsperday>20000</maxrequestsperday>
+</ssuser><jeu id="3" romid="5"><noms><nom region="jp">Sonikku</nom><nom region="wor">Sonic The Hedgehog</nom></noms>
+<systeme id="1">Megadrive</systeme><medias>
+<media type="ss" parent="jeu" region="wor" format="png">https://x/ss.png</media>
+<media type="video" parent="jeu" format="mp4">https://neoclone.screenscraper.fr/api2/mediaVideoJeu.php?media=video</media>
+<media type="video-normalized" parent="jeu" format="mp4">https://x/norm.php?softname=Retro Shelf</media>
+</medias></jeu></Data>"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_parse(self):
+        g = screenscraper.parse(self.GAME)
+        self.assertEqual((g["id"], g["name"]), ("3", "Sonic The Hedgehog"))
+        self.assertEqual(g["video"], ("https://x/norm.php?softname=Retro%20Shelf", ".mp4"))  # the short clip first
+        self.assertEqual(g["user"]["maxrequestsperday"], "20000")
+        only_full = self.GAME.replace('type="video-normalized"', 'type="other"')
+        self.assertIn("media=video", screenscraper.parse(only_full)["video"][0])
+        self.assertIsNone(screenscraper.parse("Erreur : Rom/Iso/Dossier non trouvée !  "))
+        self.assertIsNone(screenscraper.parse("HTTP 404: not found"))
+        self.assertIsNone(screenscraper.parse(self.GAME.replace("Sonic The Hedgehog", "ZZZ(notgame)")))
+        with self.assertRaisesRegex(screenscraper.StopScraping, "allowance"):
+            screenscraper.parse("HTTP 430: Votre quota de scrape est dépassé")
+        with self.assertRaisesRegex(screenscraper.StopScraping, "username and password"):
+            screenscraper.parse(self.GAME.replace("<niveau>1</niveau>", "<niveau>0</niveau>"))
+        with self.assertRaises(screenscraper.SSError):
+            screenscraper.parse("HTTP 429: trop de threads")
+        with self.assertRaisesRegex(screenscraper.StopScraping, "developer ID"):  # what the API really says
+            screenscraper.parse("HTTP 403: Erreur de login : Vérifier vos identifiants développeur !  ")
+
+    def test_lookup_url_and_hashing(self):
+        rom = os.path.join(self.tmp, "Sonic The Hedgehog (USA, Europe).md")
+        with open(rom, "wb") as f:
+            f.write(b"SEGA" * 100)
+        md5 = screenscraper.md5_of(rom)
+        url = screenscraper.lookup_url(rom, "megadrive", ("dev", "pw"), "me", "secret", md5)
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+        self.assertTrue(url.startswith("https://api.screenscraper.fr/api2/jeuInfos.php?"))
+        self.assertEqual({k: q[k] for k in ("devid", "softname", "systemeid", "romnom", "romtaille", "md5", "ssid")},
+                         {"devid": "dev", "softname": "RetroShelf", "systemeid": "1",
+                          "romnom": "Sonic The Hedgehog (USA, Europe).md", "romtaille": "400", "md5": md5, "ssid": "me"})
+        self.assertIsNone(screenscraper.md5_of(rom, limit=10))  # big discs are looked up by name and size
+
+    def test_developer_id(self):
+        with mock.patch.dict(os.environ, {"RETROSHELF_SS_DEVID": "", "RETROSHELF_SS_DEVPASSWORD": ""}), \
+                mock.patch.object(screenscraper, "DEV_FILE", os.path.join(self.tmp, "dev.json")):
+            self.assertIsNone(screenscraper.dev_credentials({}))
+            with open(screenscraper.DEV_FILE, "w") as f:
+                json.dump({"id": screenscraper.scramble("RetroShelf"), "password": screenscraper.scramble("p4ss")}, f)
+            self.assertEqual(screenscraper.dev_credentials({}), ("RetroShelf", "p4ss"))
+            self.assertEqual(screenscraper.dev_credentials({"ss_devid": "a", "ss_devpassword": "b"}), ("a", "b"))
+        with open(screenscraper.DEV_FILE if False else os.path.join(self.tmp, "dev.json")) as f:
+            self.assertNotIn("p4ss", f.read())
+
+    def test_run_downloads_clips_and_stops_when_told(self):
+        roms = os.path.join(self.tmp, "roms", "megadrive")
+        os.makedirs(roms)
+        jobs = []
+        for name in ("Sonic (USA).md", "Streets (USA).md", "Nothing (USA).md", "Have (USA).md", "Later (USA).md"):
+            path = os.path.join(roms, name)
+            with open(path, "wb") as f:
+                f.write(b"x")
+            jobs.append((path, os.path.splitext(name)[0]))
+        media = os.path.join(self.tmp, "media")
+        os.makedirs(os.path.join(media, "megadrive", "videos"))
+        open(os.path.join(media, "megadrive", "videos", "Have (USA).mp4"), "wb").close()
+        answers = {"Sonic": self.GAME, "Streets": self.GAME.replace('type="video', 'type="none'),
+                   "Nothing": "Erreur : Rom non trouvée", "Later": "HTTP 430: quota"}
+        asked = []
+
+        def fetch(url):
+            name = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))["romnom"]
+            asked.append(name)
+            return answers[name.split(" ")[0]]
+
+        def download(url, dest, cancelled=lambda: False):
+            with open(dest, "wb") as f:
+                f.write(b"\x00\x00\x00\x18ftypmp42")
+            return dest
+        with mock.patch.object(screenscraper, "download", side_effect=download):
+            stats = screenscraper.run(jobs, "megadrive", media, ("d", "p"), "me", "pw", fetch=fetch, pause=0)
+        self.assertEqual(sorted(os.listdir(os.path.join(media, "megadrive", "videos"))),
+                         ["Have (USA).mp4", "Sonic (USA).mp4"])
+        self.assertEqual({k: stats[k] for k in ("videos", "had", "no_video", "not_found")},
+                         {"videos": 1, "had": 1, "no_video": 1, "not_found": 1})
+        self.assertIn("allowance", stats["stopped"])
+        self.assertEqual(stats["allowance"], "12 / 20000 today")
+        self.assertNotIn("Have (USA).md", asked)  # games with a clip aren't looked up at all
+
+    def test_every_import_system_has_an_id(self):
+        missing = [s for s in ri.LABELS if s not in screenscraper.SYSTEM_IDS]
+        self.assertEqual(missing, [])
+
+
+class Video(unittest.TestCase):
+    def test_finds_es_de_clips(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        os.makedirs(os.path.join(d, "videos"))
+        for n in ("Game (USA).mp4", "Other.txt", "Old (USA).MKV"):
+            open(os.path.join(d, "videos", n), "w").close()
+        self.assertEqual(video.video_for(d, ["Nope", "Game (USA)"]), os.path.join(d, "videos", "Game (USA).mp4"))
+        self.assertEqual(video.video_for(d, ["Old (USA)"]), os.path.join(d, "videos", "Old (USA).MKV"))
+        self.assertIsNone(video.video_for(d, ["Other"]))
+        self.assertIsNone(video.video_for(os.path.join(d, "missing"), ["Game (USA)"]))
+
+    def test_backend_choice(self):
+        def pick(env, have):
+            with mock.patch.dict(os.environ, {"RETROSHELF_VIDEO": env}), \
+                    mock.patch.object(video.shutil, "which", side_effect=lambda n: f"/usr/bin/{n}" if n in have else None), \
+                    mock.patch.object(video, "_backend", None):
+                return video.backend()[0]
+        self.assertEqual(pick("", {"mpv", "ffmpeg"}), "mpv")
+        self.assertEqual(pick("", {"ffmpeg"}), "ffmpeg")
+        self.assertEqual(pick("ffmpeg", {"mpv", "ffmpeg"}), "ffmpeg")
+        self.assertIsNone(pick("off", {"mpv", "ffmpeg"}))
+        self.assertIsNone(pick("", set()))
 
 
 class SevenZip(unittest.TestCase):

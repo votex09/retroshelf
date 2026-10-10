@@ -20,6 +20,8 @@ Holding folder… lists moved games with artwork and details, and restores or pe
 Import ROMs… takes games in any form (zip / 7z / rar archives, disc images, loose ROMs, folders of them), from an
 import folder next to roms or from anywhere, works out each one's system, then unpacks and files it (see
 lib/romimport.py; 7z needs no 7-Zip: lib/sevenzip.py).
+Download gameplay videos… fetches clips from ScreenScraper into ES-DE's videos folder (see lib/screenscraper.py);
+the details panel plays them (lib/video.py). Keyboard work in the lists is in lib/listkeys.py, Review… in lib/review.py.
 Set up RetroDECK… (Windows: Set up ES-DE…) installs the frontend for people who don't have it yet, letting them pick
 where games go (see lib/frontend.py); it opens by itself the first time no ROMs folder can be found.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
@@ -64,6 +66,8 @@ import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
 import updater  # noqa: E402
+import video  # noqa: E402
+import videos_gui  # noqa: E402
 
 UI_FONTS = ["Inter", "Segoe UI", "Noto Sans", "Cantarell", "Ubuntu", "DejaVu Sans"]
 MONO_FONTS = ["JetBrains Mono", "Fira Code", "Cascadia Mono", "Consolas", "Noto Sans Mono", "DejaVu Sans Mono",
@@ -546,7 +550,8 @@ class App:
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
                     "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True,
                     "system_state": {}, "show_details": True, "emulator_dirs": {}, "esde_bases": [],
-                    "setup_offered": False, "import_dir": "", "import_delete_originals": False}
+                    "setup_offered": False, "import_dir": "", "import_delete_originals": False,
+                    "play_videos": True, "ss_user": "", "ss_password": ""}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -559,7 +564,8 @@ class App:
             pass
         if not self.cfg["roms_root"] or not os.path.isdir(self.cfg["roms_root"]):
             self.cfg["roms_root"] = guess_roms_root(self.cfg["esde_bases"])
-        nps.emulator_dirs.update(self.cfg["emulator_dirs"])  # Windows: RPCS3 / Vita3K folders picked by hand
+        nps.emulator_dirs.update(self.cfg["emulator_dirs"])
+        details.PLAY_VIDEOS = bool(self.cfg["play_videos"])  # Windows: RPCS3 / Vita3K folders picked by hand
 
         self.units = {}          # key -> {"paths": [abs path], "size": int}
         self.file_to_unit = {}
@@ -1025,6 +1031,7 @@ class App:
         tools.add_command(label=setup_gui.title() + "…", command=lambda: setup_gui.open_window(self))
         tools.add_separator()
         tools.add_command(label="Scrape metadata…", command=self.scrape_dialog)
+        tools.add_command(label="Download gameplay videos…", command=lambda: videos_gui.open_window(self))
         tools.add_command(label="Rename files…", command=self.rename_dialog)
         tools.add_command(label="NoPayStation…", command=lambda: nps_gui.open_window(self))
         tools.add_command(label="Homebrew Hub…", command=lambda: homebrew_gui.open_window(self))
@@ -1039,6 +1046,8 @@ class App:
         view.add_checkbutton(label="Dark mode", variable=self.dark_var, command=self.toggle_theme)
         self.details_var = tk.BooleanVar(value=self.cfg["show_details"])
         view.add_checkbutton(label="Details panel", variable=self.details_var, command=self.toggle_details)
+        self.videos_var = tk.BooleanVar(value=self.cfg["play_videos"])
+        view.add_checkbutton(label="Play gameplay videos", variable=self.videos_var, command=self.toggle_videos)
         view.add_separator()
         view.add_command(label="Review one at a time…", accelerator="Ctrl+R", command=self.review)
         mb.add_cascade(label="View", menu=view)
@@ -1421,9 +1430,9 @@ class App:
                                    "scrapers)", variable=overwrite).grid(row=rows + 1, column=0, columnspan=2,
                                                                          sticky="w", pady=1)
 
-        ttk.Label(body, text="Videos and miximages aren't in LaunchBox's free data. Afterwards, in ES-DE: "
-                             "Scraper → Content to scrape → only Videos, and Scraper → Other settings → "
-                             "Miximage settings → Offline generator.", style="Muted.TLabel",
+        ttk.Label(body, text="Videos aren't in LaunchBox's free data: Tools → Download gameplay videos… gets them "
+                             "from ScreenScraper. Miximages: in ES-DE, Scraper → Other settings → Miximage "
+                             "settings → Offline generator.", style="Muted.TLabel",
                   wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
         if scraper.es_de_running():
             ttk.Label(body, text="⚠ RetroDECK / ES-DE is running. It rewrites gamelist.xml when it quits, so text "
@@ -2055,6 +2064,19 @@ class App:
         self.details.placeholder("Welcome to RetroShelf", tips, image=self.big_icon,
                                  action=action)
 
+
+    def toggle_videos(self):
+        self.cfg["play_videos"] = details.PLAY_VIDEOS = self.videos_var.get()
+        self.save_cfg()
+        for p in self.detail_panels:
+            if p.winfo_exists():
+                if details.PLAY_VIDEOS and p.info:
+                    p.show(p.info)
+                elif not details.PLAY_VIDEOS:
+                    p.spot.stop()
+        if details.PLAY_VIDEOS and not video.backend()[0]:
+            messagebox.showinfo("Gameplay videos", "To play videos here, install mpv (or ffmpeg). "
+                                                   "On Steam Deck: mpv from Discover.")
 
     def toggle_details(self):
         self.cfg["show_details"] = self.details_var.get()

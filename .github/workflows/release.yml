@@ -73,4 +73,6 @@ jobs:
       - name: Build and publish
         env:
           GH_TOKEN: ${{ github.token }}
+          SS_DEVID: ${{ secrets.SCREENSCRAPER_DEVID }}
+          SS_DEVPASSWORD: ${{ secrets.SCREENSCRAPER_DEVPASSWORD }}
         run: .github/scripts/release.sh

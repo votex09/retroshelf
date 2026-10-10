@@ -106,13 +106,18 @@ def apply(tag=None):
     try:
         zpath = os.path.join(work, "update.zip")
         ref = f"tags/{tag}" if tag else f"heads/{BRANCH}"
-        req = urllib.request.Request(f"https://codeload.github.com/{REPO}/zip/refs/{ref}",
-                                     headers={"User-Agent": USER_AGENT})
-        try:
-            with urllib.request.urlopen(req, timeout=60) as r, open(zpath, "wb") as f:
-                shutil.copyfileobj(r, f)
-        except (urllib.error.URLError, OSError) as e:
-            raise RuntimeError(f"download failed: {getattr(e, 'reason', e)}")
+        # a release's own zip first (it carries the ScreenScraper developer ID), else GitHub's source archive
+        urls = ([f"https://github.com/{REPO}/releases/download/{tag}/retroshelf-{tag}.zip"] if tag else []) + \
+            [f"https://codeload.github.com/{REPO}/zip/refs/{ref}"]
+        for i, url in enumerate(urls):
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            try:
+                with urllib.request.urlopen(req, timeout=60) as r, open(zpath, "wb") as f:
+                    shutil.copyfileobj(r, f)
+                break
+            except (urllib.error.URLError, OSError) as e:
+                if i == len(urls) - 1:
+                    raise RuntimeError(f"download failed: {getattr(e, 'reason', e)}")
         new = os.path.join(work, "new")
         with zipfile.ZipFile(zpath) as z:
             sha = z.comment.decode("ascii", "ignore").strip()  # git archive stores the commit id here

@@ -36,6 +36,20 @@ notes=$(mktemp)
 
 zip="retroshelf-$tag.zip"
 git archive --format=zip --prefix=retroshelf/ -o "$zip" HEAD  # fills in lib/version.txt (export-subst)
+# RetroShelf's ScreenScraper developer ID, from repository secrets: in release zips, never in the source
+if [ -n "${SS_DEVID:-}" ] && [ -n "${SS_DEVPASSWORD:-}" ]; then
+  python3 - "$zip" <<'PY'
+import base64, json, os, sys, zipfile
+def scramble(t):  # matches lib/screenscraper.py
+    return base64.b64encode(bytes(b ^ 0x5A for b in t.encode())).decode()
+with zipfile.ZipFile(sys.argv[1], "a", zipfile.ZIP_DEFLATED) as z:
+    z.writestr("retroshelf/screenscraper_dev.json",
+               json.dumps({"id": scramble(os.environ["SS_DEVID"]), "password": scramble(os.environ["SS_DEVPASSWORD"])}))
+PY
+  echo "Added the ScreenScraper developer ID."
+else
+  echo "No SS_DEVID / SS_DEVPASSWORD secrets: the release has no ScreenScraper developer ID."
+fi
 
 echo "Release $tag ($(git rev-parse --short HEAD)):"
 cat "$notes"
