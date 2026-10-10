@@ -1822,6 +1822,7 @@ class App:
             elif desc:
                 shown = shown[::-1]
             keep_sel = tv.selection()  # survive the rebuild (flips, filter changes) where the game is still listed
+            keep_cursor = tv.focus()   # and so does the keyboard cursor (a late refresh mustn't lose your place)
             tv.delete(*tv.get_children())
             tv.hover = None
             for i, k in enumerate(shown):
@@ -1835,6 +1836,8 @@ class App:
             again = [k for k in keep_sel if tv.exists(k)]
             if again:
                 tv.selection_set(again)
+            if keep_cursor and tv.exists(keep_cursor):
+                tv.focus(keep_cursor)
             self.keys.after_render()
             size = sum(self.units[k]["size"] for k in keys)
             extra = f"  ·  {len(shown)} shown" if q else ""
