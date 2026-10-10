@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -606,6 +606,85 @@ class AppTest(unittest.TestCase):
         self.pump(lambda: not w.scanning)
         w.close()
         self.assertIsNone(self.app.import_window)
+
+    def key(self, widget, seq):
+        """Press a key the way a person would: on the widget that has the keyboard."""
+        widget.focus_force()
+
+        def focused():  # the virtual display can take a moment to hand focus over
+            f = self.root.focus_get()
+            return f is not None and (f is widget or str(f).startswith(str(widget) + "."))
+        self.pump(focused)
+        widget.event_generate(seq)
+        self.root.update()
+
+    def test_keyboard_flips_keep_your_place(self):
+        a, keep, move = self.app, self.app.keep_tv, self.app.move_tv
+        rows = keep.get_children()
+        a.keys.place(keep, 1)
+        second, third = rows[1], rows[2]
+        self.key(keep, "<Right>")  # → moves it, and the cursor stays where it was
+        self.assertTrue(move.exists(second) and not keep.exists(second))
+        self.assertEqual((keep.selection(), keep.focus(), self.root.focus_get()), ((third,), third, keep))
+        self.key(keep, "<Control-z>")  # undo brings it back, selected
+        self.assertTrue(keep.exists(second))
+        self.assertEqual(keep.selection(), (second,))
+
+        # Space marks and steps down without moving anything; Enter flips the marked ones together
+        a.keys.place(keep, 0)
+        self.key(keep, "<space>")
+        self.key(keep, "<space>")
+        first, second = keep.get_children()[:2]
+        self.assertEqual(keep.marked, {first, second})
+        self.assertIn("marked", keep.item(first, "tags"))
+        self.assertFalse(move.get_children())
+        self.key(keep, "<Return>")
+        self.assertEqual(set(move.get_children()), {first, second})
+        self.assertEqual(keep.marked, set())
+        # leaving the list applies marks too; Tab lands in the other list
+        self.key(keep, "<space>")
+        marked = next(iter(keep.marked))
+        self.key(keep, "<Tab>")
+        self.assertTrue(move.exists(marked))
+        self.assertIs(self.root.focus_get(), move)
+        # Moving: Ctrl+A, ← keeps them all
+        self.key(move, "<Control-a>")
+        self.key(move, "<Left>")
+        self.assertFalse(move.get_children())
+        self.assertEqual(len(keep.get_children()), len(rows))
+
+        # typing jumps; Shift+↓ selects a range; Delete moves it
+        for ch in "sup":
+            self.key(keep, f"<KeyPress-{ch}>")
+        self.assertEqual(keep.focus(), next(k for k in keep.get_children() if keep.item(k, "text").startswith("Sup")))
+        self.key(keep, "<Shift-Down>")
+        self.key(keep, "<Shift-Down>")
+        picked = keep.selection()
+        self.assertEqual(len(picked), 3)
+        self.key(keep, "<Delete>")
+        self.assertTrue(all(move.exists(k) for k in picked))
+        self.key(keep, "<BackSpace>")  # Backspace undoes too
+        self.assertTrue(all(keep.exists(k) for k in picked))
+
+    def test_review_one_at_a_time(self):
+        a, keep, move = self.app, self.app.keep_tv, self.app.move_tv
+        rows = keep.get_children()
+        a.keys.place(keep, 0)
+        self.key(keep, "<Control-r>")
+        w = a.review_window
+        self.assertEqual(w.count.cget("text"), f"1 of {len(rows)}")
+        self.assertEqual(w.title.cget("text"), keep.item(rows[0], "text"))
+        self.key(w.win, "<m>")  # move the first, keep the second, skip the third
+        self.key(w.win, "<k>")
+        self.key(w.win, "<s>")
+        self.assertTrue(move.exists(rows[0]) and keep.exists(rows[1]))
+        self.assertEqual(w.count.cget("text"), f"4 of {len(rows)}")
+        self.assertEqual(a.manual.get(rows[0]), True)
+        self.key(w.win, "<BackSpace>")  # undo goes back to the game it undid
+        self.assertTrue(keep.exists(rows[0]))
+        self.assertEqual(w.count.cget("text"), f"1 of {len(rows)}")
+        self.key(w.win, "<Escape>")
+        self.assertIsNone(a.review_window)
 
     def pump(self, done, timeout=5.0):
         """Run Tk's event loop until done() is true (background work finishes through after() polls)."""
