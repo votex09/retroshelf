@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -889,6 +889,39 @@ class AppTest(unittest.TestCase):
         self.assertEqual(press("down"), [])
         self.assertFalse(self.cfg()["gamepad"])
         self.assertEqual(hints.shown(), [])
+
+    def test_compress_window(self):
+        a = self.app
+        comp, gui = sys.modules["compress"], sys.modules["compress_gui"]
+        tools = a.tools_menu
+        self.assertEqual(tools.entrycget(a._menu_item(tools, "Compress"), "state"), "disabled")  # SNES: cartridges
+        a.load_system("psx")
+        self.assertEqual(tools.entrycget(a._menu_item(tools, "Compress"), "state"), "normal")
+        fake = comp.Tool("chdman", "the tests", [sys.executable, os.path.join(TESTS, "fake_disc_tool.py")])
+        psx = os.path.join(self.p["roms"], "psx")
+        sotn, ff7 = sandbox.PSX_GAMES[0][0], sandbox.PSX_GAMES[1][0]
+        with mock.patch.object(comp, "find_tool", return_value=fake):
+            w = gui.open_window(a)
+            self.pump(lambda: w.tools.get("chdman"))
+        self.assertEqual(list(w.rows), [sotn])  # the cue / bin game; the CHD one is listed as already compressed
+        self.assertEqual(w.tv.set(sotn, "now"), "cue + 2 bin")
+        self.assertEqual(w.tv.set(ff7, "result"), "already compressed")
+        self.assertIn("Using chdman from the tests", w.tool_lbl.cget("text"))
+        w.start()
+        self.pump(lambda: not w.busy)
+        self.assertNoErrors()
+        self.assertEqual(sorted(n for n in os.listdir(psx) if n.startswith(sotn)), [f"{sotn}.chd"])
+        held = os.path.join(self.p["holding"], "to_delete", "psx")
+        self.assertEqual(sorted(os.listdir(held)), sorted([f"{sotn}.cue", f"{sotn} (Track 1).bin",
+                                                           f"{sotn} (Track 2).bin"]))
+        batch = a._read_moves()[-1]
+        self.assertEqual((batch["system"], batch["games"], len(batch["moves"])), ("psx", 1, 3))
+        self.assertEqual(a.units[sotn]["paths"], [os.path.join(psx, f"{sotn}.chd")])  # the main window rescanned
+        self.assertEqual(w.rows, {})
+        self.assertTrue(w.tv.set(sotn, "result").startswith("Done"))  # still says what happened
+        self.assertIn("Compressed 1 game,", w.status.cget("text"))
+        w.close()
+        self.assertIsNone(a.compress_window)
 
     def test_pad_hints_for_any_window(self):
         """Windows that don't describe their buttons get hints by the kind of widget; every style draws."""

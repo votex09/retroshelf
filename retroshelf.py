@@ -65,6 +65,8 @@ import dialogs  # noqa: E402
 import frontend  # noqa: E402
 import gamepad  # noqa: E402
 import padhints  # noqa: E402
+import compress  # noqa: E402
+import compress_gui  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
@@ -437,17 +439,7 @@ def apply_renames(pairs):
     return done, failed
 
 
-def fix_refs(path, by_name):
-    """Swap old file names for new ones inside a .cue / .m3u / .gdi."""
-    if not by_name:
-        return
-    with open(path, encoding="utf-8", errors="surrogateescape", newline="") as f:
-        text = f.read()
-    rx = re.compile("|".join(re.escape(n) for n in sorted(by_name, key=len, reverse=True)))
-    new = rx.sub(lambda m: by_name[m.group(0)], text)
-    if new != text:
-        with open(path, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
-            f.write(new)
+fix_refs = compress.fix_refs  # swaps old file names for new ones inside a .cue / .m3u / .gdi
 
 
 def wildcard_re(pat, icase):
@@ -1042,6 +1034,7 @@ class App:
         tools.add_separator()
         tools.add_command(label="Scrape metadata…", command=self.scrape_dialog)
         tools.add_command(label="Rename files…", command=self.rename_dialog)
+        tools.add_command(label="Compress games…", command=lambda: compress_gui.open_window(self))
         tools.add_command(label="NoPayStation…", command=lambda: nps_gui.open_window(self))
         tools.add_command(label="Homebrew Hub…", command=lambda: homebrew_gui.open_window(self))
         tools.add_command(label="itch.io homebrew…", command=lambda: itch_gui.open_window(self))
@@ -1345,6 +1338,8 @@ class App:
         self.root.title(f"RetroShelf — {self.fullname or system}")
         self.tools_menu.entryconfig(self._menu_item(self.tools_menu, "NoPayStation"),
                                     state="normal" if system in nps.CONSOLES else "disabled")
+        self.tools_menu.entryconfig(self._menu_item(self.tools_menu, "Compress"),
+                                    state="normal" if compress.supported(system, self.exts) else "disabled")
         self.restore_state()
         self._refresh_platform_choices()
         self.rescan()
