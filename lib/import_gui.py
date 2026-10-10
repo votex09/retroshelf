@@ -3,9 +3,10 @@ Each game's system is worked out and shown before anything moves; the user can c
 files everything (see lib/romimport.py)."""
 import os, queue, shutil, threading
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, messagebox
 
 import romimport
+import dialogs
 import ui
 from fsutil import open_folder
 
@@ -192,9 +193,13 @@ class ImportWindow:
         self.tv.item(iid, text=name, values=(system, how if r.units else "", human(r.size) if r.size else "",
                                              r.status), tags=tags)
 
-    def add(self, paths, inbox=None):
+    def _new(self, rows):
+        """The rows that aren't in the list yet."""
         known = {os.path.normcase(r.path) for r in self.rows.values() if not r.status.startswith("Imported")}
-        new = [r for r in romimport.collect(paths, inbox) if os.path.normcase(r.path) not in known]
+        return [r for r in rows if os.path.normcase(r.path) not in known]
+
+    def add(self, paths, inbox=None, rows=None):
+        new = self._new(romimport.collect(paths, inbox) if rows is None else rows)
         for r in new:
             r.status = "Checking …"
             iid = self.tv.insert("", "end", text=r.name, tags=("odd",) if len(self.rows) % 2 else ())
@@ -256,18 +261,25 @@ class ImportWindow:
         self.watch_job = self.win.after(WATCH_MS, self._watch)
 
     def add_files(self):
-        paths = filedialog.askopenfilenames(parent=self.win, title="Add games",
-                                            initialdir=os.path.expanduser("~"))
+        paths = dialogs.ask_open_files(self.win, "Add games", os.path.expanduser("~"))
         if paths:
             self.add(list(paths), self.inbox)
 
     def add_folder(self):
-        path = filedialog.askdirectory(parent=self.win, title="Add a folder of games",
-                                       initialdir=os.path.expanduser("~"))
-        if path:
-            if not self.add([path], self.inbox):
-                messagebox.showinfo(TITLE, "There are no games or archives in that folder (or they're already "
-                                           "in the list).", parent=self.win)
+        path = dialogs.ask_directory(self.win, "Add a folder of games", os.path.expanduser("~"))
+        if not path:
+            return
+        rows = self._new(romimport.collect([path], self.inbox))
+        if not rows:
+            messagebox.showinfo(TITLE, f"There are no games or archives in\n{path}\n(or they're already in the "
+                                       "list).", parent=self.win)
+            return
+        folders = len({os.path.dirname(r.path) for r in rows})
+        where = f" in {folders} folders" if folders > 1 else ""
+        if messagebox.askyesno(TITLE, f"Add {len(rows)} game{'s' if len(rows) != 1 else ''}{where} from\n\n{path}"
+                                      f"{' (and the folders inside it)' if folders > 1 else ''}?\n\n"
+                                      "They're copied: the originals stay where they are.", parent=self.win):
+            self.add([], rows=rows)
 
     def remove_selected(self):
         if self.busy:
@@ -278,7 +290,7 @@ class ImportWindow:
         self._update_buttons()
 
     def change_inbox(self):
-        path = filedialog.askdirectory(parent=self.win, title="Import folder", initialdir=self.inbox)
+        path = dialogs.ask_directory(self.win, "Import folder", self.inbox)
         if not path:
             return
         path = os.path.normpath(path)

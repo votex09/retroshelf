@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -233,7 +233,7 @@ class AppTest(unittest.TestCase):
                 mock.patch.object(nps_gui, "is_windows", return_value=True), \
                 mock.patch.object(nps.shutil, "which", return_value=None), \
                 mock.patch.object(nps, "load_list", return_value=rows), \
-                mock.patch.object(nps_gui.filedialog, "askdirectory") as ask:
+                mock.patch.object(nps_gui.dialogs, "ask_directory") as ask:
             self.app.load_system("ps3")  # listed even without a folder, so it can be filled
             w = nps_gui.open_window(self.app)
             self.root.update()
@@ -584,6 +584,26 @@ class AppTest(unittest.TestCase):
         with open(os.path.join(inbox, "Metroid (USA).gba"), "wb") as f:  # noticed while the window is open
             f.write(b"M" * 64)
         self.pump(lambda: any(r.name == "Metroid (USA).gba" for r in w.rows.values()), timeout=10)
+        # Add a folder: it says where from and how many before listing anything
+        nas = os.path.join(self.base, "nas", "downloads")
+        for rel in ("PS2 Collection/Okami (USA)/Okami (USA).7z", "PS2 Collection/Ico (USA).7z", "3DS/Other.3ds"):
+            os.makedirs(os.path.dirname(os.path.join(nas, rel)), exist_ok=True)
+            with open(os.path.join(nas, rel), "wb") as f:
+                f.write(discs.seven_zip({"x.iso": discs.ps2()}) if rel.endswith(".7z") else b"x")
+        picked = os.path.join(nas, "PS2 Collection")
+        before = len(w.rows)
+        with mock.patch.object(sys.modules["dialogs"], "ask_directory", return_value=picked):
+            self.boxes["askyesno"].return_value = False
+            button(w.win, "Add a folder…").invoke()
+            question = self.boxes["askyesno"].call_args[0][1]
+            self.assertIn("Add 2 games in 2 folders from", question)
+            self.assertIn(picked, question)
+            self.assertEqual(len(w.rows), before)  # said no: nothing added
+            self.boxes["askyesno"].return_value = True
+            button(w.win, "Add a folder…").invoke()
+        added = sorted(r.name for r in list(w.rows.values())[before:])
+        self.assertEqual(added, ["Ico (USA).7z", "Okami (USA).7z"])  # nothing from beside the folder
+        self.pump(lambda: not w.scanning)
         w.close()
         self.assertIsNone(self.app.import_window)
 

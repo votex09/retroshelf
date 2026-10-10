@@ -37,7 +37,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, messagebox
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(APP_DIR, "vendor"))
@@ -56,6 +56,7 @@ import pdroms_gui  # noqa: E402
 import setup_gui  # noqa: E402
 import scraper  # noqa: E402
 import desktop  # noqa: E402
+import dialogs  # noqa: E402
 import frontend  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
@@ -1184,13 +1185,13 @@ class App:
 
     # ---------- roms root / system ----------
     def browse_roms(self):
-        path = filedialog.askdirectory(initialdir=self.cfg["roms_root"] or os.path.expanduser("~"),
-                                       title="Pick the roms folder (the one containing nds/, snes/, …)")
+        path = dialogs.ask_directory(self.root, initialdir=self.cfg["roms_root"] or os.path.expanduser("~"),
+                                     title="Pick the roms folder (the one containing nds/, snes/, …)")
         if path:
             self.load_roms_root(path)
 
     def browse_holding(self):
-        path = filedialog.askdirectory(initialdir=self.holding_root(), title="Where moved files go")
+        path = dialogs.ask_directory(self.root, initialdir=self.holding_root(), title="Where moved files go")
         if path:
             self.cfg["holding_root"] = path
             self.save_cfg()
@@ -1776,8 +1777,8 @@ class App:
 
     # ---------- output ----------
     def export(self):
-        path = filedialog.asksaveasfilename(initialdir=APP_DIR, initialfile=f"{self.system}_move.txt",
-                                            defaultextension=".txt")
+        path = dialogs.ask_save_file(self.root, "Export move list", initialdir=APP_DIR,
+                                     initialfile=f"{self.system}_move.txt", defaultextension=".txt")
         if path:
             with open(path, "w", encoding="utf-8") as f:
                 for k in self.to_move:

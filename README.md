@@ -36,7 +36,8 @@ rename can be undone, and games only go for good when you delete them from the h
 - **Import ROMs…** (top bar, or **Library → Import ROMs…**) is a bucket for games in whatever form you have them:
   zip / 7z / rar archives, disc images, loose ROMs, folders full of them. Put them in the `import` folder next to
   your `roms` folder (RetroShelf notices new files while the window is open), or add them from anywhere with
-  **Add files…** / **Add a folder…**.
+  **Add files…** / **Add a folder…** (which says how many games it found in the folder before listing them).
+  A network share has to be mounted as a folder first (for example under `/mnt`).
 - Each game's system is shown before anything moves, with how it was found: the file type when only one system
   uses it, the disc itself for images (PS2 and PS1 discs by their `SYSTEM.CNF`, PSP, GameCube, Wii, Saturn,
   Sega CD, Dreamcast, 3DO, PC Engine CD, Neo Geo CD, Xbox; `.cso`, `.rvz`, `.gcz`, `.pbp` and `.chd` too), or the
@@ -128,6 +129,8 @@ rename can be undone, and games only go for good when you delete them from the h
 - **Windows:** Python 3.9 or newer from [python.org](https://www.python.org/downloads/windows/) (it includes Tk).
   Works with both the installer and the portable release of ES-DE: RetroShelf finds `C:\Users\<you>\ROMs` and
   `C:\Users\<you>\ES-DE`, or `ES-DE\ROMs` next to `ES-DE\ES-DE` for the portable one.
+- On Linux, file and folder pickers are your desktop's own (`kdialog` on KDE / Steam Deck, `zenity` on GNOME), with
+  Tk's built-in one only when neither is installed.
 - No other Python packages are needed. With Pillow installed (`python3-pil.imagetk` on Debian / Ubuntu, `python-pillow` on Arch,
   `py -m pip install pillow` on Windows), the details panel
   can show JPEG artwork too; without it only PNG artwork is shown.

@@ -24,6 +24,7 @@ import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import scraper  # noqa: E402
 import updater  # noqa: E402
+import dialogs  # noqa: E402
 import romimport as ri  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
@@ -1132,6 +1133,60 @@ def zip_bytes(members):
         for n, d in members.items():
             z.writestr(n, d)
     return buf.getvalue()
+
+
+@unittest.skipIf(os.name == "nt", "the desktop's own pickers are a Linux thing (Windows' Tk dialogs are native)")
+class Dialogs(unittest.TestCase):
+    """lib/dialogs.py: the desktop's own file picker when there is one, Tk's otherwise."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.bin = os.path.join(self.tmp, "bin")
+        os.makedirs(self.bin)
+        self.log = os.path.join(self.tmp, "args")
+
+    def tool(self, name, output, code=0):
+        """A stand-in kdialog / zenity that records its arguments and prints output."""
+        p = os.path.join(self.bin, name)
+        with open(p, "w") as f:
+            f.write(f'#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "{self.log}"\nprintf %s "{output}"\nexit {code}\n')
+        os.chmod(p, 0o755)
+
+    def env(self, desktop="KDE"):
+        return mock.patch.dict(os.environ, {"PATH": self.bin, "DISPLAY": ":0", "XDG_CURRENT_DESKTOP": desktop})
+
+    def args(self):
+        with open(self.log) as f:
+            return f.read().splitlines()
+
+    def test_kdialog_on_kde(self):
+        self.tool("kdialog", "/mnt/nas/PS2 Collection\n")
+        self.tool("zenity", "/wrong")
+        with self.env():
+            self.assertEqual(dialogs.ask_directory(None, "Add a folder", self.tmp), "/mnt/nas/PS2 Collection")
+        self.assertEqual(self.args(), ["--title", "Add a folder", "--getexistingdirectory", self.tmp])
+
+    def test_zenity_elsewhere_and_several_files(self):
+        self.tool("kdialog", "/wrong")
+        self.tool("zenity", "/a/x.7z\n/a/y.iso\n")
+        with self.env("GNOME"):
+            self.assertEqual(dialogs.ask_open_files(None, "Add games", self.tmp), ("/a/x.7z", "/a/y.iso"))
+        self.assertIn("--multiple", self.args())
+
+    def test_cancel_and_network_locations(self):
+        self.tool("kdialog", "", code=1)
+        with self.env():
+            self.assertEqual(dialogs.ask_directory(None, "x", self.tmp), "")
+        self.tool("kdialog", "smb://mini@192.168.50.2/downloads")
+        with self.env(), mock.patch.object(dialogs.messagebox, "showerror") as err:
+            self.assertEqual(dialogs.ask_directory(None, "x", self.tmp), "")
+        self.assertIn("Mount it as a folder", err.call_args[0][1])
+
+    def test_tk_without_either(self):
+        with self.env(), mock.patch.object(dialogs.filedialog, "askdirectory", return_value="/tk") as tk_dialog:
+            self.assertEqual(dialogs.ask_directory(None, "x", self.tmp), "/tk")
+        tk_dialog.assert_called_once()
 
 
 class SevenZip(unittest.TestCase):

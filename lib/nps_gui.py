@@ -1,8 +1,9 @@
 """NoPayStation window for RetroShelf: search the NPS lists, queue packages, download and install them."""
 import datetime, os, queue, re, shutil, threading
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, messagebox
 
+import dialogs
 import launchbox as lb
 import nps
 import scraper
@@ -206,8 +207,8 @@ class NpsWindow:
     def pick_emulator(self, name):
         """Windows: the folder with rpcs3.exe / Vita3K.exe, kept in config.json."""
         exe = nps.EMULATOR_EXES[name]
-        path = filedialog.askdirectory(title=f"Folder with {exe}", parent=self.win,
-                                       initialdir=nps.find_emulator(name, self.roms_root) or self.roms_root)
+        path = dialogs.ask_directory(self.win, f"Folder with {exe}",
+                                     nps.find_emulator(name, self.roms_root) or self.roms_root)
         if not path:
             return
         if not os.path.isfile(os.path.join(path, exe)):
@@ -224,8 +225,7 @@ class NpsWindow:
         return self.app.cfg.get("nps_dir") or os.path.expanduser("~/Downloads/NPS")
 
     def browse_dir(self):
-        path = filedialog.askdirectory(initialdir=self.dl_dir(), title="Where packages are downloaded",
-                                       parent=self.win)
+        path = dialogs.ask_directory(self.win, "Where packages are downloaded", self.dl_dir())
         if path:
             self.app.cfg["nps_dir"] = path
             self.app.save_cfg()
