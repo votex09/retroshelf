@@ -140,11 +140,20 @@ KIDS_WORDS = (
     "Kids Next Door|Ben 10|Wiggles|Teletubbies|Barney|Blue's Clues|Bob the Builder|Arthur's|Caillou|"
     "Little Einsteins|Handy Manny|Backyardigans|Paw Patrol|Peppa Pig|PJ Masks|Octonauts|Bubble Guppies|"
     "Wonder Pets|Tom (?:and|&) Jerry|Looney Tunes|Bugs Bunny|Tweety|Flintstones|Jetsons|Yogi Bear|"
-    "American Dragon|Proud Family|Lazy ?Town"
+    "American Dragon|Proud Family|Lazy ?Town|Rocket Power|Dragon Tales|Arthur!|Doug's|"
+    # 80s / 90s cartoons and family films (NES, SNES, Mega Drive, Game Boy era)
+    "DuckTales|Darkwing Duck|TaleSpin|Chip ?['’]?n['’]? ?Dale|Rescue Rangers|Goof Troop|Bonkers|Gargoyles|"
+    "Tiny Toon|Animaniacs|Pinky and the Brain|Taz-?Mania|Road Runner|Wile E|Daffy Duck|Porky Pig|"
+    "Speedy Gonzales|Simpsons|Bart (?:vs|Simpson)|Bart's|Itchy (?:&|and) Scratchy|Krusty|Rocko's Modern Life|"
+    "Ren (?:&|and) Stimpy|Real Monsters|Captain Planet|Muppets?|Fraggle|Fievel|Land Before Time|Casper|"
+    "Pagemaster|Home Alone|Addams Family|Bobby's World|We're Back|Stuart Little|Dalmatians|Bug's Life|"
+    "Emperor's New Groove|Pink Panther|Popeye|Woody Woodpecker|Felix the Cat|Snoopy|Peanuts|Charlie Brown|"
+    "Richie Rich|Dennis the Menace|Inspector Gadget|Huckleberry Hound|Top Cat|Wacky Races|Hanna-Barbera|"
+    "Bucky O'Hare|Fido Dido|Tiny Toons|Baby Looney|Pocket Dragons"
 )
 # films whose name is an everyday word: only when it's the whole title ("Cars 2", "Up (USA)", not "Crazy Cars")
 KIDS_TITLES = ("Cars|Up|Bolt|Brave|Planes|Rio|Turbo|Barnyard|Robots|Dinosaur|Frozen|Tangled|Zootopia|Coco|Moana|"
-               "Inside Out|Arthur|Franklin|Recess|Hercules|Bambi|Valiant|Epic|Home on the Range")
+               "Inside Out|Arthur|Franklin|Recess|Hercules|Bambi|Valiant|Epic|Home on the Range|Hook|Doug|Widget")
 KIDS_EXCEPT = ["Nintendogs"]
 
 DEFAULT_PRIORITY = "USA, World, Europe, Australia, Japan, Korea"

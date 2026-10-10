@@ -69,9 +69,14 @@ class Presets(unittest.TestCase):
     def test_kids_tie_ins_named_after_the_film(self):
         kids = ["Finding Nemo (USA)", "Ratatouille (USA)", "Rugrats - Royal Ransom (USA)", "Cars (USA)", "Up (USA)",
                 "Cars 2 (USA)", "0123 - Bolt (USA)", "Monsters vs. Aliens (USA)", "Lilo & Stitch (USA)",
-                "Spongebob_Squarepants_-_Lights_Camera_Pants_USA", "Jimmy Neutron Boy Genius (USA)"]
+                "Spongebob_Squarepants_-_Lights_Camera_Pants_USA", "Jimmy Neutron Boy Genius (USA)",
+                # cartoon and film tie-ins of the NES / SNES / Mega Drive years
+                "Adventures of Yogi Bear (USA)", "DuckTales 2 (USA)", "Chip 'n Dale - Rescue Rangers (USA)",
+                "Tiny Toon Adventures - Buster Busts Loose! (USA)", "Simpsons, The - Bart's Nightmare (USA)",
+                "Home Alone 2 - Lost in New York (USA)", "Hook (USA)", "Lion King, The (USA)"]
         others = ["Crazy Cars (USA)", "Up'n Down (USA)", "Brave Fencer Musashi (USA)", "Super Cars (USA)",
-                  "Robotech - Battlecry (USA)", "King Arthur (USA)", "Frozen Synapse", "Kingdom Hearts (USA)"]
+                  "Robotech - Battlecry (USA)", "King Arthur (USA)", "Frozen Synapse", "Kingdom Hearts (USA)",
+                  "Earthworm Jim (USA)", "Doug Flutie's Football (USA)", "Home Improvement (USA)", "EarthBound (USA)"]
         self.assertEqual(rs.PRESETS["Kids / licensed tie-ins"](kids + others), set(kids))
 
     def test_region_dupes_keep_the_preferred_region(self):
