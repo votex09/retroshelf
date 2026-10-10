@@ -40,7 +40,7 @@ SYSTEMS = [
     ("pcengine", "PC Engine", "nec-turbografx-16-pc-engine"),
     ("atari2600", "Atari 2600", "atari-2600"),
     ("atari5200", "Atari 5200", "atari-5200"),
-    ("lynx", "Atari Lynx", "atari-lynx"),
+    ("atarilynx", "Atari Lynx", "atari-lynx"),
     ("colecovision", "ColecoVision", "colecovision"),
     ("intellivision", "Intellivision", "mattel-intellivision"),
     ("ngp", "Neo Geo Pocket", "snk-neo-geo-pocket-ngp-ngpc"),
