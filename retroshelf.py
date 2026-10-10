@@ -45,6 +45,8 @@ sys.path.insert(0, os.path.join(APP_DIR, "lib"))
 import sv_ttk  # noqa: E402  (vendored Sun Valley theme, MIT)
 
 import launchbox as lb  # noqa: E402
+import listkeys  # noqa: E402
+import review  # noqa: E402
 import nps  # noqa: E402
 import nps_gui  # noqa: E402
 import homebrew_gui  # noqa: E402
@@ -633,6 +635,7 @@ class App:
         self.pat_text.configure(insertbackground=c["fg"], padx=8, pady=6, **field)
         self.pat_hint.configure(bg=c["field"], fg=c["muted"])
         self.genre_lb.configure(activestyle="none", **field)
+        self.keys.style(c)
         self.region_lb.configure(activestyle="none", **field)
         for tv in (self.keep_tv, self.move_tv):
             tv.tag_configure("odd", background=c["stripe"])
@@ -997,7 +1000,9 @@ class App:
         for tv in (self.keep_tv, self.move_tv):
             tv.bind("<<TreeviewSelect>>", lambda e, tv=tv: self._show_selected(tv))
             tv.bind("<Button-3>", lambda e, tv=tv: self._row_menu(tv, e))
-            tv.bind("<space>", lambda e, tv=tv: (self.flip(tv, tv is self.keep_tv), "break")[1])
+        self.keys = listkeys.PaneKeys(self)  # arrows, Space marks, → / ← flip, Ctrl+Z, type to jump (see there)
+        self.root.bind("<Control-z>", lambda e: None if isinstance(e.widget, (tk.Text, ttk.Entry)) else self.keys.undo())
+        self.root.bind("<Control-r>", lambda e: self.review())
         self.root.bind("<F5>", lambda e: self.rescan())
         self.root.bind("<Control-f>", lambda e: (self.search_entry.focus_set(), "break")[1])
 
@@ -1034,8 +1039,11 @@ class App:
         view.add_checkbutton(label="Dark mode", variable=self.dark_var, command=self.toggle_theme)
         self.details_var = tk.BooleanVar(value=self.cfg["show_details"])
         view.add_checkbutton(label="Details panel", variable=self.details_var, command=self.toggle_details)
+        view.add_separator()
+        view.add_command(label="Review one at a time…", accelerator="Ctrl+R", command=self.review)
         mb.add_cascade(label="View", menu=view)
         hlp = self.help_menu = tk.Menu(mb, tearoff=0)
+        hlp.add_command(label="Keyboard shortcuts", command=self.keys_help)
         hlp.add_command(label="Name pattern help", command=self.pattern_help)
         hlp.add_separator()
         hlp.add_command(label="Check for updates", command=self.check_updates)
@@ -1119,6 +1127,27 @@ class App:
         notes.grid(row=len(PATTERN_HELP) + 2, column=0, columnspan=2, sticky="w", pady=(14, 0))
         ttk.Button(body, text="Close", style="Accent.TButton", command=win.destroy).grid(
             row=len(PATTERN_HELP) + 3, column=1, sticky="e", pady=(16, 0))
+        win.bind("<Escape>", lambda e: win.destroy())
+
+    def keys_help(self):
+        win = tk.Toplevel(self.root)
+        win.title("Keyboard shortcuts")
+        win.transient(self.root)
+        win.configure(bg=ttk.Style().lookup("TFrame", "background"))
+        body = ttk.Frame(win, padding=18)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="Keeping and Moving lists", style="Section.TLabel").grid(row=0, column=0, columnspan=2,
+                                                                                    sticky="w", pady=(0, 10))
+        for i, (keys, meaning) in enumerate(listkeys.HELP):
+            ttk.Label(body, text=keys, font=(self.mono, 10)).grid(row=i + 1, column=0, sticky="nw", padx=(0, 18),
+                                                                  pady=3)
+            ttk.Label(body, text=meaning, wraplength=420, justify="left").grid(row=i + 1, column=1, sticky="nw",
+                                                                              pady=3)
+        ttk.Label(body, text="Review (Ctrl+R): K keep  ·  M move  ·  S or → skip  ·  ← back  ·  Backspace undo  ·  "
+                             "Esc close", style="Muted.TLabel", wraplength=600, justify="left").grid(
+            row=len(listkeys.HELP) + 1, column=0, columnspan=2, sticky="w", pady=(14, 0))
+        ttk.Button(body, text="Close", style="Accent.TButton", command=win.destroy).grid(
+            row=len(listkeys.HELP) + 2, column=1, sticky="e", pady=(16, 0))
         win.bind("<Escape>", lambda e: win.destroy())
 
     # ---------- region priority ----------
@@ -1267,6 +1296,7 @@ class App:
 
     def load_system(self, system):
         self.save_state()  # the system being left, including edits a pending refresh hasn't seen yet
+        self.keys.undo_stack.clear()  # flips belong to the system they were made in
         self.system = system
         self.cfg["system"] = system
         self.save_cfg()
@@ -1672,9 +1702,14 @@ class App:
         self.refresh()
 
     def flip(self, tv, to_move):
-        for iid in tv.selection():
-            self.manual[iid] = to_move
-        self.refresh()
+        self.keys.flip(tv, to_move)
+
+    def review(self):
+        """Go through the list that has the keyboard (else Keeping) one game at a time, from the cursor."""
+        focus = self.root.focus_get()
+        tv = self.move_tv if focus is self.move_tv else self.keep_tv
+        rows = tv.get_children()
+        review.open_window(self, rows, self.keys.cursor(tv) or 0)
 
     # ---------- decide ----------
     def refresh(self):
@@ -1789,6 +1824,7 @@ class App:
             again = [k for k in keep_sel if tv.exists(k)]
             if again:
                 tv.selection_set(again)
+            self.keys.after_render()
             size = sum(self.units[k]["size"] for k in keys)
             extra = f"  ·  {len(shown)} shown" if q else ""
             lbl.config(text=f"{title}   {len(keys):,} games  ·  {human(size)}{extra}")
@@ -1811,8 +1847,8 @@ class App:
     def render_status(self):
         nfiles = sum(len(u["paths"]) for u in self.units.values())
         flips = f"{len(self.manual)} flipped (orange)  ·  " if self.manual else ""
-        self.status.config(text=f"{len(self.units):,} games ({nfiles:,} files)  ·  {flips}double-click or Space flips "
-                                f"a game  ·  right-click for more")
+        self.status.config(text=f"{len(self.units):,} games ({nfiles:,} files)  ·  {flips}double-click or → / ← flips "
+                                f"a game, Space marks  ·  Ctrl+R reviews one by one  ·  right-click for more")
 
     # ---------- output ----------
     def export(self):
@@ -2002,7 +2038,7 @@ class App:
         """What the details panel shows with no single game selected."""
         if len(sel) > 1:
             size = sum(self.units[k]["size"] for k in sel if k in self.units)
-            self.status.config(text=f"{len(sel):,} selected  ·  {human(size)}  ·  Space or double-click flips them")
+            self.status.config(text=f"{len(sel):,} selected  ·  {human(size)}  ·  → / ← or Enter flips them, Space marks")
             self.details.placeholder(f"{len(sel):,} games selected", f"{human(size)} in total.\n\nSpace or "
                                      "double-click flips them between Keeping and Moving. Right-click for more.",
                                      image=self.big_icon)
