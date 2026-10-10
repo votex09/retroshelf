@@ -610,7 +610,11 @@ class AppTest(unittest.TestCase):
     def key(self, widget, seq):
         """Press a key the way a person would: on the widget that has the keyboard."""
         widget.focus_force()
-        self.root.update()
+
+        def focused():  # the virtual display can take a moment to hand focus over
+            f = self.root.focus_get()
+            return f is not None and (f is widget or str(f).startswith(str(widget) + "."))
+        self.pump(focused)
         widget.event_generate(seq)
         self.root.update()
 
