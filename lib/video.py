@@ -26,6 +26,7 @@ STREAM_DELAY_MS = 1500  # streams cost bandwidth and a few seconds to start: wai
 POLL_MS = 300
 LOAD_TIMEOUT_MS = {"clip": 6000, "stream": 25000}
 STREAM_FORMAT = "bv*[height<=480]+ba/b[height<=480]/b"  # small panel: no need for HD
+STREAM_START = "50%"    # gameplay videos open on intros and talking: start streams halfway in (and loop from there)
 FLATPAK_MPV = "io.mpv.Mpv"
 _backend = None
 _ytdl = None
@@ -175,7 +176,8 @@ class MpvPlayer:
                 "--input-cursor=no", "--cursor-autohide=always", "--keepaspect=yes", "--hwdec=auto-safe",
                 "--audio-display=no", "--really-quiet", "--no-terminal", f"--input-ipc-server={self.ipc}"]
         if stream:
-            args += [f"--ytdl-format={STREAM_FORMAT}", "--demuxer-max-bytes=50MiB", "--cache=yes"]
+            args += [f"--ytdl-format={STREAM_FORMAT}", f"--start={STREAM_START}", "--demuxer-max-bytes=50MiB",
+                     "--cache=yes"]
         if not is_windows():  # only outputs that draw into our window (else mpv may open one of its own)
             args += ["--vo=gpu,xv,x11", "--gpu-context=x11egl"]
         env = dict(os.environ)

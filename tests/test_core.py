@@ -1261,12 +1261,14 @@ class Video(unittest.TestCase):
             self.assertIn("--wid=4242", p.cmd)
             self.assertIn("--mute=yes", p.cmd)
             self.assertTrue(any(a.startswith("--ytdl-format=") for a in p.cmd))
+            self.assertIn("--start=50%", p.cmd)  # streams open halfway in, past the intro
             self.assertNotIn("WAYLAND_DISPLAY", popen.call_args.kwargs["env"])  # kept on X11, where it can embed
             clip = os.path.join(tempfile.gettempdir(), "clips", "Game.mp4")
             p = video.MpvPlayer(frame, clip, ["/usr/bin/flatpak", "run"], flatpak=True)
             self.assertIn(f"--filesystem={os.path.dirname(clip)}:ro", p.cmd)
             self.assertLess(p.cmd.index(f"--filesystem={os.path.dirname(clip)}:ro"), p.cmd.index(video.FLATPAK_MPV))
             self.assertFalse(any(a.startswith("--ytdl-format=") for a in p.cmd))
+            self.assertFalse(any(a.startswith("--start=") for a in p.cmd))  # local clips play from the top
 
 
 class Gamepad(unittest.TestCase):
