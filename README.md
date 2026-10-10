@@ -34,6 +34,9 @@ rename can be undone, and games only go for good when you delete them from the h
   (Enter), Y undoes, B closes, LB / RB switch lists, LT / RT page, Start opens Review. RetroShelf reads pads itself
   (Linux: `/dev/input`; Windows: XInput) and only while its window has the focus. **View → Use a gamepad** turns it
   off. On a Steam Deck, Steam keeps the built-in controls while it's running; other pads work.
+  While the pad is what you're using, a bar along the bottom of the window shows the buttons that do something
+  there, drawn the way your pad labels them (Xbox letters, PlayStation shapes or Nintendo letters), and what each
+  does right now ("Mark", "Move 3 marked", "Keep", …). It goes away when you type or move the mouse.
 - **View → Review one at a time…** (Ctrl+R) goes through the list with each game's artwork and details:
   K (or Space) keeps, M (or Enter) moves, S skips, ← goes back, Backspace undoes.
 - Each system remembers its patterns, filters and flips, so it opens the way you left it.

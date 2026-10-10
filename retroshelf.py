@@ -64,6 +64,7 @@ import desktop  # noqa: E402
 import dialogs  # noqa: E402
 import frontend  # noqa: E402
 import gamepad  # noqa: E402
+import padhints  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
@@ -596,6 +597,9 @@ class App:
         self.gamepads = gamepad.Gamepads(root, lambda name: self.toast(
             f"Gamepad: {name}. Help → Keyboard and gamepad lists the buttons."))
         self.gamepads.enabled = bool(self.cfg["gamepad"])
+        # while the pad is what's in use, the window with the keyboard shows its buttons (lib/padhints.py)
+        self.pad_hints = padhints.Hints(root, lambda: self.colors)
+        self.gamepads.watchers.append(self.pad_hints.update)
         if not self.cfg["roms_root"] and not self.cfg["setup_offered"]:  # no library anywhere: offer to set one up
             root.after(600, lambda: setup_gui.open_window(self))
         if self.cfg["roms_root"] and import_gui.waiting(self):
@@ -1169,7 +1173,8 @@ class App:
         pads = self.gamepads.names() if self.gamepads else []
         note = ("Review (Ctrl+R): K or Space keeps  ·  M or Enter moves  ·  S or → skips  ·  ← back  ·  Backspace "
                 "undoes  ·  Esc closes.\n" +
-                (f"Gamepad connected: {', '.join(pads)}." if pads else
+                (f"Gamepad connected: {', '.join(pads)}. While you use it, the bottom of the window shows what its "
+                 "buttons do there." if pads else
                  "No gamepad found yet: plug one in and it's picked up by itself."
                  + ("" if is_windows() else " On a Steam Deck, Steam keeps the built-in controls while it runs; "
                     "other pads work.")))

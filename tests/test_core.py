@@ -28,6 +28,7 @@ import dialogs  # noqa: E402
 import romimport as ri  # noqa: E402
 import video  # noqa: E402
 import gamepad  # noqa: E402
+import padhints  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
 import discs  # noqa: E402
@@ -1325,6 +1326,33 @@ class Gamepad(unittest.TestCase):
         self.assertEqual(r.update({"down", "a"}, 0.54), ["down"])
         self.assertEqual(r.update(set(), 0.6), [])
         self.assertEqual(r.update({"a"}, 0.7), ["a"])                # pressed again
+
+    def test_glyph_style_from_the_pad_name(self):
+        for name, style in (("Xbox Wireless Controller", "xbox"), ("Microsoft X-Box 360 pad", "xbox"),
+                            ("Steam Deck", "xbox"), ("8BitDo Ultimate Wireless Controller", "xbox"),
+                            ("Sony Interactive Entertainment Wireless Controller", "playstation"),
+                            ("Wireless Controller", "playstation"),  # a DualShock 4 over Bluetooth
+                            ("DualSense Wireless Controller", "playstation"), ("PS3 Controller", "playstation"),
+                            ("Nintendo Switch Pro Controller", "nintendo"), ("Joy-Con (L/R)", "nintendo"),
+                            ("", "xbox"), (None, "xbox")):
+            self.assertEqual(padhints.style_for(name), style, name)
+        for style in padhints.STYLES.values():  # every button the hints use has a glyph in every style
+            self.assertTrue({"a", "b", "x", "y", "lb", "rb", "lt", "rt", "start"} <= set(style))
+
+    def test_the_last_pad_pressed_picks_the_glyphs(self):
+        src = gamepad.LinuxSource()
+        src.next_scan = float("inf")
+        xbox, ps = mock.Mock(pressed=set(), read=lambda: True), mock.Mock(pressed=set(), read=lambda: True)
+        xbox.name, ps.name = "Xbox Wireless Controller", "DualSense Wireless Controller"
+        src.pads = {"/dev/input/event1": xbox, "/dev/input/event2": ps}
+        src.poll(0)
+        self.assertIsNone(src.last)
+        ps.pressed = {"a"}
+        src.poll(0)
+        self.assertEqual(src.last, ps.name)
+        root = mock.Mock()
+        pads = gamepad.Gamepads(root, source=src)
+        self.assertEqual(pads.style(), "playstation")
 
 
 class SevenZip(unittest.TestCase):

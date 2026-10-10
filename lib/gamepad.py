@@ -10,6 +10,7 @@ Where they come from:
     built-in controls while it runs (in desktop mode it turns them into mouse and keyboard); other pads work as long
     as Steam isn't remapping them.
   - Windows: XInput (xinput1_4.dll, in every Windows), which Xbox-style pads and most others speak.
+While a pad is what's in use, lib/padhints.py shows its buttons along the bottom of the window with the keyboard.
 Button names follow the Xbox layout; the kernel reports other pads' buttons by the same codes (on PlayStation pads:
 ✕ is A, ○ is B, △ is X and □ is Y)."""
 import ctypes, glob, os, struct, sys, time
@@ -17,6 +18,8 @@ import ctypes, glob, os, struct, sys, time
 from fsutil import is_windows
 
 POLL_MS = 16
+HINT_TICKS = 8  # the on-screen button hints (lib/padhints.py) catch up this often while the pad is in use
+POINTER_MOVE = 8  # pixels: moving the mouse this far means the pad isn't what's in use any more
 RESCAN_S = 2.0
 REPEAT_DELAY, REPEAT_EVERY = 0.40, 0.08  # seconds: holding a direction repeats it
 STICK = 0.55  # how far a stick goes before it counts as a press (0..1)
@@ -159,6 +162,7 @@ class LinuxPad:
 class LinuxSource:
     def __init__(self):
         self.pads, self.next_scan, self.denied = {}, 0.0, set()
+        self.last = None  # name of the pad last pressed (its glyphs are the ones shown)
 
     def scan(self):
         """-> names of pads that just appeared."""
@@ -184,6 +188,8 @@ class LinuxSource:
                 pad.close()
                 del self.pads[path]
                 continue
+            if pad.pressed:
+                self.last = pad.name
             pressed |= pad.pressed
         return pressed, new
 
@@ -283,14 +289,24 @@ def default_source():
 
 
 class Gamepads:
-    """Polls the pads on Tk's timer and sends the matching key to the widget that has the keyboard."""
+    """Polls the pads on Tk's timer and sends the matching key to the widget that has the keyboard.
+
+    .active is True from a pad's press until a real key press or a mouse move; each function in .watchers is
+    called with (active, path of the widget with the keyboard or '', glyph style) when that changes, after a press,
+    and every HINT_TICKS polls while active (the on-screen hints, lib/padhints.py)."""
 
     def __init__(self, root, on_connect=lambda name: None, source=None, clock=time.monotonic):
         self.root, self.on_connect, self.clock = root, on_connect, clock
         self.source = source if source is not None else default_source()
         self.repeater = Repeater()
         self.enabled = True
+        self.active, self.watchers, self.ticks = False, [], 0
+        self.pointer, self.sending = None, False
         self.keys = dict(KEYS, lb=shift_tab())
+        # real keys reach whichever widget has the keyboard first through this tag (added to it as it gets
+        # the keyboard), before any of its own bindings can stop them
+        root.bind_class("PadWatch", "<KeyPress>", self._key, add="+")
+        root.bind_all("<ButtonPress>", self._key, add="+")
         self.cmd = root.register(self._tick)  # registered once (see video.Timer for why not after())
         self.job = None
         if self.source is not None:
@@ -304,27 +320,98 @@ class Gamepads:
             if self.source is not None:
                 self.job = self.root.tk.call("after", POLL_MS, self.cmd)
 
+    def focus(self):
+        """The widget with the keyboard (None while another app has it)."""
+        try:
+            return self.root.focus_get()
+        except KeyError:  # a combobox's drop-down list, which tkinter has no object for
+            path = str(self.root.tk.call("focus"))
+            return _Path(self.root, path) if path else None
+
     def step(self):
-        pressed, new = self.source.poll(self.clock())
+        now = self.clock()
+        pressed, new = self.source.poll(now)
         for name in new:
             self.on_connect(name)
-        target = self.root.focus_get()  # None while another app has the focus
+        target = self.focus()
         if not self.enabled or target is None:
-            self.repeater.update(set(), self.clock())  # a button held while away doesn't fire on return
+            self.repeater.update(set(), now)  # a button held while away doesn't fire on return
+            if not self.enabled and self.active:
+                self.set_active(False)
             return []
         sent = []
-        for b in self.repeater.update(pressed, self.clock()):
+        for b in self.repeater.update(pressed, now):
             seq = self.keys.get(b)
             if seq:
                 self.press(target, seq)
                 sent.append(b)
+                target = self.focus() or target  # Tab, or a window opening, moves the keyboard
+        if sent and not self.active:
+            self.set_active(True)
+        elif self.active and self._pointer_moved():
+            self.set_active(False)
+        self.ticks += 1
+        if self.active and (sent or self.ticks % HINT_TICKS == 0):
+            self._watch(target)
+            self._notify(target)
         return sent
 
     def press(self, widget, seq):
+        self.sending = True
         try:
             widget.event_generate(seq)
         except Exception:  # the widget went away between polls
             pass
+        finally:
+            self.sending = False
+
+    # ---------- which was used last: the pad, or the keyboard and mouse ----------
+    def set_active(self, active):
+        self.active = active
+        self.pointer = self._pointer_xy() if active else None
+        target = self.focus()
+        if active:
+            self._watch(target)
+        self._notify(target)
+
+    def _pointer_xy(self):
+        try:
+            return self.root.winfo_pointerxy()
+        except Exception:
+            return None
+
+    def _pointer_moved(self):
+        now = self._pointer_xy()
+        if self.pointer is None or now is None:
+            self.pointer = now
+            return False
+        return abs(now[0] - self.pointer[0]) + abs(now[1] - self.pointer[1]) >= POINTER_MOVE
+
+    def _watch(self, widget):
+        """Put PadWatch first on the widget with the keyboard, so a real key press there is noticed."""
+        if widget is None:
+            return
+        try:
+            tags = self.root.tk.splitlist(self.root.tk.call("bindtags", str(widget)))
+            if "PadWatch" not in tags:
+                self.root.tk.call("bindtags", str(widget), ("PadWatch",) + tuple(tags))
+        except Exception:
+            pass
+
+    def _key(self, event):
+        if not self.sending and self.active:
+            self.set_active(False)
+
+    def _notify(self, target):
+        path = str(target) if target is not None else ""
+        for fn in list(self.watchers):
+            fn(self.active, path, self.style())
+
+    def style(self):
+        """The glyphs of the pad in use: 'xbox', 'playstation' or 'nintendo'."""
+        import padhints
+        name = getattr(self.source, "last", None) or next(iter(self.names()), "")
+        return padhints.style_for(name)
 
     def names(self):
         """The pads found so far."""
@@ -342,3 +429,16 @@ class Gamepads:
             except Exception:
                 pass
         self.job, self.source = None, None
+
+
+class _Path:
+    """Stands in for a widget tkinter has no object for, so keys can still be sent to it."""
+
+    def __init__(self, root, path):
+        self.root, self.path = root, path
+
+    def __str__(self):
+        return self.path
+
+    def event_generate(self, seq):
+        self.root.tk.call("event", "generate", self.path, seq)

@@ -71,8 +71,20 @@ class ReviewWindow:
                         ("<space>", lambda: self.decide(False)), ("<Return>", lambda: self.decide(True))):
             win.bind(seq, lambda e, fn=fn: (fn(), "break")[1])
         win.protocol("WM_DELETE_WINDOW", self.close)
+        win.pad_hints = self.pad_hints
         self.show()
         win.focus_force()
+
+    def pad_hints(self):
+        """What a gamepad's buttons do here right now (lib/padhints.py); B closes, added by the window's Escape."""
+        out = []
+        if self.i < len(self.keys):
+            out += [("a", "Keep"), ("x", "Move"), ("dpad:lr", "Back / Skip")]
+        elif self.keys:
+            out.append(("dpad:l", "Back"))
+        if self.app.keys.undo_stack:
+            out.append(("y", "Undo"))
+        return out
 
     def where(self, key):
         """("moving" | "keeping", why) for a game as the main window has it now."""

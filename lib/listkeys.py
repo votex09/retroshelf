@@ -44,6 +44,7 @@ class PaneKeys:
             tv.marked = set()
             tv.last = 0        # cursor row, for Tab coming back
             tv.anchor_item = None
+            tv.pad_hints = lambda tv=tv: self.pad_hints(tv)
             self._bind(tv)
 
     # ---------- setup ----------
@@ -190,6 +191,30 @@ class PaneKeys:
                         self.place(tv, i)
                         return "break"
         return "break"
+
+    def pad_hints(self, tv):
+        """What a gamepad's buttons do in this list right now (lib/padhints.py)."""
+        keep = tv is self.app.keep_tv
+        rows = self._rows(tv)
+        verb = "Move" if keep else "Keep"
+        out = []
+        if rows:
+            sel = [s for s in tv.selection() if tv.exists(s)]
+            if not sel and self.cursor(tv) is not None:
+                sel = [rows[self.cursor(tv)]]
+            n = len(tv.marked)
+            out.append(("dpad:ud", "Browse"))
+            if sel:
+                out.append(("a", "Unmark" if all(k in tv.marked for k in sel) else "Mark"))
+            if n:
+                out.append(("x", f"{verb} {n:,} marked"))
+            elif sel:
+                out.append(("x", f"{verb} it" if len(sel) == 1 else f"{verb} {len(sel):,} selected"))
+            out.append(("lt+rt", "Page"))
+        if self.undo_stack:
+            out.append(("y", "Undo"))
+        out.append(("lb+rb", "Moving list" if keep else "Keeping list"))
+        return out
 
     # ---------- flipping ----------
     def _record(self, keys, where, label):
