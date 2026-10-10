@@ -23,15 +23,19 @@ rename can be undone, and games only go for good when you delete them from the h
 - Name patterns with `*` / `?` wildcards and `!` keep rules.
 - Filter by LaunchBox rating, vote count, genre and region.
 - Played games are protected by default (play counts from ES-DE's `gamelist.xml`).
-- Double-click any game to flip it by hand, or use the keyboard (**Help → Keyboard shortcuts**):
+- Double-click any game to flip it by hand, or use the keyboard or a gamepad (**Help → Keyboard and gamepad**):
   - → or Delete moves the selected games and ← keeps them; the cursor stays where you were, so you can work
     down a list key by key. Ctrl+Z (or Backspace) undoes.
   - Space marks games without moving them yet, and steps to the next one. Marked games flip together on Enter or
     when you leave the list.
   - Type a few letters to jump to a game, Shift+↑/↓ selects a range, Ctrl+A everything shown, and Tab switches
     between Keeping and Moving, back where you were.
+- Any standard gamepad works, with no Steam Input or extra software: D-pad or stick to move, A marks (Space), X flips
+  (Enter), Y undoes, B closes, LB / RB switch lists, LT / RT page, Start opens Review. RetroShelf reads pads itself
+  (Linux: `/dev/input`; Windows: XInput) and only while its window has the focus. **View → Use a gamepad** turns it
+  off. On a Steam Deck, Steam keeps the built-in controls while it's running; other pads work.
 - **View → Review one at a time…** (Ctrl+R) goes through the list with each game's artwork and details:
-  K keeps, M moves, S skips, ← goes back, Backspace undoes.
+  K (or Space) keeps, M (or Enter) moves, S skips, ← goes back, Backspace undoes.
 - Each system remembers its patterns, filters and flips, so it opens the way you left it.
 - Multi-file games (cue/bin, multi-disc + m3u) are treated as one game and moved together.
 - **Library → Restore a move…** puts a whole batch of moved games back, including RPCS3 / Vita3K data that went with them.

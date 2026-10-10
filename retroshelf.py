@@ -20,6 +20,7 @@ Holding folder… lists moved games with artwork and details, and restores or pe
 Import ROMs… takes games in any form (zip / 7z / rar archives, disc images, loose ROMs, folders of them), from an
 import folder next to roms or from anywhere, works out each one's system, then unpacks and files it (see
 lib/romimport.py; 7z needs no 7-Zip: lib/sevenzip.py).
+Any gamepad drives the lists and Review (its buttons become their keys; see lib/gamepad.py).
 The details panel plays a game's gameplay clip from ES-DE's videos folder, or (if switched on in the View menu) the
 top YouTube result through mpv and yt-dlp (see lib/video.py).
 Set up RetroDECK… (Windows: Set up ES-DE…) installs the frontend for people who don't have it yet, letting them pick
@@ -62,6 +63,7 @@ import scraper  # noqa: E402
 import desktop  # noqa: E402
 import dialogs  # noqa: E402
 import frontend  # noqa: E402
+import gamepad  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
@@ -550,7 +552,7 @@ class App:
                     "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True,
                     "system_state": {}, "show_details": True, "emulator_dirs": {}, "esde_bases": [],
                     "setup_offered": False, "import_dir": "", "import_delete_originals": False,
-                    "play_videos": True, "stream_videos": False}
+                    "play_videos": True, "stream_videos": False, "gamepad": True}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -590,6 +592,10 @@ class App:
         root.bind_class("Toplevel", "<Map>", self._center_dialog, add="+")
         self.load_roms_root(self.cfg["roms_root"])
         root.protocol("WM_DELETE_WINDOW", self._close)
+        # gamepad buttons become the keys above (lib/gamepad.py); a toast says when one is found
+        self.gamepads = gamepad.Gamepads(root, lambda name: self.toast(
+            f"Gamepad: {name}. Help → Keyboard and gamepad lists the buttons."))
+        self.gamepads.enabled = bool(self.cfg["gamepad"])
         if not self.cfg["roms_root"] and not self.cfg["setup_offered"]:  # no library anywhere: offer to set one up
             root.after(600, lambda: setup_gui.open_window(self))
         if self.cfg["roms_root"] and import_gui.waiting(self):
@@ -1050,11 +1056,13 @@ class App:
         self.stream_var = tk.BooleanVar(value=self.cfg["stream_videos"])
         view.add_checkbutton(label="   … and stream from YouTube when there's no clip", variable=self.stream_var,
                              command=self.toggle_streams)
+        self.gamepad_var = tk.BooleanVar(value=self.cfg["gamepad"])
+        view.add_checkbutton(label="Use a gamepad", variable=self.gamepad_var, command=self.toggle_gamepad)
         view.add_separator()
         view.add_command(label="Review one at a time…", accelerator="Ctrl+R", command=self.review)
         mb.add_cascade(label="View", menu=view)
         hlp = self.help_menu = tk.Menu(mb, tearoff=0)
-        hlp.add_command(label="Keyboard shortcuts", command=self.keys_help)
+        hlp.add_command(label="Keyboard and gamepad", command=self.keys_help)
         hlp.add_command(label="Name pattern help", command=self.pattern_help)
         hlp.add_separator()
         hlp.add_command(label="Check for updates", command=self.check_updates)
@@ -1142,23 +1150,33 @@ class App:
 
     def keys_help(self):
         win = tk.Toplevel(self.root)
-        win.title("Keyboard shortcuts")
+        win.title("Keyboard and gamepad")
         win.transient(self.root)
         win.configure(bg=ttk.Style().lookup("TFrame", "background"))
         body = ttk.Frame(win, padding=18)
         body.pack(fill="both", expand=True)
-        ttk.Label(body, text="Keeping and Moving lists", style="Section.TLabel").grid(row=0, column=0, columnspan=2,
-                                                                                    sticky="w", pady=(0, 10))
-        for i, (keys, meaning) in enumerate(listkeys.HELP):
-            ttk.Label(body, text=keys, font=(self.mono, 10)).grid(row=i + 1, column=0, sticky="nw", padx=(0, 18),
-                                                                  pady=3)
-            ttk.Label(body, text=meaning, wraplength=420, justify="left").grid(row=i + 1, column=1, sticky="nw",
-                                                                              pady=3)
-        ttk.Label(body, text="Review (Ctrl+R): K keep  ·  M move  ·  S or → skip  ·  ← back  ·  Backspace undo  ·  "
-                             "Esc close", style="Muted.TLabel", wraplength=600, justify="left").grid(
-            row=len(listkeys.HELP) + 1, column=0, columnspan=2, sticky="w", pady=(14, 0))
+        for col, (heading, rows) in enumerate((("Keyboard: Keeping and Moving lists", listkeys.HELP),
+                                               ("Gamepad", gamepad.HELP))):
+            part = ttk.Frame(body)
+            part.grid(row=0, column=col, sticky="nw", padx=(0, 28) if col == 0 else 0)
+            ttk.Label(part, text=heading, style="Section.TLabel").grid(row=0, column=0, columnspan=2, sticky="w",
+                                                                       pady=(0, 10))
+            for i, (keys, meaning) in enumerate(rows):
+                ttk.Label(part, text=keys, font=(self.mono, 10)).grid(row=i + 1, column=0, sticky="nw",
+                                                                      padx=(0, 14), pady=3)
+                ttk.Label(part, text=meaning, wraplength=300, justify="left").grid(row=i + 1, column=1,
+                                                                                  sticky="nw", pady=3)
+        pads = self.gamepads.names() if self.gamepads else []
+        note = ("Review (Ctrl+R): K or Space keeps  ·  M or Enter moves  ·  S or → skips  ·  ← back  ·  Backspace "
+                "undoes  ·  Esc closes.\n" +
+                (f"Gamepad connected: {', '.join(pads)}." if pads else
+                 "No gamepad found yet: plug one in and it's picked up by itself."
+                 + ("" if is_windows() else " On a Steam Deck, Steam keeps the built-in controls while it runs; "
+                    "other pads work.")))
+        ttk.Label(body, text=note, style="Muted.TLabel", wraplength=780, justify="left").grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(14, 0))
         ttk.Button(body, text="Close", style="Accent.TButton", command=win.destroy).grid(
-            row=len(listkeys.HELP) + 2, column=1, sticky="e", pady=(16, 0))
+            row=2, column=1, sticky="e", pady=(16, 0))
         win.bind("<Escape>", lambda e: win.destroy())
 
     # ---------- region priority ----------
@@ -1706,6 +1724,7 @@ class App:
 
     def _close(self):
         self.save_state()
+        self.gamepads.stop()
         self.root.destroy()
 
     def reset_manual(self):
@@ -2101,6 +2120,10 @@ class App:
             self.videos_var.set(True)
         self.save_cfg()
         self._replay()
+
+    def toggle_gamepad(self):
+        self.cfg["gamepad"] = self.gamepads.enabled = self.gamepad_var.get()
+        self.save_cfg()
 
     def toggle_details(self):
         self.cfg["show_details"] = self.details_var.get()

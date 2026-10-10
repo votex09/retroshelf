@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -778,6 +778,75 @@ class AppTest(unittest.TestCase):
             a.toggle_streams()  # ffmpeg can't stream: it says what to install and stays off
             self.assertFalse(a.stream_var.get())
             self.assertIn("mpv and yt-dlp", self.boxes["showinfo"].call_args[0][1])
+
+    def test_gamepad_drives_the_lists_and_review(self):
+        a = self.app
+        keep, move = a.keep_tv, a.move_tv
+        held, clock = set(), [0.0]
+
+        class Pad:
+            def poll(self, now):
+                return set(held), []
+        pads = a.gamepads  # the app's own, fed by a pad that only exists here
+        pads.source, pads.clock = Pad(), lambda: clock[0]
+
+        def press(*buttons):
+            """Press and let go, as a person would; the window with the keyboard gets the key."""
+            held.update(buttons)
+            clock[0] += 0.05
+            sent = pads.step()
+            held.clear()
+            clock[0] += 0.05
+            pads.step()
+            self.root.update()
+            return sent
+        a.keys.place(keep, 0)
+        keep.focus_force()
+        self.pump(lambda: self.root.focus_get() is keep)
+        rows = keep.get_children()
+        press("down")
+        self.assertEqual(keep.focus(), rows[1])
+        press("a")  # A marks and steps down
+        self.assertEqual(keep.marked, {rows[1]})
+        self.assertEqual(keep.focus(), rows[2])
+        press("x")  # X flips what's marked
+        self.assertTrue(move.exists(rows[1]))
+        press("y")  # Y undoes
+        self.assertTrue(keep.exists(rows[1]))
+        press("rb")  # RB: the other list
+        self.assertIs(self.root.focus_get(), move)
+        press("lb")
+        self.assertIs(self.root.focus_get(), keep)
+        # holding the D-pad keeps going
+        a.keys.place(keep, 0)
+        held.add("down")
+        for _ in range(12):
+            clock[0] += 0.1
+            pads.step()
+        held.clear()
+        pads.step()
+        self.root.update()
+        self.assertGreater(keep.get_children().index(keep.focus()), 3)
+        # Start opens Review; there A keeps, X moves, B closes
+        a.keys.place(keep, 0)
+        press("start")
+        w = a.review_window
+        self.pump(lambda: self.root.focus_get() is not None and self.root.focus_get().winfo_toplevel() is w.win)
+        first = w.keys[0]
+        press("x")
+        self.assertTrue(move.exists(first))
+        self.assertEqual(w.i, 1)
+        press("a")
+        self.assertEqual(w.i, 2)
+        press("b")
+        self.assertIsNone(a.review_window)
+        # nothing reaches RetroShelf while another app has the keyboard, or with View → Use a gamepad off
+        with mock.patch.object(self.root, "focus_get", return_value=None):
+            self.assertEqual(press("down"), [])
+        a.gamepad_var.set(False)
+        a.toggle_gamepad()
+        self.assertEqual(press("down"), [])
+        self.assertFalse(self.cfg()["gamepad"])
 
     def pump(self, done, timeout=5.0):
         """Run Tk's event loop until done() is true (background work finishes through after() polls)."""
