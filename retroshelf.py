@@ -20,6 +20,8 @@ Holding folder… lists moved games with artwork and details, and restores or pe
 Import ROMs… takes games in any form (zip / 7z / rar archives, disc images, loose ROMs, folders of them), from an
 import folder next to roms or from anywhere, works out each one's system, then unpacks and files it (see
 lib/romimport.py; 7z needs no 7-Zip: lib/sevenzip.py).
+The details panel plays a game's gameplay clip from ES-DE's videos folder, or (if switched on in the View menu) the
+top YouTube result through mpv and yt-dlp (see lib/video.py).
 Set up RetroDECK… (Windows: Set up ES-DE…) installs the frontend for people who don't have it yet, letting them pick
 where games go (see lib/frontend.py); it opens by itself the first time no ROMs folder can be found.
 For ps3, psvita and psp a NoPayStation… button downloads and installs PSN packages (see lib/nps.py).
@@ -64,6 +66,7 @@ import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
 import updater  # noqa: E402
+import video  # noqa: E402
 
 UI_FONTS = ["Inter", "Segoe UI", "Noto Sans", "Cantarell", "Ubuntu", "DejaVu Sans"]
 MONO_FONTS = ["JetBrains Mono", "Fira Code", "Cascadia Mono", "Consolas", "Noto Sans Mono", "DejaVu Sans Mono",
@@ -546,7 +549,8 @@ class App:
         self.cfg = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {}, "theme": "dark",
                     "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True,
                     "system_state": {}, "show_details": True, "emulator_dirs": {}, "esde_bases": [],
-                    "setup_offered": False, "import_dir": "", "import_delete_originals": False}
+                    "setup_offered": False, "import_dir": "", "import_delete_originals": False,
+                    "play_videos": True, "stream_videos": False}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -560,6 +564,8 @@ class App:
         if not self.cfg["roms_root"] or not os.path.isdir(self.cfg["roms_root"]):
             self.cfg["roms_root"] = guess_roms_root(self.cfg["esde_bases"])
         nps.emulator_dirs.update(self.cfg["emulator_dirs"])  # Windows: RPCS3 / Vita3K folders picked by hand
+        details.PLAY_VIDEOS = bool(self.cfg["play_videos"])
+        details.STREAM_VIDEOS = bool(self.cfg["stream_videos"])
 
         self.units = {}          # key -> {"paths": [abs path], "size": int}
         self.file_to_unit = {}
@@ -1039,6 +1045,11 @@ class App:
         view.add_checkbutton(label="Dark mode", variable=self.dark_var, command=self.toggle_theme)
         self.details_var = tk.BooleanVar(value=self.cfg["show_details"])
         view.add_checkbutton(label="Details panel", variable=self.details_var, command=self.toggle_details)
+        self.videos_var = tk.BooleanVar(value=self.cfg["play_videos"])
+        view.add_checkbutton(label="Play gameplay videos", variable=self.videos_var, command=self.toggle_videos)
+        self.stream_var = tk.BooleanVar(value=self.cfg["stream_videos"])
+        view.add_checkbutton(label="   … and stream from YouTube when there's no clip", variable=self.stream_var,
+                             command=self.toggle_streams)
         view.add_separator()
         view.add_command(label="Review one at a time…", accelerator="Ctrl+R", command=self.review)
         mb.add_cascade(label="View", menu=view)
@@ -1811,6 +1822,7 @@ class App:
             elif desc:
                 shown = shown[::-1]
             keep_sel = tv.selection()  # survive the rebuild (flips, filter changes) where the game is still listed
+            keep_cursor = tv.focus()   # and so does the keyboard cursor (a late refresh mustn't lose your place)
             tv.delete(*tv.get_children())
             tv.hover = None
             for i, k in enumerate(shown):
@@ -1824,6 +1836,8 @@ class App:
             again = [k for k in keep_sel if tv.exists(k)]
             if again:
                 tv.selection_set(again)
+            if keep_cursor and tv.exists(keep_cursor):
+                tv.focus(keep_cursor)
             self.keys.after_render()
             size = sum(self.units[k]["size"] for k in keys)
             extra = f"  ·  {len(shown)} shown" if q else ""
@@ -2055,6 +2069,38 @@ class App:
         self.details.placeholder("Welcome to RetroShelf", tips, image=self.big_icon,
                                  action=action)
 
+
+    def _replay(self):
+        """Settings changed: restart (or stop) the video in every details panel."""
+        for p in self.detail_panels:
+            if p.winfo_exists():
+                if details.PLAY_VIDEOS and p.info:
+                    p.show(p.info)
+                elif not details.PLAY_VIDEOS:
+                    p.spot.stop()
+
+    def toggle_videos(self):
+        self.cfg["play_videos"] = details.PLAY_VIDEOS = self.videos_var.get()
+        self.save_cfg()
+        self._replay()
+        if details.PLAY_VIDEOS and not video.backend()[0]:
+            messagebox.showinfo("Gameplay videos", "To play videos here, install mpv (or ffmpeg, for clips only). "
+                                                   "On Steam Deck: mpv from Discover.")
+
+    def toggle_streams(self):
+        on = self.stream_var.get()
+        missing = video.missing_for_streams() if on else ""
+        if missing:
+            messagebox.showinfo("Stream gameplay videos", f"Streaming from YouTube needs {missing}. Install it, then "
+                                                          "switch this on again.")
+            self.stream_var.set(False)
+            return
+        self.cfg["stream_videos"] = details.STREAM_VIDEOS = on
+        if on and not self.cfg["play_videos"]:  # streaming implies playing
+            self.cfg["play_videos"] = details.PLAY_VIDEOS = True
+            self.videos_var.set(True)
+        self.save_cfg()
+        self._replay()
 
     def toggle_details(self):
         self.cfg["show_details"] = self.details_var.get()

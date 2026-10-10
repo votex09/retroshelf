@@ -26,6 +26,7 @@ import scraper  # noqa: E402
 import updater  # noqa: E402
 import dialogs  # noqa: E402
 import romimport as ri  # noqa: E402
+import video  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
 import discs  # noqa: E402
@@ -1200,6 +1201,58 @@ class Dialogs(unittest.TestCase):
         with self.env(), mock.patch.object(dialogs.filedialog, "askdirectory", return_value="/tk") as tk_dialog:
             self.assertEqual(dialogs.ask_directory(None, "x", self.tmp), "/tk")
         tk_dialog.assert_called_once()
+
+
+class Video(unittest.TestCase):
+    """lib/video.py: where a game's video comes from and how mpv is asked to play it."""
+
+    def test_finds_es_de_clips(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        os.makedirs(os.path.join(d, "videos"))
+        for n in ("Game (USA).mp4", "Other.txt", "Old (USA).MKV"):
+            open(os.path.join(d, "videos", n), "w").close()
+        self.assertEqual(video.video_for(d, ["Nope", "Game (USA)"]), os.path.join(d, "videos", "Game (USA).mp4"))
+        self.assertEqual(video.video_for(d, ["Old (USA)"]), os.path.join(d, "videos", "Old (USA).MKV"))
+        self.assertIsNone(video.video_for(d, ["Other"]))
+        self.assertIsNone(video.video_for(os.path.join(d, "missing"), ["Game (USA)"]))
+
+    def pick(self, env, have, flatpak=False):
+        with mock.patch.dict(os.environ, {"RETROSHELF_VIDEO": env}), \
+                mock.patch.object(video.shutil, "which", side_effect=lambda n: f"/usr/bin/{n}" if n in have else None), \
+                mock.patch.object(video, "_flatpak_has", return_value=flatpak), \
+                mock.patch.object(video, "is_windows", return_value=False), \
+                mock.patch.object(video, "_backend", None), mock.patch.object(video, "_ytdl", None):
+            return video.backend()[0], video.can_stream(), video.missing_for_streams()
+
+    def test_backend_and_streaming_needs(self):
+        self.assertEqual(self.pick("", {"mpv", "ffmpeg", "yt-dlp"}), ("mpv", True, ""))
+        self.assertEqual(self.pick("", {"mpv", "ffmpeg"})[1:], (False, "yt-dlp"))
+        self.assertEqual(self.pick("", {"ffmpeg", "yt-dlp"})[:2], ("ffmpeg", False))  # ffmpeg can't stream
+        self.assertIn("mpv and yt-dlp", self.pick("", {"ffmpeg"})[2])
+        self.assertEqual(self.pick("", {"flatpak"}, flatpak=True), ("mpv-flatpak", True, ""))  # bundles yt-dlp
+        self.assertEqual(self.pick("ffmpeg", {"mpv", "ffmpeg"})[0], "ffmpeg")
+        self.assertIsNone(self.pick("off", {"mpv", "ffmpeg"})[0])
+        self.assertIsNone(self.pick("", set())[0])
+
+    def test_mpv_command(self):
+        frame = mock.Mock()
+        frame.winfo_id.return_value = 4242
+        with mock.patch.object(video.subprocess, "Popen") as popen, \
+                mock.patch.object(video, "is_windows", return_value=False):
+            q = video.youtube_query("Chrono Trigger", "Super Nintendo")
+            self.assertEqual(q, "ytdl://ytsearch1:Chrono Trigger Super Nintendo gameplay")
+            p = video.MpvPlayer(frame, q, ["/usr/bin/mpv"], stream=True)
+            self.assertEqual(p.cmd[-2:], ["--", q])
+            self.assertIn("--wid=4242", p.cmd)
+            self.assertIn("--mute=yes", p.cmd)
+            self.assertTrue(any(a.startswith("--ytdl-format=") for a in p.cmd))
+            self.assertNotIn("WAYLAND_DISPLAY", popen.call_args.kwargs["env"])  # kept on X11, where it can embed
+            clip = os.path.join(tempfile.gettempdir(), "clips", "Game.mp4")
+            p = video.MpvPlayer(frame, clip, ["/usr/bin/flatpak", "run"], flatpak=True)
+            self.assertIn(f"--filesystem={os.path.dirname(clip)}:ro", p.cmd)
+            self.assertLess(p.cmd.index(f"--filesystem={os.path.dirname(clip)}:ro"), p.cmd.index(video.FLATPAK_MPV))
+            self.assertFalse(any(a.startswith("--ytdl-format=") for a in p.cmd))
 
 
 class SevenZip(unittest.TestCase):
