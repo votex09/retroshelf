@@ -1,6 +1,6 @@
 """Review: go through a list one game at a time, with its artwork and details, and decide each one with a key.
 
-    K  keep     M  move     S or →  skip     ←  back     Backspace / Ctrl+Z  undo     Esc  close
+    K (or Space)  keep     M (or Enter)  move     S or →  skip     ←  back     Backspace / Ctrl+Z  undo     Esc  close
 
 Decisions are hand flips (the orange ones), recorded in the same undo history as the lists' keys
 (lib/listkeys.py). The game list is the one it was opened from, in the order it was shown."""
@@ -52,12 +52,12 @@ class ReviewWindow:
         for key, text, cmd, style in (("k", "Keep  (K)", lambda: self.decide(False), "TButton"),
                                       ("m", "Move  (M)", lambda: self.decide(True), "Accent.TButton"),
                                       ("s", "Skip  (S / →)", lambda: self.go(1), "TButton")):
-            b = ttk.Button(foot, text=text, command=cmd, style=style)
+            b = ttk.Button(foot, text=text, command=cmd, style=style, takefocus=False)
             b.pack(side="left", padx=(0, 6))
             self.buttons[key] = b
-        ttk.Button(foot, text="Close  (Esc)", command=self.close).pack(side="right")
-        ttk.Button(foot, text="Undo  (Backspace)", command=self.undo).pack(side="right", padx=(0, 6))
-        ttk.Button(foot, text="‹ Back  (←)", command=lambda: self.go(-1)).pack(side="right", padx=(0, 6))
+        ttk.Button(foot, text="Close  (Esc)", command=self.close, takefocus=False).pack(side="right")
+        ttk.Button(foot, text="Undo  (Backspace)", command=self.undo, takefocus=False).pack(side="right", padx=(0, 6))
+        ttk.Button(foot, text="‹ Back  (←)", command=lambda: self.go(-1), takefocus=False).pack(side="right", padx=(0, 6))
         self.panel = details.DetailsPanel(body, app.field_style, padding=0)
         self.panel.pack(fill="both", expand=True)
         app.detail_panels.append(self.panel)
@@ -66,11 +66,25 @@ class ReviewWindow:
                         ("<m>", lambda: self.decide(True)), ("<M>", lambda: self.decide(True)),
                         ("<s>", lambda: self.go(1)), ("<S>", lambda: self.go(1)), ("<Right>", lambda: self.go(1)),
                         ("<Left>", lambda: self.go(-1)), ("<BackSpace>", self.undo), ("<Control-z>", self.undo),
-                        ("<Escape>", self.close)):
+                        ("<Escape>", self.close),
+                        # a gamepad's A (Space) keeps and X (Enter) moves; see lib/gamepad.py
+                        ("<space>", lambda: self.decide(False)), ("<Return>", lambda: self.decide(True))):
             win.bind(seq, lambda e, fn=fn: (fn(), "break")[1])
         win.protocol("WM_DELETE_WINDOW", self.close)
+        win.pad_hints = self.pad_hints
         self.show()
         win.focus_force()
+
+    def pad_hints(self):
+        """What a gamepad's buttons do here right now (lib/padhints.py); B closes, added by the window's Escape."""
+        out = []
+        if self.i < len(self.keys):
+            out += [("a", "Keep"), ("x", "Move"), ("dpad:lr", "Back / Skip")]
+        elif self.keys:
+            out.append(("dpad:l", "Back"))
+        if self.app.keys.undo_stack:
+            out.append(("y", "Undo"))
+        return out
 
     def where(self, key):
         """("moving" | "keeping", why) for a game as the main window has it now."""

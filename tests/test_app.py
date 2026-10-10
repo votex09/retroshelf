@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -778,6 +778,157 @@ class AppTest(unittest.TestCase):
             a.toggle_streams()  # ffmpeg can't stream: it says what to install and stays off
             self.assertFalse(a.stream_var.get())
             self.assertIn("mpv and yt-dlp", self.boxes["showinfo"].call_args[0][1])
+
+    def test_gamepad_drives_the_lists_and_review(self):
+        HINT_POLLS = sys.modules["gamepad"].HINT_TICKS + 1
+        a = self.app
+        keep, move = a.keep_tv, a.move_tv
+        held, clock = set(), [0.0]
+
+        class Pad:
+            def poll(self, now):
+                return set(held), []
+        pads = a.gamepads  # the app's own, fed by a pad that only exists here
+        pads.source, pads.clock = Pad(), lambda: clock[0]
+
+        def press(*buttons):
+            """Press and let go, as a person would; the window with the keyboard gets the key."""
+            held.update(buttons)
+            clock[0] += 0.05
+            sent = pads.step()
+            held.clear()
+            clock[0] += 0.05
+            pads.step()
+            self.root.update()
+            return sent
+        a.keys.place(keep, 0)
+        keep.focus_force()
+        self.pump(lambda: self.root.focus_get() is keep)
+        rows = keep.get_children()
+        hints = a.pad_hints
+        self.assertEqual(hints.shown(), [])  # no bar before the pad is used
+        press("down")
+        self.assertEqual(keep.focus(), rows[1])
+        # the pad was used last: the main window shows what its buttons do in the Keeping list
+        shown = dict(hints.shown(self.root))
+        self.assertEqual(shown["a"], "Mark")
+        self.assertEqual(shown["x"], "Move it")
+        self.assertEqual(shown["lb+rb"], "Moving list")
+        self.assertEqual(shown["start"], "Review")
+        self.assertNotIn("y", shown)  # nothing to undo yet
+        bar = hints.bars[str(self.root)].canvas
+        self.assertEqual(bar.winfo_manager(), "pack")
+        self.assertTrue(bar.find_withtag("pad"))
+        press("a")  # A marks and steps down
+        self.assertEqual(keep.marked, {rows[1]})
+        self.assertEqual(keep.focus(), rows[2])
+        self.assertEqual(dict(hints.shown())["x"], "Move 1 marked")
+        press("x")  # X flips what's marked
+        self.assertTrue(move.exists(rows[1]))
+        self.assertEqual(dict(hints.shown())["y"], "Undo")
+        press("y")  # Y undoes
+        self.assertTrue(keep.exists(rows[1]))
+        press("rb")  # RB: the other list
+        self.assertIs(self.root.focus_get(), move)
+        shown = dict(hints.shown())  # an empty list: only the way back
+        self.assertEqual(shown["lb+rb"], "Keeping list")
+        self.assertNotIn("x", shown)
+        press("lb")
+        self.assertIs(self.root.focus_get(), keep)
+        # a real key press puts the keyboard back in charge: the bar goes, until the pad is used again
+        keep.event_generate("<KeyPress-Shift_L>")
+        self.assertFalse(pads.active)
+        self.assertEqual(hints.shown(), [])
+        self.assertEqual(bar.winfo_manager(), "")
+        press("down")
+        self.assertTrue(hints.shown())
+        # so does moving the mouse
+        x, y = self.root.winfo_pointerxy()
+        self.root.event_generate("<Motion>", warp=True, x=40, y=40)
+        self.root.update()
+        if self.root.winfo_pointerxy() != (x, y):  # the display let the pointer move
+            clock[0] += 0.05
+            pads.step()
+            self.assertFalse(pads.active)
+            self.assertEqual(hints.shown(), [])
+            press("down")
+        # holding the D-pad keeps going
+        a.keys.place(keep, 0)
+        held.add("down")
+        for _ in range(12):
+            clock[0] += 0.1
+            pads.step()
+        held.clear()
+        pads.step()
+        self.root.update()
+        self.assertGreater(keep.get_children().index(keep.focus()), 3)
+        # Start opens Review; there A keeps, X moves, B closes
+        a.keys.place(keep, 0)
+        press("start")
+        w = a.review_window
+        self.pump(lambda: self.root.focus_get() is not None and self.root.focus_get().winfo_toplevel() is w.win)
+        first = w.keys[0]
+        for _ in range(HINT_POLLS):  # the hints catch up with the new window on their own
+            clock[0] += 0.02
+            pads.step()
+        shown = dict(hints.shown(w.win))
+        self.assertEqual((shown["a"], shown["x"], shown["dpad:lr"], shown["b"]), ("Keep", "Move", "Back / Skip", "Close"))
+        self.assertEqual(hints.bars[str(self.root)].shown, [])  # only the window with the keyboard has a bar
+        press("x")
+        self.assertTrue(move.exists(first))
+        self.assertEqual(w.i, 1)
+        press("a")
+        self.assertEqual(w.i, 2)
+        press("b")
+        self.assertIsNone(a.review_window)
+        # nothing reaches RetroShelf while another app has the keyboard, or with View → Use a gamepad off
+        with mock.patch.object(self.root, "focus_get", return_value=None):
+            self.assertEqual(press("down"), [])
+        a.gamepad_var.set(False)
+        a.toggle_gamepad()
+        self.assertEqual(press("down"), [])
+        self.assertFalse(self.cfg()["gamepad"])
+        self.assertEqual(hints.shown(), [])
+
+    def test_pad_hints_for_any_window(self):
+        """Windows that don't describe their buttons get hints by the kind of widget; every style draws."""
+        import padhints
+        win = tk.Toplevel(self.root)
+        win.bind("<Escape>", lambda e: win.destroy())
+        body = ttk.Frame(win)
+        body.pack(fill="both", expand=True)
+        b = ttk.Button(body, text="Go")
+        off = ttk.Button(body, text="Nope", state="disabled")
+        var = tk.BooleanVar(value=True)
+        tick = ttk.Checkbutton(body, text="Tick", variable=var)
+        tv = ttk.Treeview(body)
+        for w in (b, off, tick, tv):
+            w.pack()
+        self.root.update()
+        hints = lambda w: dict(padhints.hints_for(self.root, str(w)))
+        self.assertEqual(hints(b), {"a": "Press", "lb+rb": "Previous / next control", "b": "Close"})
+        self.assertNotIn("a", hints(off))
+        self.assertEqual(hints(tick)["a"], "Untick")
+        var.set(False)
+        self.assertEqual(hints(tick)["a"], "Tick")
+        self.assertEqual(hints(tv)["dpad:ud"], "Browse")
+        self.assertEqual(hints(self.app.roms_entry)["start"], "Review")  # the main window has Ctrl+R; no Escape
+        self.assertNotIn("b", hints(self.app.roms_entry))
+        # a bar in a window laid out with grid lies over its bottom edge instead of joining the grid
+        grid = tk.Toplevel(self.root)
+        ttk.Button(grid, text="Grid").grid(row=0, column=0)
+        h = padhints.Hints(self.root, lambda: self.app.colors)
+        for style in padhints.STYLES:
+            h.update(True, str(b), style)
+            self.root.update()
+            self.assertTrue(h.bars[str(win)].canvas.find_withtag("pad"))
+        h.update(True, str(grid.winfo_children()[0]), "xbox")
+        self.assertEqual(h.bars[str(grid)].canvas.winfo_manager(), "place")
+        self.assertEqual(h.bars[str(win)].shown, [])
+        h.update(False, str(b), "xbox")
+        self.assertEqual(h.shown(), [])
+        win.destroy()
+        grid.destroy()
 
     def pump(self, done, timeout=5.0):
         """Run Tk's event loop until done() is true (background work finishes through after() polls)."""

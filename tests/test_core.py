@@ -27,6 +27,8 @@ import updater  # noqa: E402
 import dialogs  # noqa: E402
 import romimport as ri  # noqa: E402
 import video  # noqa: E402
+import gamepad  # noqa: E402
+import padhints  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
 import discs  # noqa: E402
@@ -1265,6 +1267,92 @@ class Video(unittest.TestCase):
             self.assertIn(f"--filesystem={os.path.dirname(clip)}:ro", p.cmd)
             self.assertLess(p.cmd.index(f"--filesystem={os.path.dirname(clip)}:ro"), p.cmd.index(video.FLATPAK_MPV))
             self.assertFalse(any(a.startswith("--ytdl-format=") for a in p.cmd))
+
+
+class Gamepad(unittest.TestCase):
+    """lib/gamepad.py: reading pads without any library, and turning buttons into keys."""
+
+    def test_capability_masks(self):
+        word = struct.calcsize("l") * 8
+        words = ["0"] * 12
+        words[-1 - 0x130 // word] = format(1 << (0x130 % word), "x")
+        self.assertTrue(gamepad._has_bit(" ".join(words), 0x130))
+        self.assertFalse(gamepad._has_bit(" ".join(words), 0x131))
+        self.assertFalse(gamepad._has_bit("ffff", 0x130))  # a keyboard-sized mask
+
+    def test_finds_pads_in_sysfs(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        word = struct.calcsize("l") * 8
+        pad = ["0"] * 12
+        pad[-1 - 0x130 // word] = format(1 << (0x130 % word), "x")
+        for ev, name, mask in (("event3", "Xbox Wireless Controller", " ".join(pad)), ("event1", "AT Keyboard", "fffe")):
+            os.makedirs(os.path.join(root, ev, "device", "capabilities"))
+            with open(os.path.join(root, ev, "device", "capabilities", "key"), "w") as f:
+                f.write(mask + "\n")
+            with open(os.path.join(root, ev, "device", "name"), "w") as f:
+                f.write(name + "\n")
+        self.assertEqual(gamepad.linux_pads(root), [("/dev/input/event3", "Xbox Wireless Controller")])
+
+    @unittest.skipIf(os.name == "nt", "evdev is Linux's")
+    def test_reads_evdev_events(self):
+        r, w = os.pipe()
+        os.set_blocking(r, False)
+        self.addCleanup(os.close, w)
+        pad = gamepad.LinuxPad("/dev/input/event9", "Pad", fd=r)
+        self.addCleanup(pad.close)
+
+        def send(*events):
+            os.write(w, b"".join(gamepad.EVENT.pack(0, 0, *e) for e in events))
+            self.assertTrue(pad.read())
+            return pad.pressed
+        self.assertEqual(send((gamepad.EV_KEY, 0x130, 1)), {"a"})
+        self.assertEqual(send((gamepad.EV_KEY, 0x130, 0), (gamepad.EV_ABS, gamepad.ABS_HAT0Y, 1)), {"down"})
+        self.assertEqual(send((gamepad.EV_ABS, gamepad.ABS_HAT0Y, 0), (gamepad.EV_ABS, gamepad.ABS_X, -30000)),
+                         {"left"})  # the stick, past the dead zone
+        self.assertEqual(send((gamepad.EV_ABS, gamepad.ABS_X, -4000)), set())
+        self.assertEqual(send((gamepad.EV_KEY, 0x221, 1), (gamepad.EV_KEY, 0x13b, 1)), {"down", "start"})
+
+    def test_xinput_state(self):
+        st = gamepad._Gamepad(buttons=0x1000 | 0x0001, lt=0, rt=255, lx=0, ly=-32000)
+        self.assertEqual(gamepad.xinput_pressed(st), {"a", "up", "rt", "down"})
+
+    def test_held_directions_repeat_and_buttons_dont(self):
+        r = gamepad.Repeater()
+        self.assertEqual(sorted(r.update({"down", "a"}, 0.0)), ["a", "down"])
+        self.assertEqual(r.update({"down", "a"}, 0.2), [])          # not yet
+        self.assertEqual(r.update({"down", "a"}, 0.45), ["down"])   # the direction repeats, A doesn't
+        self.assertEqual(r.update({"down", "a"}, 0.50), [])
+        self.assertEqual(r.update({"down", "a"}, 0.54), ["down"])
+        self.assertEqual(r.update(set(), 0.6), [])
+        self.assertEqual(r.update({"a"}, 0.7), ["a"])                # pressed again
+
+    def test_glyph_style_from_the_pad_name(self):
+        for name, style in (("Xbox Wireless Controller", "xbox"), ("Microsoft X-Box 360 pad", "xbox"),
+                            ("Steam Deck", "xbox"), ("8BitDo Ultimate Wireless Controller", "xbox"),
+                            ("Sony Interactive Entertainment Wireless Controller", "playstation"),
+                            ("Wireless Controller", "playstation"),  # a DualShock 4 over Bluetooth
+                            ("DualSense Wireless Controller", "playstation"), ("PS3 Controller", "playstation"),
+                            ("Nintendo Switch Pro Controller", "nintendo"), ("Joy-Con (L/R)", "nintendo"),
+                            ("", "xbox"), (None, "xbox")):
+            self.assertEqual(padhints.style_for(name), style, name)
+        for style in padhints.STYLES.values():  # every button the hints use has a glyph in every style
+            self.assertTrue({"a", "b", "x", "y", "lb", "rb", "lt", "rt", "start"} <= set(style))
+
+    def test_the_last_pad_pressed_picks_the_glyphs(self):
+        src = gamepad.LinuxSource()
+        src.next_scan = float("inf")
+        xbox, ps = mock.Mock(pressed=set(), read=lambda: True), mock.Mock(pressed=set(), read=lambda: True)
+        xbox.name, ps.name = "Xbox Wireless Controller", "DualSense Wireless Controller"
+        src.pads = {"/dev/input/event1": xbox, "/dev/input/event2": ps}
+        src.poll(0)
+        self.assertIsNone(src.last)
+        ps.pressed = {"a"}
+        src.poll(0)
+        self.assertEqual(src.last, ps.name)
+        root = mock.Mock()
+        pads = gamepad.Gamepads(root, source=src)
+        self.assertEqual(pads.style(), "playstation")
 
 
 class SevenZip(unittest.TestCase):
