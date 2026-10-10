@@ -76,9 +76,9 @@ rename can be undone, and games only go for good when you delete them from the h
   after you land on it: 🔇 turns the sound on, ‹ › go back to the pictures. Clips are ES-DE's own, from its
   `videos` folder (ES-DE's scraper downloads them).
 - For games without a clip, **View → … and stream from YouTube when there's no clip** plays the top YouTube result
-  for "*title* *console* gameplay" instead. It's off by default: it uses [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-  to play YouTube outside YouTube's own player, which YouTube's terms don't allow, and the top result isn't always
-  plain gameplay of the right game. **Gameplay video ↗** still opens the search in your browser.
+  for "*title* *console* gameplay" instead, starting halfway in to skip past intros. It's off by default: it uses
+  [yt-dlp](https://github.com/yt-dlp/yt-dlp) to play YouTube outside YouTube's own player, which YouTube's terms
+  don't allow, and the top result isn't always plain gameplay of the right game. **Gameplay video ↗** still opens the search in your browser.
 - Playing needs [mpv](https://mpv.io) (on Steam Deck: from Discover; that build includes yt-dlp), or ffmpeg for
   clips only (no sound). Without either, the panel shows the artwork as before. **View → Play gameplay videos**
   turns videos off.
