@@ -4,6 +4,7 @@ import math, os, urllib.parse, webbrowser
 import tkinter as tk
 from tkinter import ttk
 
+import video
 from ui import stars
 
 try:
@@ -13,6 +14,8 @@ except ImportError:
 
 MEDIA_ORDER = ["covers", "3dboxes", "miximages", "screenshots", "titlescreens", "physicalmedia", "marquees"]
 IMG_W, IMG_H = 280, 220
+PLAY_VIDEOS = True     # View → Play gameplay videos: ES-DE's local clips (the app sets these from config.json)
+STREAM_VIDEOS = False  # View → … and stream from YouTube when there's no clip (mpv + yt-dlp)
 _listings = {}  # media folder -> (mtime, {stem: [file names]})
 
 
@@ -71,12 +74,15 @@ class DetailsPanel(ttk.Frame):
         box.pack()
         self.pic = tk.Label(box, borderwidth=0, highlightthickness=0, wraplength=self.img_w - 20)
         self.pic.pack(fill="both", expand=True)
+        self.spot = video.Spot(box, self.img_w, self.img_h, "black", self._video_state, under=self.pic)
+        self.spot.enabled = lambda: PLAY_VIDEOS
         nav = ttk.Frame(left)
         nav.pack(fill="x", pady=(4, 0))
         self.prev_btn = ttk.Button(nav, text="‹", width=3, command=lambda: self._step(-1))
         self.prev_btn.pack(side="left")
         self.next_btn = ttk.Button(nav, text="›", width=3, command=lambda: self._step(1))
         self.next_btn.pack(side="right")
+        self.sound_btn = ttk.Button(nav, text="🔇", width=3, command=self._toggle_sound)  # shown while a video plays
         self.pic_lbl = ttk.Label(nav, style="Muted.TLabel", anchor="center")
         self.pic_lbl.pack(side="left", fill="x", expand=True)
         self.video_btn = ttk.Button(right, text="Gameplay video ↗", command=self._video)
@@ -123,7 +129,26 @@ class DetailsPanel(ttk.Frame):
             self.video_btn.configure(text=action[0], command=action[1], style="Accent.TButton")
             self.video_btn.state(["!disabled"])
 
+    def _video_state(self, state, kind, can_sound):
+        if state == "playing" and can_sound:
+            self.sound_btn.configure(text="🔇")
+            self.sound_btn.pack(side="right", padx=(0, 4), before=self.pic_lbl)
+        else:
+            self.sound_btn.pack_forget()
+        if state == "loading" and kind == "stream":
+            self.pic_lbl.config(text="finding a video…")
+        elif state == "playing":
+            self.pic_lbl.config(text="YouTube" if kind == "stream" else "video")
+            self.prev_btn.state(["!disabled"])
+            self.next_btn.state(["!disabled"])
+        elif state == "stopped":
+            self._caption()
+
+    def _toggle_sound(self):
+        self.sound_btn.configure(text="🔊" if self.spot.toggle_sound() else "🔇")
+
     def clear(self, text=""):
+        self.spot.stop()
         self.info, self.images, self.photo = None, [], None
         self.pic.configure(image="", text=text, fg=ttk.Style().lookup("Muted.TLabel", "foreground") or "gray")
         self.pic_lbl.config(text="")
@@ -139,6 +164,8 @@ class DetailsPanel(ttk.Frame):
         self.images = media_for(info["media_dir"], info["stems"])
         self.index = 0
         self._show_image()
+        self.spot.schedule(video.video_for(info["media_dir"], info["stems"]),
+                           video.youtube_query(info["title"], info["console"]) if STREAM_VIDEOS else None)
         g, det = info.get("lb"), info.get("det") or {}
         bits = [b for b in (
             (det.get("rd") or "")[:4], det.get("d"),
@@ -169,15 +196,23 @@ class DetailsPanel(ttk.Frame):
             if not Image:
                 note += "\n(install Pillow to show JPEG art)"
             self.pic.configure(image="", text=note)
-            self.pic_lbl.config(text="")
         else:
             self.pic.configure(image=self.photo, text="")
-            self.pic_lbl.config(text=f"{self.images[self.index][0]}  ·  {self.index + 1} / {len(self.images)}")
+        self._caption()
+
+    def _caption(self):
+        """Which picture this is, and the ‹ › buttons for the others."""
+        self.pic_lbl.config(text=f"{self.images[self.index][0]}  ·  {self.index + 1} / {len(self.images)}"
+                            if self.photo is not None and self.images else "")
         many = len(self.images) > 1
         self.prev_btn.state(["!disabled" if many else "disabled"])
         self.next_btn.state(["!disabled" if many else "disabled"])
 
     def _step(self, d):
+        if self.spot.playing():  # back to the pictures, starting with the first
+            self.spot.stop()
+            self._show_image()
+            return
         if self.images:
             self.index = (self.index + d) % len(self.images)
             self._show_image()

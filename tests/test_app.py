@@ -1,6 +1,6 @@
 """End-to-end: the real RetroShelf window on the sandbox library (see sandbox.py), driven through its own methods
 and buttons. Needs tkinter and a display; tests/run.sh supplies a virtual one with xvfb-run."""
-import base64, importlib.util, io, json, os, shutil, sys, tempfile, time, unittest, zipfile
+import base64, importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time, unittest, zipfile
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -89,7 +89,7 @@ class AppTest(unittest.TestCase):
     def close(self):
         if self.root:
             for job in self.root.tk.splitlist(self.root.tk.call("after", "info")):  # debounces, toasts
-                self.root.after_cancel(job)
+                self.root.tk.call("after", "cancel", job)  # (after_cancel would also delete commands others own)
             self.app._close()
             self.root = None
 
@@ -606,6 +606,178 @@ class AppTest(unittest.TestCase):
         self.pump(lambda: not w.scanning)
         w.close()
         self.assertIsNone(self.app.import_window)
+
+    def key(self, widget, seq):
+        """Press a key the way a person would: on the widget that has the keyboard."""
+        widget.focus_force()
+
+        def focused():  # the virtual display can take a moment to hand focus over
+            f = self.root.focus_get()
+            return f is not None and (f is widget or str(f).startswith(str(widget) + "."))
+        self.pump(focused)
+        widget.event_generate(seq)
+        self.root.update()
+
+    def test_keyboard_flips_keep_your_place(self):
+        a, keep, move = self.app, self.app.keep_tv, self.app.move_tv
+        rows = keep.get_children()
+        a.keys.place(keep, 1)
+        second, third = rows[1], rows[2]
+        self.key(keep, "<Right>")  # → moves it, and the cursor stays where it was
+        self.assertTrue(move.exists(second) and not keep.exists(second))
+        self.assertEqual((keep.selection(), keep.focus(), self.root.focus_get()), ((third,), third, keep))
+        self.key(keep, "<Control-z>")  # undo brings it back, selected
+        self.assertTrue(keep.exists(second))
+        self.assertEqual(keep.selection(), (second,))
+
+        # Space marks and steps down without moving anything; Enter flips the marked ones together
+        a.keys.place(keep, 0)
+        self.key(keep, "<space>")
+        self.key(keep, "<space>")
+        first, second = keep.get_children()[:2]
+        self.assertEqual(keep.marked, {first, second})
+        self.assertIn("marked", keep.item(first, "tags"))
+        self.assertFalse(move.get_children())
+        self.key(keep, "<Return>")
+        self.assertEqual(set(move.get_children()), {first, second})
+        self.assertEqual(keep.marked, set())
+        # leaving the list applies marks too; Tab lands in the other list
+        self.key(keep, "<space>")
+        marked = next(iter(keep.marked))
+        self.key(keep, "<Tab>")
+        self.assertTrue(move.exists(marked))
+        self.assertIs(self.root.focus_get(), move)
+        # Moving: Ctrl+A, ← keeps them all
+        self.key(move, "<Control-a>")
+        self.key(move, "<Left>")
+        self.assertFalse(move.get_children())
+        self.assertEqual(len(keep.get_children()), len(rows))
+
+        # typing jumps; Shift+↓ selects a range; Delete moves it
+        for ch in "sup":
+            self.key(keep, f"<KeyPress-{ch}>")
+        self.assertEqual(keep.focus(), next(k for k in keep.get_children() if keep.item(k, "text").startswith("Sup")))
+        self.key(keep, "<Shift-Down>")
+        self.key(keep, "<Shift-Down>")
+        picked = keep.selection()
+        self.assertEqual(len(picked), 3)
+        self.key(keep, "<Delete>")
+        self.assertTrue(all(move.exists(k) for k in picked))
+        self.key(keep, "<BackSpace>")  # Backspace undoes too
+        self.assertTrue(all(keep.exists(k) for k in picked))
+
+    def test_a_late_refresh_keeps_the_cursor(self):
+        """Lists rebuilt by a filter change (or a refresh queued earlier) keep your place."""
+        keep = self.app.keep_tv
+        row = self.app.keys.place(keep, 3)
+        self.app.refresh()
+        self.assertEqual((keep.focus(), keep.selection()), (row, (row,)))
+
+    def test_review_one_at_a_time(self):
+        a, keep, move = self.app, self.app.keep_tv, self.app.move_tv
+        rows = keep.get_children()
+        a.keys.place(keep, 0)
+        self.key(keep, "<Control-r>")
+        w = a.review_window
+        self.assertEqual(w.count.cget("text"), f"1 of {len(rows)}")
+        self.assertEqual(w.title.cget("text"), keep.item(rows[0], "text"))
+        self.key(w.win, "<m>")  # move the first, keep the second, skip the third
+        self.key(w.win, "<k>")
+        self.key(w.win, "<s>")
+        self.assertTrue(move.exists(rows[0]) and keep.exists(rows[1]))
+        self.assertEqual(w.count.cget("text"), f"4 of {len(rows)}")
+        self.assertEqual(a.manual.get(rows[0]), True)
+        self.key(w.win, "<BackSpace>")  # undo goes back to the game it undid
+        self.assertTrue(keep.exists(rows[0]))
+        self.assertEqual(w.count.cget("text"), f"1 of {len(rows)}")
+        self.key(w.win, "<Escape>")
+        self.assertIsNone(a.review_window)
+
+    def clip_folder(self):
+        folder = os.path.join(os.path.dirname(self.p["roms"]), "ES-DE", "downloaded_media", "snes", "videos")
+        os.makedirs(folder, exist_ok=True)
+        return folder
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg isn't installed")
+    def test_gameplay_clip_plays_in_the_details_panel(self):
+        vid = sys.modules["video"]
+        clip = os.path.join(self.clip_folder(), "Chrono Trigger (USA).mp4")
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=24",
+                        "-t", "2", "-pix_fmt", "yuv420p", clip], check=True)
+        keep, spot = self.app.keep_tv, self.app.details.spot
+        with mock.patch.object(vid, "_backend", ("ffmpeg", [shutil.which("ffmpeg")])):
+            self.app.keys.place(keep, keep.get_children().index("Chrono Trigger (USA)"))
+            self.root.update()
+            self.assertFalse(spot.playing())  # not straight away: arrowing past a game doesn't start its clip
+            self.pump(lambda: spot.playing() and spot.player.started())  # frames are being painted
+            self.pump(lambda: self.app.details.pic_lbl.cget("text") == "video")
+            proc = spot.player.proc
+            self.app.keys.place(keep, 0)  # moving on stops it
+            self.root.update()
+            self.assertFalse(spot.playing())
+            self.assertIsNotNone(proc.poll())
+            self.app.keys.place(keep, keep.get_children().index("Chrono Trigger (USA)"))
+            self.app.videos_var.set(False)  # View → Play gameplay videos off
+            self.app.toggle_videos()
+            for _ in range(int(vid.DELAY_MS / 20) + 10):
+                self.root.update()
+                time.sleep(0.02)
+            self.assertFalse(spot.playing())
+            self.assertFalse(self.cfg()["play_videos"])
+
+    def test_youtube_when_there_is_no_clip(self):
+        """Streaming on: a game without a clip gets the top YouTube result through mpv; a clip still comes first."""
+        vid = sys.modules["video"]
+        started = []
+
+        class FakeMpv:
+            can_sound = True
+
+            def __init__(self, frame, source, prefix, flatpak=False, stream=False):
+                started.append((source, stream))
+
+            def alive(self):
+                return True
+
+            def started(self):
+                return True
+
+            def set_sound(self, on):
+                return True
+
+            def stop(self, widgets=True):
+                pass
+        open(os.path.join(self.clip_folder(), "Super Metroid (Japan, USA) (En,Ja).mp4"), "wb").close()
+        keep, spot, a = self.app.keep_tv, self.app.details.spot, self.app
+        with mock.patch.object(vid, "_backend", ("mpv", ["/usr/bin/mpv"])), mock.patch.object(vid, "_ytdl", True), \
+                mock.patch.object(vid, "MpvPlayer", FakeMpv):
+            a.stream_var.set(True)
+            a.toggle_streams()
+            self.assertTrue(self.cfg()["stream_videos"])
+            a.keys.place(keep, keep.get_children().index("Chrono Trigger (USA)"))
+            self.pump(lambda: started)
+            self.assertEqual(started[-1], (f"ytdl://ytsearch1:Chrono Trigger {a.fullname} gameplay", True))
+            self.pump(lambda: a.details.pic_lbl.cget("text") == "YouTube")
+            self.assertTrue(a.details.sound_btn.winfo_ismapped())
+            a.details.sound_btn.invoke()
+            self.assertEqual(a.details.sound_btn.cget("text"), "🔊")
+            a.keys.place(keep, keep.get_children().index("Super Metroid (Japan, USA) (En,Ja)"))
+            self.pump(lambda: len(started) == 2)
+            clip = os.path.join(self.clip_folder(), "Super Metroid (Japan, USA) (En,Ja).mp4")
+            self.assertTrue(os.path.samefile(started[-1][0], clip))  # the local clip, not a stream
+            self.assertFalse(started[-1][1])
+            a.stream_var.set(False)
+            a.toggle_streams()
+            a.keys.place(keep, keep.get_children().index("Chrono Trigger (USA)"))
+            for _ in range(int(vid.STREAM_DELAY_MS / 20) + 10):
+                self.root.update()
+                time.sleep(0.02)
+            self.assertEqual(len(started), 2)  # streaming off: no video for a game without a clip
+        with mock.patch.object(vid, "_backend", ("ffmpeg", ["/usr/bin/ffmpeg"])):
+            a.stream_var.set(True)
+            a.toggle_streams()  # ffmpeg can't stream: it says what to install and stays off
+            self.assertFalse(a.stream_var.get())
+            self.assertIn("mpv and yt-dlp", self.boxes["showinfo"].call_args[0][1])
 
     def pump(self, done, timeout=5.0):
         """Run Tk's event loop until done() is true (background work finishes through after() polls)."""

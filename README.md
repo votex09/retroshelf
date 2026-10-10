@@ -23,7 +23,15 @@ rename can be undone, and games only go for good when you delete them from the h
 - Name patterns with `*` / `?` wildcards and `!` keep rules.
 - Filter by LaunchBox rating, vote count, genre and region.
 - Played games are protected by default (play counts from ES-DE's `gamelist.xml`).
-- Double-click any game to flip it by hand.
+- Double-click any game to flip it by hand, or use the keyboard (**Help → Keyboard shortcuts**):
+  - → or Delete moves the selected games and ← keeps them; the cursor stays where you were, so you can work
+    down a list key by key. Ctrl+Z (or Backspace) undoes.
+  - Space marks games without moving them yet, and steps to the next one. Marked games flip together on Enter or
+    when you leave the list.
+  - Type a few letters to jump to a game, Shift+↑/↓ selects a range, Ctrl+A everything shown, and Tab switches
+    between Keeping and Moving, back where you were.
+- **View → Review one at a time…** (Ctrl+R) goes through the list with each game's artwork and details:
+  K keeps, M moves, S skips, ← goes back, Backspace undoes.
 - Each system remembers its patterns, filters and flips, so it opens the way you left it.
 - Multi-file games (cue/bin, multi-disc + m3u) are treated as one game and moved together.
 - **Library → Restore a move…** puts a whole batch of moved games back, including RPCS3 / Vita3K data that went with them.
@@ -55,6 +63,18 @@ rename can be undone, and games only go for good when you delete them from the h
 - Right-click a game to pick its LaunchBox entry by hand when the match is missing or wrong.
 - **Tools → Scrape metadata…** fills ES-DE text (description, developer, release date, genre, rating …) and images (covers,
   screenshots, title screens, marquees, 3D boxes …). It only fills gaps and never overwrites what's already there.
+
+**Gameplay videos**
+- The details panel and the review window play the selected game's gameplay clip, muted and looping, a moment
+  after you land on it: 🔇 turns the sound on, ‹ › go back to the pictures. Clips are ES-DE's own, from its
+  `videos` folder (ES-DE's scraper downloads them).
+- For games without a clip, **View → … and stream from YouTube when there's no clip** plays the top YouTube result
+  for "*title* *console* gameplay" instead. It's off by default: it uses [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+  to play YouTube outside YouTube's own player, which YouTube's terms don't allow, and the top result isn't always
+  plain gameplay of the right game. **Gameplay video ↗** still opens the search in your browser.
+- Playing needs [mpv](https://mpv.io) (on Steam Deck: from Discover; that build includes yt-dlp), or ffmpeg for
+  clips only (no sound). Without either, the panel shows the artwork as before. **View → Play gameplay videos**
+  turns videos off.
 
 **Rename files**
 - **Tools → Rename files…** renames ROMs to a pattern, by default the No-Intro order:
@@ -134,6 +154,7 @@ rename can be undone, and games only go for good when you delete them from the h
 - No other Python packages are needed. With Pillow installed (`python3-pil.imagetk` on Debian / Ubuntu, `python-pillow` on Arch,
   `py -m pip install pillow` on Windows), the details panel
   can show JPEG artwork too; without it only PNG artwork is shown.
+- Optional, for videos inside RetroShelf: `mpv` (plus `yt-dlp` to stream from YouTube), or `ffmpeg`.
 - PS3 / PSP package decryption uses the `cryptography` module if it's installed
   and the system's OpenSSL library otherwise.
 - For PS Vita installs: Vita3K (the RetroDECK flatpak or a standalone build).
