@@ -66,6 +66,14 @@ class Presets(unittest.TestCase):
         self.assertEqual(rs.PRESETS["Sports"](self.keys), {"Madden NFL '94 (USA)", "NBA Jam (USA) (Rev 1)"})
         self.assertEqual(rs.PRESETS["Kids / licensed tie-ins"](self.keys), {"Barbie - Super Model (USA)"})
 
+    def test_kids_tie_ins_named_after_the_film(self):
+        kids = ["Finding Nemo (USA)", "Ratatouille (USA)", "Rugrats - Royal Ransom (USA)", "Cars (USA)", "Up (USA)",
+                "Cars 2 (USA)", "0123 - Bolt (USA)", "Monsters vs. Aliens (USA)", "Lilo & Stitch (USA)",
+                "Spongebob_Squarepants_-_Lights_Camera_Pants_USA", "Jimmy Neutron Boy Genius (USA)"]
+        others = ["Crazy Cars (USA)", "Up'n Down (USA)", "Brave Fencer Musashi (USA)", "Super Cars (USA)",
+                  "Robotech - Battlecry (USA)", "King Arthur (USA)", "Frozen Synapse", "Kingdom Hearts (USA)"]
+        self.assertEqual(rs.PRESETS["Kids / licensed tie-ins"](kids + others), set(kids))
+
     def test_region_dupes_keep_the_preferred_region(self):
         d = rs.region_dupes(self.keys)
         self.assertEqual(d["Chrono Trigger (Japan)"], "Chrono Trigger (USA)")
