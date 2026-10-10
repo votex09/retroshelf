@@ -17,7 +17,7 @@ SYSTEM_EXTS = {
     "snes": (".sfc", ".smc"), "megadrive": (".md", ".gen", ".smd"), "genesis": (".md", ".gen", ".smd"),
     "mastersystem": (".sms",),
     "gamegear": (".gg",), "pcengine": (".pce",), "atari2600": (".a26",), "pico8": (".p8.png", ".p8"),
-    "n64": (".z64", ".n64", ".v64"), "nds": (".nds",), "lynx": (".lnx",), "ngp": (".ngp", ".ngc"),
+    "n64": (".z64", ".n64", ".v64"), "nds": (".nds",), "atarilynx": (".lnx",), "ngp": (".ngp", ".ngc"),
     "wonderswan": (".ws", ".wsc"), "vectrex": (".vec",), "colecovision": (".col",), "msx": (".rom", ".mx2"),
     "atari5200": (".a52",), "virtualboy": (".vb", ".vboy"), "sega32x": (".32x",), "pokemini": (".min",),
     "intellivision": (".int",),
