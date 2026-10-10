@@ -115,13 +115,45 @@ SPORTS_WORDS = (
 SPORTS_EXCEPT = ["Scotland Yard"]
 
 KIDS_WORDS = (
+    # kids' and casual brands (mostly DS / Wii era)
     "Dora|Barbie|Bratz|Hannah Montana|High School Musical|SpongeBob|Winx|Littlest Pet Shop|Monster High|"
     "Scooby-?Doo|Sesame Street|Shrek|Tinker ?Bell|Hello Kitty|My Little Pony|Strawberry Shortcake|Bakugan|"
     "Build-?A-?Bear|Imagine[: ]|Petz|Chihuahua|Cooking Mama|Diner Dash|Dress ?Up|Fashion|Horsez|Pony Friends|"
-    "Care Bears|Go, ?Diego|Nickelodeon|Disney|Fairly Odd ?Parents|Phineas|Hannah|iCarly|Trollz|Dreamworks|"
-    "Madagascar|Bee Movie|Chicken Little|Garfield|Marmaduke|Alvin and the Chipmunks|Cheetah Girls|WordWorld|"
-    "Clifford|Curious George|Elmo|Thomas (?:and|&) Friends"
+    "Care Bears|Go, ?Diego|Nickelodeon|Nicktoons|Nick Jr|Disney|Pixar|Fairly Odd ?Parents|Phineas|Hannah|iCarly|"
+    "Trollz|Dreamworks|Cartoon Network|Garfield|Marmaduke|Alvin and the Chipmunks|Chipmunks|Cheetah Girls|"
+    "WordWorld|Clifford|Curious George|Elmo|Thomas (?:and|&) Friends|Polly Pocket|Lalaloopsy|Moshi Monsters|"
+    "Club Penguin|Webkinz|Zhu Zhu|Fisher-Price|LeapFrog|Jump ?Start|Reader Rabbit|Smurfs|Rainbow Magic|"
+    # animated films (their games are named after the film, without the studio)
+    "Finding (?:Nemo|Dory)|Toy Story|Incredibles|Monsters,? Inc|Monsters University|Ratatouille|WALL-?E|"
+    "Lilo (?:&|and) Stitch|Ice Age|Kung Fu Panda|Madagascar|Bee Movie|Chicken Little|Chicken Run|Shark Tale|"
+    "Over the Hedge|Monster House|Happy Feet|Flushed Away|Meet the Robinsons|Brother Bear|Treasure Planet|"
+    "Open Season|Surf's Up|Ant Bully|Polar Express|Monsters vs\\.? Aliens|How to Train Your Dragon|Puss in Boots|"
+    "Despicable Me|Minions|Hotel Transylvania|Cloudy with a Chance|Megamind|Rango|Wreck-It Ralph|Big Hero 6|"
+    "Wallace (?:&|and) Gromit|Shaun the Sheep|Lion King|Little Mermaid|Jungle Book|Beauty and the Beast|"
+    "Aladdin|Pocahontas|Mulan|Tarzan|Peter Pan|Pinocchio|Winnie the Pooh|Pooh|Mickey|Minnie|Donald Duck|"
+    "Goofy|Cars (?:Race-O-Rama|Mater-National)|Atlantis - The Lost Empire|Cat in the Hat|Grinch|Horton|"
+    "Charlie and the Chocolate Factory|Willy Wonka|Spy Kids|Agent Cody Banks|"
+    # children's TV
+    "Rugrats|Jimmy Neutron|Danny Phantom|Avatar - The Last Airbender|Teenage Mutant Ninja Turtles|TMNT|"
+    "Power Rangers|Kim Possible|Lizzie McGuire|That's So Raven|Suite Life|Wizards of Waverly|Camp Rock|"
+    "Zoey 101|Drake (?:&|and) Josh|Hey Arnold|Wild Thornberrys|CatDog|Powerpuff|Dexter's Laboratory|"
+    "Kids Next Door|Ben 10|Wiggles|Teletubbies|Barney|Blue's Clues|Bob the Builder|Arthur's|Caillou|"
+    "Little Einsteins|Handy Manny|Backyardigans|Paw Patrol|Peppa Pig|PJ Masks|Octonauts|Bubble Guppies|"
+    "Wonder Pets|Tom (?:and|&) Jerry|Looney Tunes|Bugs Bunny|Tweety|Flintstones|Jetsons|Yogi Bear|"
+    "American Dragon|Proud Family|Lazy ?Town|Rocket Power|Dragon Tales|Arthur!|Doug's|"
+    # 80s / 90s cartoons and family films (NES, SNES, Mega Drive, Game Boy era)
+    "DuckTales|Darkwing Duck|TaleSpin|Chip ?['’]?n['’]? ?Dale|Rescue Rangers|Goof Troop|Bonkers|Gargoyles|"
+    "Tiny Toon|Animaniacs|Pinky and the Brain|Taz-?Mania|Road Runner|Wile E|Daffy Duck|Porky Pig|"
+    "Speedy Gonzales|Simpsons|Bart (?:vs|Simpson)|Bart's|Itchy (?:&|and) Scratchy|Krusty|Rocko's Modern Life|"
+    "Ren (?:&|and) Stimpy|Real Monsters|Captain Planet|Muppets?|Fraggle|Fievel|Land Before Time|Casper|"
+    "Pagemaster|Home Alone|Addams Family|Bobby's World|We're Back|Stuart Little|Dalmatians|Bug's Life|"
+    "Emperor's New Groove|Pink Panther|Popeye|Woody Woodpecker|Felix the Cat|Snoopy|Peanuts|Charlie Brown|"
+    "Richie Rich|Dennis the Menace|Inspector Gadget|Huckleberry Hound|Top Cat|Wacky Races|Hanna-Barbera|"
+    "Bucky O'Hare|Fido Dido|Tiny Toons|Baby Looney|Pocket Dragons"
 )
+# films whose name is an everyday word: only when it's the whole title ("Cars 2", "Up (USA)", not "Crazy Cars")
+KIDS_TITLES = ("Cars|Up|Bolt|Brave|Planes|Rio|Turbo|Barnyard|Robots|Dinosaur|Frozen|Tangled|Zootopia|Coco|Moana|"
+               "Inside Out|Arthur|Franklin|Recess|Hercules|Bambi|Valiant|Epic|Home on the Range|Hook|Doug|Widget")
 KIDS_EXCEPT = ["Nintendogs"]
 
 DEFAULT_PRIORITY = "USA, World, Europe, Australia, Japan, Korea"
@@ -135,8 +167,10 @@ KNOWN_REGIONS = {
 REGION_MODES = ["Move selected", "Keep only selected"]
 
 JUNK_RE = re.compile(rf"\((?:{JUNK_TAGS})\b", re.I)
-SPORTS_RE = re.compile(rf"\b(?:{SPORTS_WORDS})\b", re.I)
-KIDS_RE = re.compile(rf"\b(?:{KIDS_WORDS})\b", re.I)
+# whole words; "_" and "." count as spaces (scene names: Spongebob_Squarepants_USA)
+SPORTS_RE = re.compile(rf"(?<![^\W_])(?:{SPORTS_WORDS})(?![^\W_])", re.I)
+KIDS_RE = re.compile(rf"(?<![^\W_])(?:{KIDS_WORDS})(?![^\W_])", re.I)
+KIDS_TITLE_RE = re.compile(rf"^(?:{KIDS_TITLES})(?:$|\s*[-:(]|\s+\d)", re.I)
 PREFIX_RE = re.compile(r"^[a-z]?\d{3,4} - ", re.I)  # numbered sets like "0123 - " / "x045 - "
 TAG_RE = re.compile(r"\s*[\(\[][^\)\]]*[\)\]]")
 PART_RE = re.compile(r"\s*\((?:Track|Disc|Disk|CD)\s*\d+[^)]*\)", re.I)
@@ -159,9 +193,14 @@ def regions_of(key):
     return ()
 
 
-def keyword_preset(rx, exceptions):
+def keyword_preset(rx, exceptions, title_rx=None):
+    """Games whose name has one of the words (or, with title_rx, whose whole title is one), minus exceptions."""
+    def hit(k):
+        text = " ".join(re.sub(r"[_.]+", " ", k).split())
+        return bool(rx.search(text) or title_rx and title_rx.match(title_of(text)))
+
     def run(keys):
-        return {k for k in keys if rx.search(k) and not any(x.lower() in k.lower() for x in exceptions)}
+        return {k for k in keys if hit(k) and not any(x.lower() in k.lower() for x in exceptions)}
     return run
 
 
@@ -229,7 +268,7 @@ def region_dupes(keys, priority=None, links=None):
 PRESETS = {
     "Junk (demo/kiosk/beta/proto/unl)": junk,
     "Sports": keyword_preset(SPORTS_RE, SPORTS_EXCEPT),
-    "Kids / licensed tie-ins": keyword_preset(KIDS_RE, KIDS_EXCEPT),
+    "Kids / licensed tie-ins": keyword_preset(KIDS_RE, KIDS_EXCEPT, KIDS_TITLE_RE),
     "Region dupes (keep 1 per title)": region_dupes,
 }
 DUPES = "Region dupes (keep 1 per title)"
