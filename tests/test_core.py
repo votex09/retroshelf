@@ -1202,6 +1202,18 @@ class Dialogs(unittest.TestCase):
         tk_dialog.assert_called_once()
 
 
+class SystemNames(unittest.TestCase):
+    def test_games_go_in_folders_es_de_scans(self):
+        """Every system RetroShelf files games under is one of ES-DE's folder names (atarilynx, not lynx)."""
+        with open(os.path.join(TESTS, "esde_systems.txt"), encoding="utf-8") as f:
+            esde = {line.strip() for line in f if line.strip() and not line.startswith("#")}
+        used = {"import": set(ri.LABELS) | set(ri.EXT_SYSTEMS.values()) | set(ri.HINTS.values()),
+                "downloads": set(downloads.SYSTEM_EXTS), "pdroms": {s for s, _, _ in pdroms.SYSTEMS},
+                "homebrew": set(hb.PLATFORMS.values())}
+        for where, systems in used.items():
+            self.assertEqual(sorted(systems - esde), [], where)
+
+
 class SevenZip(unittest.TestCase):
     """lib/sevenzip.py: 7z archives unpacked with Python's own lzma."""
 

@@ -33,7 +33,7 @@ LABELS = {
     "gamegear": "Sega Game Gear", "segacd": "Sega CD / Mega-CD", "sega32x": "Sega 32X", "saturn": "Sega Saturn",
     "dreamcast": "Sega Dreamcast", "pcengine": "PC Engine / TurboGrafx-16", "pcenginecd": "PC Engine CD",
     "supergrafx": "PC Engine SuperGrafx", "atari2600": "Atari 2600", "atari5200": "Atari 5200",
-    "atari7800": "Atari 7800", "lynx": "Atari Lynx", "jaguar": "Atari Jaguar", "colecovision": "ColecoVision",
+    "atari7800": "Atari 7800", "atarilynx": "Atari Lynx", "atarijaguar": "Atari Jaguar", "colecovision": "ColecoVision",
     "intellivision": "Intellivision", "vectrex": "Vectrex", "ngp": "Neo Geo Pocket", "ngpc": "Neo Geo Pocket Color",
     "neogeocd": "Neo Geo CD", "wonderswan": "WonderSwan", "wonderswancolor": "WonderSwan Color", "3do": "3DO",
     "xbox": "Xbox", "msx": "MSX", "pico8": "PICO-8", "tic80": "TIC-80",
@@ -52,7 +52,7 @@ EXT_SYSTEMS = {
     ".vb": "virtualboy", ".vboy": "virtualboy", ".min": "pokemini", ".sg": "sg-1000", ".sms": "mastersystem",
     ".gen": "megadrive", ".smd": "megadrive", ".gg": "gamegear", ".32x": "sega32x", ".gdi": "dreamcast",
     ".cdi": "dreamcast", ".pce": "pcengine", ".sgx": "supergrafx", ".a26": "atari2600", ".a52": "atari5200",
-    ".a78": "atari7800", ".lnx": "lynx", ".j64": "jaguar", ".jag": "jaguar", ".col": "colecovision",
+    ".a78": "atari7800", ".lnx": "atarilynx", ".j64": "atarijaguar", ".jag": "atarijaguar", ".col": "colecovision",
     ".int": "intellivision", ".vec": "vectrex", ".ngp": "ngp", ".ngc": "ngpc", ".ws": "wonderswan",
     ".wsc": "wonderswancolor", ".p8.png": "pico8", ".p8": "pico8", ".tic": "tic80", ".mx1": "msx", ".mx2": "msx",
 }
@@ -72,7 +72,7 @@ HINTS = {
     "neo geo cd": "neogeocd", "neogeocd": "neogeocd", "mame": "mame", "arcade": "mame", "fbneo": "fbneo",
     "finalburn neo": "fbneo", "neogeo": "neogeo", "neo geo": "neogeo", "genesis": "megadrive",
     "mega drive": "megadrive", "megadrive": "megadrive", "atari 2600": "atari2600", "atari2600": "atari2600",
-    "msx": "msx", "jaguar": "jaguar", "nds": "nds", "3ds": "n3ds", "n64": "n64", "nintendo 64": "n64",
+    "msx": "msx", "jaguar": "atarijaguar", "lynx": "atarilynx", "nds": "nds", "3ds": "n3ds", "n64": "n64", "nintendo 64": "n64",
     "snes": "snes", "super nintendo": "snes", "nes": "nes", "gba": "gba", "game boy advance": "gba",
 }
 HINT_RE = re.compile(r"(?<![a-z0-9])(" + "|".join(re.escape(k) for k in sorted(HINTS, key=len, reverse=True))
