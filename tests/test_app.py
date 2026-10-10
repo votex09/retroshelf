@@ -666,6 +666,13 @@ class AppTest(unittest.TestCase):
         self.key(keep, "<BackSpace>")  # Backspace undoes too
         self.assertTrue(all(keep.exists(k) for k in picked))
 
+    def test_a_late_refresh_keeps_the_cursor(self):
+        """Lists rebuilt by a filter change (or a refresh queued earlier) keep your place."""
+        keep = self.app.keep_tv
+        row = self.app.keys.place(keep, 3)
+        self.app.refresh()
+        self.assertEqual((keep.focus(), keep.selection()), (row, (row,)))
+
     def test_review_one_at_a_time(self):
         a, keep, move = self.app, self.app.keep_tv, self.app.move_tv
         rows = keep.get_children()
