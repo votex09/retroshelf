@@ -42,6 +42,9 @@
         <button data-cmd="change-holding">Change holding folder…</button>
         <button data-cmd="change-roms">Change ROMs folder…</button>
         <button data-cmd="launchbox">Download LaunchBox data</button>
+        <hr>
+        <button data-cmd="settings">Settings…<small>LaunchBox platform, videos, gamepad, animations</small></button>
+        <button data-cmd="keys">Keyboard and gamepad</button>
       </div>
     </div>
   </header>
@@ -81,6 +84,7 @@ mario       contains “mario”
 !kart       always keep
 # note      ignored"></textarea>
           <label class="check"><input type="checkbox" id="icase"> Ignore case</label>
+          <button class="link" id="pattern-help">How patterns work</button>
         </div>
       </div>
       <div class="columns">
@@ -124,5 +128,6 @@ mario       contains “mario”
   <script src="library-tools.js"></script>
   <script src="setup.js"></script>
   <script src="stores.js"></script>
+  <script src="settings.js"></script>
 </body>
 </html>

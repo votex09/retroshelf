@@ -495,3 +495,20 @@ body.pad .r-foot kbd { display: none; }
 .store-status { padding: 0 22px; }
 .waiting { display: flex; align-items: center; gap: 10px; padding-top: 6px; color: var(--muted); font-size: 13px; }
 .waiting[hidden] { display: none; }
+
+/* ---------- settings and help ---------- */
+body.still *, body.still *::before, body.still *::after { animation-duration: 0s !important; transition-duration: 0s !important; }
+body.no-details main { grid-template-columns: 1fr; }
+body.no-details .details { display: none; }
+.settings select { height: 36px; padding: 0 10px; border-radius: 8px; background: var(--surface-2); color: inherit; border: 1px solid var(--border); }
+.settings .opt { align-items: flex-start; padding: 6px 0; }
+.settings .opt input { margin-top: 2px; }
+.settings .opt small { display: block; color: var(--muted); font-size: 12px; }
+.settings .dim { color: var(--muted); }
+.help-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.help-rows { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; align-items: baseline; font-size: 13px; margin-top: 8px; }
+.help-rows .keys { white-space: nowrap; }
+.help kbd { display: inline-block; min-width: 22px; padding: 1px 7px; border-radius: 6px; text-align: center; background: var(--surface-3);
+  border: 1px solid var(--border); font: 12px ui-monospace, "Cascadia Mono", monospace; }
+button.link { align-self: flex-start; padding: 0; background: none; border: 0; color: var(--accent); font-size: 12px; cursor: pointer; }
+button.link:hover { text-decoration: underline; }

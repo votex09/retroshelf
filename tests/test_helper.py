@@ -337,6 +337,37 @@ print(json.dumps({"found": found, "done": done, "twice": h.dupes_resolve({str(s[
                                                     "Chrono Trigger (USA).sfc")))
         self.assertEqual((out["runs"][0]["system"], out["runs"][0]["files"]), ("snes", 1))
 
+    def test_settings(self):
+        out = session(self.data, """
+import launchbox
+launchbox.platforms = lambda: ["Nintendo SNES", "Sega Genesis"]
+h.startup()
+before = h.settings()
+h.open_system("snes")
+picked = h.set_platform("Sega Genesis")
+with_system = h.settings()["platform"]
+auto = h.set_platform(automatic=True)
+opts = h.set_option("play_videos", False)
+try:
+    h.set_option("roms_root", "/")
+    bad = False
+except ValueError:
+    bad = True
+print(json.dumps({"before": before, "picked": picked["platform"], "with": with_system, "auto": auto["platform"],
+                  "opts": opts, "bad": bad}))""")
+        self.assertNotIn("platform", out["before"])
+        self.assertTrue(out["before"]["play_videos"])
+        self.assertEqual(out["picked"], "Sega Genesis")
+        self.assertEqual(out["with"]["current"], "Sega Genesis")
+        self.assertTrue(out["with"]["override"])
+        self.assertEqual(out["with"]["choices"], ["Nintendo SNES", "Sega Genesis"])
+        self.assertEqual(out["auto"], out["with"]["automatic"])
+        self.assertFalse(out["opts"]["play_videos"])
+        self.assertTrue(out["bad"])
+        cfg = self.config()
+        self.assertFalse(cfg["play_videos"])
+        self.assertNotIn("snes", cfg["platform_overrides"])
+
     def test_needs_a_system(self):
         with self.assertRaisesRegex(AssertionError, "No system is open"):
             session(self.data, 'h.startup(); h.decide({})')
