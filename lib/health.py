@@ -2,6 +2,7 @@
 
     scan(roms_root, systems=None)  -> [Problem]
     fix(problem, roms_root)        -> what was done (raises OSError / RuntimeError when it can't be)
+    fix_plan(problems)             -> what fixing them does, to ask first; frees(problems) -> bytes it frees
 
 What it looks for, in every system folder (or the ones asked for):
   - sheet     a .cue / .gdi naming track files that aren't there (fixable when only the name's case differs, or a
@@ -410,6 +411,24 @@ def fix(problem, roms_root, es_de_running=None):
             scraper.save_gamelist(gl, tops)
         return f"removed {n:,} entries"
     raise RuntimeError(f"don't know how to fix {k}")
+
+
+def fix_plan(problems):
+    """What fixing these does, kind by kind, for asking first -> (["heading: n (what)"], files deleted for good)."""
+    lines, deletes = [], 0
+    for kind, heading in KINDS:
+        mine = [p for p in problems if p.kind == kind and p.fix]
+        if not mine:
+            continue
+        lines.append(f"{heading}: {len(mine):,} ({mine[0].fix.lower()})")
+        if kind in ("media", "leftover", "empty"):
+            deletes += sum(len(p.paths) for p in mine)
+    return lines, deletes
+
+
+def frees(problems):
+    """Space fixing these gives back (stray media and leftovers; empty files are empty)."""
+    return sum(p.size for p in problems if p.kind in ("media", "leftover"))
 
 
 # ---------- small things ----------

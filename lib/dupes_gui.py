@@ -1,7 +1,7 @@
 """Tools → Find duplicates: games kept in two forms, and identical copies anywhere in the library (lib/dupes.py).
 Each set shows which copy stays (double-click another to keep that one instead); the rest go to the holding
 folder, from where Restore a move can bring them back."""
-import datetime, os, queue, threading
+import os, queue, threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -192,11 +192,8 @@ class DupesWindow:
                                           f"{os.path.join(holding, 'to_delete')}/ ?{note}", parent=self.win):
             return
         moves, problems = dupes.resolve(sets, self.roms_root, holding, scraper.es_de_running())
-        now = datetime.datetime.now().isoformat(timespec="seconds")
-        for system, done in moves.items():
-            self.app._log_moves({"time": now, "system": system, "dest": "to_delete",
-                                 "games": len({os.path.basename(s) for s, _ in done}),
-                                 "size": sum(dupes._size(t) for _, t in done), "moves": done, "why": "duplicates"})
+        for batch in dupes.log_batches(moves):
+            self.app._log_moves(batch)
         for sid in ids:
             self.tv.item(sid, tags=("set", "done"), open=False)
             self.tv.set(sid, "size", "done")

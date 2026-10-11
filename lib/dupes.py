@@ -7,9 +7,10 @@
 
     find(roms_root, unit_key) -> [Set]; each Set has .copies and .keep (the one to keep: chosen sensibly, changeable)
     resolve(sets, roms_root, holding_root) -> ({system: [[moved from, to]]}, [problems])
+    log_batches(moves)                     -> what to add to the move log (moves.json) for them
 
 The copies not kept go to the holding folder, so Restore a move can put them back."""
-import hashlib, os, re, shutil
+import datetime, hashlib, os, re, shutil
 
 import compress
 import health
@@ -245,3 +246,11 @@ def resolve(sets, roms_root, holding_root, es_de_running=False):
                     except Exception as e:
                         problems.append(f"{c.system} gamelist.xml: {e}")
     return moves, problems
+
+
+def log_batches(moves):
+    """resolve()'s moves -> move log entries, one per system, so Restore a move can put them back."""
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    return [{"time": now, "system": system, "dest": "to_delete", "games": len({os.path.basename(s) for s, _ in done}),
+             "size": sum(_size(t) for _, t in done), "moves": done, "why": "duplicates"}
+            for system, done in moves.items()]

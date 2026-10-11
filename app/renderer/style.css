@@ -413,3 +413,27 @@ body.pad .r-foot kbd { display: none; }
 .sheet.wide { width: min(700px, calc(100vw - 48px)); }
 .form::-webkit-scrollbar { width: 10px; }
 .form::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 10px; border: 3px solid var(--surface); }
+
+/* ---------- library-tools: storage overview, health check, duplicates ---------- */
+.storage-sheet { width: min(1100px, calc(100vw - 48px)); }
+.progress-bar.drive { margin: 0 22px 12px; }
+.storage .trow { grid-template-columns: minmax(0, 1fr) 70px 100px 90px 100px 140px 120px; }
+.storage-games .trow { grid-template-columns: minmax(0, 1fr) 100px 140px; }
+.storage { flex: 3; }
+.storage-games { flex: 2; }
+.storage-games .trow.more { grid-template-columns: 1fr; cursor: default; }
+.table-label { padding: 12px 22px 6px; font-weight: 600; }
+.share { height: 6px; border-radius: 6px; background: var(--surface-3); overflow: hidden; }
+.share i { display: block; height: 100%; background: var(--accent); }
+.tool-progress { display: flex; align-items: center; gap: 16px; padding: 10px 22px 0; }
+.tool-progress .progress-text { flex: 1; }
+.tool-progress .progress-bar { width: 220px; margin: 0; }
+.health .trow { grid-template-columns: 22px minmax(0, 1.1fr) 90px minmax(0, 1.4fr) 150px; }
+.trow.group, .dupes .trow.set { font-weight: 600; }
+.trow.group { grid-template-columns: 1fr; padding-top: 12px; }
+.health .nofix .nm, .health .nofix .fix { color: var(--muted); }
+.health .fixed .fix, .dupes .keep { color: var(--keep); }
+.health .failed .fix, .dupes .go { color: var(--move); }
+.dupes .trow { grid-template-columns: minmax(0, 1fr) 160px 100px 130px 100px; }
+.dupes .trow.copy > .nm { padding-left: 18px; }
+.dupes .trow.done { color: var(--muted); cursor: default; }
