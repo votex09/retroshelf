@@ -249,12 +249,13 @@ function startMenu() {
 }
 
 // LB / RB (F6 / Shift+F6): the next or previous part of the main window, round and round: the header, the filter
-// tabs, the Keeping list, the Moving list, the details panel and the footer. Each part remembers where the cursor
-// was in it; parts with nothing to press right now (a footer whose buttons are off) are skipped.
-const AREAS = [".topbar", "#filterbar", "keep", "move", "#details", "footer"];
+// tabs, the game lists (one stop: the right stick or Tab goes between Keeping and Moving), the details panel and the
+// footer. Each part remembers where the cursor was in it; parts with nothing to press right now (a footer whose
+// buttons are off) are skipped.
+const AREAS = [".topbar", "#filterbar", "lists", "#details", "footer"];
 const areaSaved = new Map();
-const isList = (area) => area === "keep" || area === "move";
-const areaOf = (el) => (el ? AREAS.findIndex((a) => !isList(a) && el.closest(a)) : AREAS.indexOf(S.active));
+const isList = (area) => area === "lists";
+const areaOf = (el) => (el ? AREAS.findIndex((a) => !isList(a) && el.closest(a)) : AREAS.indexOf("lists"));
 function nextZone(step) {
   closePopovers();
   const els = focusables(document.body);
@@ -263,7 +264,7 @@ function nextZone(step) {
   for (let i = 1; i <= AREAS.length; i++) {
     const area = AREAS[((at < 0 ? 0 : at) + step * i + AREAS.length * 2) % AREAS.length];
     if (isList(area)) {
-      if (S.sys) { enterList(area); return; }
+      if (S.sys) { enterList(S.active); return; }
       continue;
     }
     const inside = els.filter((x) => x.closest(area));
@@ -282,7 +283,23 @@ function openSearch() {
 }
 
 // ---------- the keyboard ----------
+// The mouse or the keyboard after the gamepad: the hints go back to keys (a real move, not a nudge or a redraw).
+let mouseTravel = 0;
+function leavePad() {
+  if (!S.pad) return;
+  S.pad = false;
+  mouseTravel = 0;
+  hints();
+}
+document.addEventListener("mousemove", (e) => {
+  if (!S.pad) return;
+  mouseTravel += Math.abs(e.movementX) + Math.abs(e.movementY);
+  if (mouseTravel > 24) leavePad();
+}, { passive: true });
+document.addEventListener("wheel", leavePad, { passive: true });
+
 document.addEventListener("mousedown", (e) => {
+  leavePad();
   document.body.classList.remove("kbd");
   if (picker.shown() && !e.target.closest("#picker")) picker.close();
   if (P.cur) { box(P.cur).classList.remove("pad-cur"); if (topLayer() === document.body) P.cur = null; }
@@ -307,7 +324,7 @@ document.addEventListener("focusin", (e) => {  // Tab, a click, a sheet focusing
 document.addEventListener("keydown", (e) => {
   document.body.classList.add("kbd");
   if (osk.shown()) osk.close();
-  if (S.pad) { S.pad = false; hints(); }
+  leavePad();
   const t = e.target;
   if (t === $("search")) {
     if (e.key === "Escape" || e.key === "ArrowDown" || e.key === "Enter") { t.blur(); setCursor(null); e.preventDefault(); }
@@ -361,6 +378,7 @@ const DIRS = { 12: "up", 13: "down", 14: "left", 15: "right" };
 const LIST_KEYS = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight", 0: " ", 2: "Enter", 3: "Backspace",
   4: "Tab", 5: "Tab", 6: "PageUp", 7: "PageDown" };
 const REPEATS = new Set([12, 13, 14, 15, 6, 7]);
+const STICK_LEFT = 101, STICK_RIGHT = 102;  // (not real buttons: the right stick pushed left / right)
 const held = {};
 
 function padButton(b, repeat) {
@@ -382,6 +400,7 @@ function padButton(b, repeat) {
     if (b === 8) { openSearch(); return; }
     if (b === 11) { gameMenu(); return; }
     if (b === 4 || b === 5) { nextZone(b === 5 ? 1 : -1); return; }
+    if (b === STICK_LEFT || b === STICK_RIGHT) { if (S.sys) enterList(b === STICK_LEFT ? "keep" : "move"); return; }
     const last = S.sys && L().sel >= L().items.length - 1;
     const leave = (b === 12 && S.sys && L().sel === 0) || (b === 13 && last) || (b === 15 && S.active === "move") || (!S.sys && dir);
     if (!repeat && leave) {
@@ -395,6 +414,10 @@ function padButton(b, repeat) {
     const key = { ...LIST_KEYS, 1: "Escape" }[b];
     const table = tableOf();
     if (key && sheetKeys(key, {})) { followSelection(table); return; }
+  }
+  if ((b === STICK_LEFT || b === STICK_RIGHT) && layer === document.body && S.sys) {  // back to the lists, that one
+    enterList(b === STICK_LEFT ? "keep" : "move");
+    return;
   }
   if (dir) { move(dir); return; }
   if (b === 0) { if (P.cur) press(); else move("down"); return; }
@@ -428,10 +451,12 @@ function pollPads(now) {
     if (pad.axes[0] > 0.65) pressed.add(15);
     const stick = pad.axes[3] || 0;
     if (Math.abs(stick) > 0.25 && $("overlay").hidden) padScroll(stick * 18);
+    if ((pad.axes[2] || 0) < -0.6) pressed.add(STICK_LEFT);  // the right stick across: the other game list
+    if ((pad.axes[2] || 0) > 0.6) pressed.add(STICK_RIGHT);
     for (const b of pressed) {
       if (!(b in held)) {
         held[b] = now + 400;
-        if (!S.pad) { S.pad = true; document.body.classList.remove("kbd"); if (P.cur) box(P.cur).classList.add("pad-cur"); hints(); }
+        if (!S.pad) { S.pad = true; mouseTravel = 0; document.body.classList.remove("kbd"); if (P.cur) box(P.cur).classList.add("pad-cur"); hints(); }
         padButton(b, false);
       } else if (REPEATS.has(b) && now >= held[b]) { held[b] = now + 80; padButton(b, true); }
     }
@@ -458,7 +483,8 @@ function uiHints() {
     const verb = S.active === "keep" ? "Move" : "Keep", act = marked ? `${verb} ${marked} marked` : verb;
     return pad
       ? [["dpad", "✥", "Choose"], ["a", "A", "Mark"], ["x", "X", act], ["y", "Y", "Undo"], ["stick", "R3", "Game options"],
-        ...(S.query ? [["b", "B", "Clear search"]] : []), ...around, ["stick", "RS", "Scroll details"]]
+        ...(S.query ? [["b", "B", "Clear search"]] : []), ["stick", "RS ◀ ▶", "Other list"], ...around,
+        ["stick", "RS ▲ ▼", "Scroll details"]]
       : [k(S.active === "keep" ? "→" : "←", act), k("Space", "Mark"), k("Ctrl+Z", "Undo"), k("Tab", "Other list"),
         k("Shift+F10", "Game options"), ...around];
   }
