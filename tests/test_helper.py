@@ -202,6 +202,16 @@ print(json.dumps(h.export_moves({path!r})))""")
         with open(path, encoding="utf-8") as f:
             self.assertEqual(f.read(), "EarthBound (USA).sfc.part\n")
 
+    def test_collections(self):
+        out = session(self.data, """
+h.startup(); h.open_system("snes")
+first = h.save_collection(["Chrono Trigger (USA)", "Super Metroid (USA)"], "My: Faves", show=False)
+again = h.save_collection(["Chrono Trigger (USA)", "EarthBound (USA).sfc.part"], "My Faves", show=False)
+print(json.dumps({"first": first, "again": again, "list": h.collections()}))""")
+        self.assertEqual((out["first"]["name"], out["first"]["new"], out["first"]["added"]), ("My Faves", True, 2))
+        self.assertEqual((out["again"]["new"], out["again"]["added"], out["again"]["files"]), (False, 1, 2))
+        self.assertEqual(out["list"], {"names": {"My Faves": 3}, "last": "My Faves"})
+
     def test_needs_a_system(self):
         with self.assertRaisesRegex(AssertionError, "No system is open"):
             session(self.data, 'h.startup(); h.decide({})')

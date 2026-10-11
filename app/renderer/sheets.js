@@ -2,13 +2,14 @@
 // and picking a game's LaunchBox match. (Uses app.js's helpers: call, esc, human, plural, toast, oops, S …)
 "use strict";
 
-let onSheetClose = null;
+let onSheetClose = null, sheetKeys = null;  // sheetKeys(key, event) -> true when it used the key (and gamepad)
 
-function sheet(html, cls = "", onClose = null) {
+function sheet(html, cls = "", onClose = null, keys = null) {
   $("sheet").className = `sheet ${cls}`;
   $("sheet").innerHTML = html;
   $("sheet-wrap").hidden = false;
   onSheetClose = onClose;
+  sheetKeys = keys;
 }
 
 function closeSheet() {
@@ -16,7 +17,7 @@ function closeSheet() {
   $("sheet-wrap").hidden = true;
   $("sheet").innerHTML = "";
   const fn = onSheetClose;
-  onSheetClose = null;
+  onSheetClose = sheetKeys = null;
   if (fn) Promise.resolve().then(fn).catch(oops);
 }
 
@@ -290,4 +291,165 @@ async function openMatch(key) {
   $("x-q").focus();
   $("x-q").select();
   await search();
+}
+
+// ---------- save games as an ES-DE custom collection ----------
+async function openCollection(picked) {
+  const C = await call("collections");
+  const kept = S.games.filter((g) => !g.move).map((g) => g.key), moving = S.games.filter((g) => g.move).map((g) => g.key);
+  const lists = { keep: kept, move: moving, picked: picked || [] };
+  let scope = picked?.length ? "picked" : "keep";
+  sheet(`
+    <div class="sheet-head"><h2>Save as an ES-DE collection</h2>
+      <p>ES-DE shows a custom collection as its own entry next to the systems, with the games from any system you put in it.</p></div>
+    <div class="form">
+      <div class="label">Which games</div>
+      <label class="check"><input type="radio" name="c-scope" value="keep"> The Keeping list (${kept.length.toLocaleString()})</label>
+      <label class="check"><input type="radio" name="c-scope" value="move"> The Moving list (${moving.length.toLocaleString()})</label>
+      ${picked?.length ? `<label class="check"><input type="radio" name="c-scope" value="picked"> The ${plural(picked.length, "picked game")}</label>` : ""}
+      <div class="label">Collection</div>
+      <input type="text" id="c-name" list="c-names" spellcheck="false" placeholder="A new name, or one of yours">
+      <datalist id="c-names">${Object.keys(C.names).map((n) => `<option value="${esc(n)}">`).join("")}</datalist>
+      <p class="muted" id="c-about"></p>
+      <div class="modes" id="c-mode"><button data-mode="add" class="on">Add to it</button><button data-mode="replace">Replace what's in it</button></div>
+      <label class="check"><input type="checkbox" id="c-show" checked> Show it in ES-DE</label>
+    </div>
+    <div class="sheet-foot"><span class="grow"></span><button class="ghost" id="c-cancel">Cancel</button><button class="primary" id="c-save">Save</button></div>`, "small form-sheet");
+  let mode = "add";
+  const clean = (n) => n.replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ").trim().replace(/^\.+|\.+$/g, "");
+  function update() {
+    const name = clean($("c-name").value), have = C.names[name];
+    $("c-about").textContent = !name ? "Type a new name, or pick one of yours." : have != null ? `Already has ${plural(have, "game")}.` : "A new collection.";
+    $("c-mode").hidden = have == null;
+    $("c-save").disabled = !name || !lists[scope].length;
+  }
+  document.querySelectorAll('input[name="c-scope"]').forEach((r) => {
+    r.checked = r.value === scope;
+    r.disabled = !lists[r.value].length;
+    r.onchange = () => { scope = r.value; update(); };
+  });
+  $("c-mode").onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    mode = b.dataset.mode;
+    [...$("c-mode").children].forEach((x) => x.classList.toggle("on", x === b));
+  };
+  $("c-name").value = C.last;
+  $("c-name").oninput = update;
+  $("c-name").onkeydown = (e) => { if (e.key === "Enter" && !$("c-save").disabled) $("c-save").click(); };
+  $("c-cancel").onclick = closeSheet;
+  $("c-save").onclick = async () => {
+    try {
+      const r = await call("save_collection", { keys: lists[scope], name: $("c-name").value, replace: mode === "replace", show: $("c-show").checked });
+      closeSheet();
+      const what = r.replaced || r.new ? `${r.replaced ? "Replaced the games in" : "Made"} the ES-DE collection “${r.name}” (${plural(r.files, "game")}).`
+        : `Added ${plural(r.added, "game")} to “${r.name}”.` + (r.added === r.files ? "" : ` ${r.files - r.added} were in it already.`);
+      toast(`${what}${r.note ? ` ${r.note}` : ""}`);
+    } catch (e) { oops(e); }
+  };
+  update();
+  $("c-name").focus();
+  $("c-name").select();
+}
+
+// ---------- Review: one game at a time ----------
+// Goes through the list that's active, from its cursor; decisions are hand flips, undone like any other.
+function openReview() {
+  if (!S.sys || !L().items.length) return;
+  const R = { keys: L().items.map((g) => g.key), i: L().sel, decided: new Map(), seq: 0, timer: null };
+  const from = S.active === "keep" ? "Keeping" : "Moving";
+  sheet(`
+    <div class="review">
+      <div class="r-top"><h2 id="r-title"></h2><span class="muted" id="r-count"></span></div>
+      <div class="r-state" id="r-state"></div>
+      <div class="r-bar"><div id="r-fill"></div></div>
+      <div class="r-body">
+        <div class="r-media" id="r-media"></div>
+        <div class="r-info" id="r-info"></div>
+      </div>
+      <div class="sheet-foot r-foot">
+        <button class="ghost" id="r-keep"><span class="glyph a">A</span> Keep <kbd>K</kbd></button>
+        <button class="primary" id="r-move"><span class="glyph x">X</span> Move <kbd>M</kbd></button>
+        <button class="ghost" id="r-skip">Skip <kbd>→</kbd></button>
+        <span class="grow"></span>
+        <button class="ghost" id="r-back">‹ Back <kbd>←</kbd></button>
+        <button class="ghost" id="r-undo">Undo <kbd>⌫</kbd></button>
+        <button class="ghost" id="r-close">Close <kbd>Esc</kbd></button>
+      </div>
+    </div>`, "review-sheet", null, keys);
+
+  function keys(key, e = {}) {
+    const k = key.length === 1 ? key.toLowerCase() : key;
+    if (k === "k" || k === " ") decide(false);
+    else if (k === "m" || k === "Enter") decide(true);
+    else if (k === "s" || k === "ArrowRight" || k === "PageDown") go(1);
+    else if (k === "ArrowLeft" || k === "PageUp") go(-1);
+    else if (k === "Backspace" || (k === "z" && e.ctrlKey)) back();
+    else return false;
+    return true;
+  }
+  function show() {
+    const vid = document.querySelector("#r-media video");
+    if (vid) { vid.pause(); vid.removeAttribute("src"); vid.load(); }
+    clearTimeout(R.timer);
+    R.keys = R.keys.filter((k) => S.byKey.has(k));
+    const n = R.keys.length;
+    $("r-fill").style.width = `${n ? (100 * Math.min(R.i + 1, n)) / n : 100}%`;
+    $("r-count").textContent = `${Math.min(R.i + 1, n).toLocaleString()} of ${n.toLocaleString()} · from ${from}`;
+    const done = R.i >= n;
+    for (const id of ["r-keep", "r-move", "r-skip"]) $(id).disabled = done;
+    if (done) {
+      const moved = [...R.decided.values()].filter(Boolean).length;
+      $("r-title").textContent = "That's the whole list";
+      $("r-state").innerHTML = `You marked ${plural(moved, "game")} to move and ${(R.decided.size - moved).toLocaleString()} to keep. Nothing has moved yet: press Move in the main window when you're ready.`;
+      $("r-media").innerHTML = ""; $("r-info").innerHTML = "";
+      return;
+    }
+    const g = S.byKey.get(R.keys[R.i]);
+    $("r-title").textContent = g.key;
+    $("r-title").animate([{ transform: "translateX(28px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" });
+    const why = g.why === "manual" ? "flipped by hand" : g.why || (g.hidden ? "hidden in ES-DE" : "");
+    $("r-state").innerHTML = `<b class="${g.move ? "move" : "keep"}">● ${g.move ? "Moving" : "Keeping"}</b>${why ? ` · ${esc(why)}` : ""}`;
+    $("r-media").innerHTML = `<img class="placeholder" src="${g.thumb ? Art.media(g.thumb) : Art.cover(g.title, S.sys.system)}" data-title="${esc(g.title)}" alt="">`;
+    $("r-info").innerHTML = `<div class="rating">${g.rating != null ? `<span class="stars">${stars(g.rating)}</span>${g.rating.toFixed(1)} · ${plural(g.votes, "vote")}` : "Not rated"}</div>
+      <div class="genres">${g.genres.map((x) => `<span>${esc(x)}</span>`).join("")}</div>`;
+    const seq = ++R.seq;
+    call("details", { key: g.key }).then((d) => {
+      if (seq !== R.seq || !$("r-media")) return;  // (moved on, or closed)
+      const shot = d.images.find((im) => im.type === "screenshots") || d.images[0];
+      if (shot) $("r-media").innerHTML = `<img src="${Art.media(shot.path)}" data-title="${esc(g.title)}" alt="">`;
+      const meta = [d.year, d.developer, d.publisher !== d.developer && d.publisher].filter(Boolean).join(" · ");
+      $("r-info").innerHTML = `<div class="meta">${esc(meta)}</div>` + $("r-info").innerHTML +
+        (d.description ? `<div class="desc">${esc(d.description)}</div>` : "") +
+        `<div class="facts"><span>File</span><span>${esc(d.file)}</span><span>Size</span><span>${human(d.size)}</span><span>LaunchBox</span><span>${esc(d.match)}</span></div>`;
+      if (d.video) R.timer = setTimeout(() => {
+        if (seq !== R.seq || !$("r-media")) return;
+        $("r-media").innerHTML = `<video src="${Art.media(d.video)}" autoplay loop muted playsinline></video>`;
+      }, 1500);
+    }).catch(oops);
+  }
+  function go(step) { R.i = Math.max(0, Math.min(R.i + step, R.keys.length)); show(); }
+  function decide(toMove) {
+    const key = R.keys[R.i];
+    if (!key) return;
+    if (S.byKey.get(key).move !== toMove) flip([key]);
+    R.decided.set(key, toMove);
+    go(1);
+  }
+  function back() {
+    const u = S.undo[S.undo.length - 1];
+    undo();
+    if (!u) return;
+    for (const k of u.keys) R.decided.delete(k);
+    const i = R.keys.indexOf(u.keys[0]);
+    if (i >= 0) R.i = i;
+    show();
+  }
+  $("r-keep").onclick = () => decide(false);
+  $("r-move").onclick = () => decide(true);
+  $("r-skip").onclick = () => go(1);
+  $("r-back").onclick = () => go(-1);
+  $("r-undo").onclick = back;
+  $("r-close").onclick = () => { R.seq++; clearTimeout(R.timer); closeSheet(); };
+  onSheetClose = () => { R.seq++; clearTimeout(R.timer); };
+  show();
 }

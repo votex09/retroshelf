@@ -648,7 +648,7 @@ async function doMove() {
 function openMenu() {
   const m = $("menu");
   for (const b of m.querySelectorAll("button[data-cmd]")) {
-    b.disabled = ["priority", "export", "rescan"].includes(b.dataset.cmd) && !S.sys ||
+    b.disabled = ["priority", "export", "rescan", "review", "collection"].includes(b.dataset.cmd) && !S.sys ||
       b.dataset.cmd === "export" && !S.games.some((g) => g.move) || ["holding", "moves", "change-holding"].includes(b.dataset.cmd) && !S.overview?.roms;
   }
   m.querySelector('[data-cmd="launchbox"]').firstChild.textContent = S.overview?.launchbox ? "Update LaunchBox data" : "Download LaunchBox data";
@@ -658,6 +658,7 @@ function openMenu() {
 function menuCommand(cmd) {
   const run = {
     holding: openHolding, moves: openMoves, priority: openPriority, export: exportMoves, rescan,
+    review: openReview, collection: () => openCollection(),
     "change-holding": changeHolding, launchbox: downloadLaunchbox,
     "change-roms": () => pickRoms().then((ok) => ok && toggleSystems()),
   }[cmd];
@@ -713,6 +714,9 @@ function rowMenu(name, e) {
     null,
     ["Set LaunchBox match…", canMatch, () => openMatch(g.key)],
     ["Back to automatic match", games.length === 1 && g.manual_match, () => setMatch(g.key, null, true)],
+    null,
+    [games.length > 1 ? `Add ${games.length} games to an ES-DE collection…` : "Add to an ES-DE collection…", true, () => openCollection(keys)],
+    ["Review from here…", true, () => openReview()],
   ];
   const ctx = $("ctx");
   ctx.innerHTML = "";
@@ -762,6 +766,7 @@ async function setMatch(key, gid, clear = false) {
 
 // ---------- hints, keyboard and gamepads ----------
 function hints() {
+  document.body.classList.toggle("pad", S.pad);
   const marked = L().items.filter((g) => S.marked.has(g.key)).length;
   const verb = S.active === "keep" ? "Move" : "Keep";
   const act = marked ? `${verb} ${marked} marked` : verb;
@@ -779,8 +784,9 @@ function handle(key, e = {}) {
     else if (S.query) { $("search").value = ""; S.query = ""; rebuild({ slide: false }); }
     return true;
   }
-  if (!$("sheet-wrap").hidden) return false;
+  if (!$("sheet-wrap").hidden) return sheetKeys ? sheetKeys(key, e) : false;
   if (key === "F5") { rescan(); return true; }
+  if (key === "r" && e.ctrlKey) { openReview(); return true; }
   if (!S.sys) return false;
   const list = L();
   switch (key) {
@@ -813,7 +819,11 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { e.target.blur(); if ($("sheet-wrap").hidden) closePopovers(); else closeSheet(); }
     return;
   }
-  if (!$("sheet-wrap").hidden) { if (e.key === "Escape") closeSheet(); return; }
+  if (!$("sheet-wrap").hidden) {
+    if (e.key === "Escape") closeSheet();
+    else if (sheetKeys && sheetKeys(e.key, e)) e.preventDefault();
+    return;
+  }
   if (e.key === "/" || (e.ctrlKey && e.key === "f")) { $("search").focus(); $("search").select(); e.preventDefault(); return; }
   if (S.pad) { S.pad = false; hints(); }
   if (handle(e.key, e)) e.preventDefault();

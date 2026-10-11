@@ -397,6 +397,44 @@ def set_match(key, gid=None, clear=False):
     return open_system(sc.system)
 
 
+# ---------- ES-DE custom collections ----------
+@method
+def collections():
+    """The user's ES-DE custom collections, with how many games each has, and the one last saved to."""
+    home = esde_collections.home(cfg["roms_root"])
+    return {"names": {n: len(esde_collections.games(p)) for n, p in esde_collections.names(home).items()},
+            "last": cfg.get("last_collection", "")}
+
+
+@method
+def save_collection(keys, name, replace=False, show=True):
+    """Put these games into an ES-DE custom collection, new or existing (replace: instead of what's in it);
+    show: turn it on in ES-DE too."""
+    sc = _need_system()
+    home = esde_collections.home(cfg["roms_root"])
+    name = esde_collections.clean_name(name)
+    if not name:
+        raise ValueError("Give the collection a name")
+    existing = esde_collections.names(home)
+    files = [scraper.primary_file(sc.units[k]["paths"]) for k in keys if k in sc.units]
+    replace = bool(replace) and name in existing
+    added = esde_collections.save(home, name, files, cfg["roms_root"], replace=replace)
+    note = ""
+    if show:
+        if scraper.es_de_running():
+            note = "Close ES-DE and save again to have it shown, or turn it on in ES-DE's Game collection settings."
+        else:
+            try:
+                esde_collections.enable(home, name)
+            except OSError as e:
+                note = f"Couldn't turn it on in ES-DE: {e}"
+    with _state_lock:
+        cfg["last_collection"] = name
+        save_cfg()
+    return {"name": name, "added": added, "files": len(files), "replaced": replace, "new": name not in existing,
+            "note": note}
+
+
 # ---------- settings ----------
 @method
 def region_priority():
