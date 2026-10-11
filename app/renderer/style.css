@@ -556,7 +556,7 @@ body.pad .r-foot kbd { display: none; }
 .nps-pick h3 { margin: 0 0 4px; font-size: 15px; overflow-wrap: anywhere; }
 .nps-pick p { margin: 0 0 4px; }
 .nps-media { margin: -2px -4px 8px; }
-.nps-shot { display: grid; place-items: center; aspect-ratio: 16 / 9; max-height: 116px; margin: 0 auto; border-radius: 8px; background: rgba(0, 0, 0, .25); overflow: hidden; font-size: 12px; text-align: center; padding: 0; }
+.nps-shot { display: grid; place-items: center; aspect-ratio: 16 / 9; max-height: 100px; margin: 0 auto; border-radius: 8px; background: rgba(0, 0, 0, .25); overflow: hidden; font-size: 12px; text-align: center; padding: 0; }
 .nps-shot img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .nps-shot iframe { width: 100%; height: 100%; border: 0; background: #000; animation: fade .4s; }
 .nps-thumbs { display: flex; gap: 6px; margin-top: 6px; }
@@ -564,7 +564,8 @@ body.pad .r-foot kbd { display: none; }
 .nps-pick .st-ok { color: var(--keep); } .nps-pick .st-have { color: #e8a33d; } .nps-pick .st-bad { color: var(--danger); }
 .nps-qhead { display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px; font-size: 13px; }
 .nps-side > * { flex-shrink: 0; }
-.nps-side .nps-queue { margin: 0; flex: 1 1 0; min-height: 64px; }
+.nps-side { overflow-y: auto; }
+.nps-side .nps-queue { margin: 0; flex: 1 1 0; min-height: 52px; }
 .nps-queue .trow { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 0 8px; cursor: default; }
 .nps-queue .trow [data-state] { grid-column: 1 / -1; }
 .nps-queue .none { padding: 24px 10px; }
@@ -644,3 +645,7 @@ body.light .sheet, body.light .overlay-box { box-shadow: 0 30px 80px rgba(20, 30
 body.light .backdrop { opacity: .3; }
 body.light .unmute { background: rgba(255, 255, 255, .85); }
 .media iframe { width: 100%; height: 240px; border: 0; border-radius: 8px; background: #000; animation: fade .4s; }
+.import-tabs { gap: 10px; }
+.import-tabs h2 { margin-right: 8px; }
+.src-rows .trow { grid-template-columns: minmax(0, 1fr) 190px 80px 120px; cursor: default; }
+#c-source { max-width: 320px; }

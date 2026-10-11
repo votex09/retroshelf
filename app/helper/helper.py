@@ -570,6 +570,7 @@ import tool_rename  # noqa: E402,F401
 import tool_scrape  # noqa: E402,F401
 import tool_settings  # noqa: E402,F401
 import tool_setup  # noqa: E402,F401
+import tool_sources  # noqa: E402,F401
 import tool_stores  # noqa: E402,F401
 import tool_video  # noqa: E402,F401
 
