@@ -589,27 +589,30 @@ function padScroll(amount, page = false) {
 function pollPads(now) {
   requestAnimationFrame(pollPads);
   if (!S.opts.gamepad || !document.hasFocus()) return;  // (not while another app, ES-DE say, has the pad)
+  // Every connected pad's buttons together: a second pad (an idle controller, Steam's virtual one beside the Deck's
+  // own) mustn't count as letting go of what the first one holds, or the button would fire again every frame.
+  const pressed = new Set();
+  let stick = 0;
   for (const pad of navigator.getGamepads ? navigator.getGamepads() : []) {
     if (!pad) continue;
-    const pressed = new Set();
     pad.buttons.forEach((btn, i) => { if (btn?.pressed && i <= 15) pressed.add(i); });
     if (pad.axes[1] < -0.55) pressed.add(12);
     if (pad.axes[1] > 0.55) pressed.add(13);
     if (pad.axes[0] < -0.65) pressed.add(14);
     if (pad.axes[0] > 0.65) pressed.add(15);
-    const stick = pad.axes[3] || 0;
-    if (Math.abs(stick) > 0.25 && $("overlay").hidden) padScroll(stick * 18);
+    if (Math.abs(pad.axes[3] || 0) > Math.abs(stick)) stick = pad.axes[3];
     if ((pad.axes[2] || 0) < -0.6) pressed.add(STICK_LEFT);  // the right stick across: the other game list
     if ((pad.axes[2] || 0) > 0.6) pressed.add(STICK_RIGHT);
-    for (const b of pressed) {
-      if (!(b in held)) {
-        held[b] = now + 400;
-        if (!S.pad) { S.pad = true; mouseTravel = 0; document.body.classList.remove("kbd"); if (P.cur) box(P.cur).classList.add("pad-cur"); hints(); }
-        padButton(b, false);
-      } else if (REPEATS.has(b) && now >= held[b]) { held[b] = now + 80; padButton(b, true); }
-    }
-    for (const b of Object.keys(held)) if (!pressed.has(Number(b))) delete held[b];
   }
+  if (Math.abs(stick) > 0.25 && $("overlay").hidden) padScroll(stick * 18);
+  for (const b of pressed) {
+    if (!(b in held)) {
+      held[b] = now + 400;
+      if (!S.pad) { S.pad = true; mouseTravel = 0; document.body.classList.remove("kbd"); if (P.cur) box(P.cur).classList.add("pad-cur"); hints(); }
+      padButton(b, false);
+    } else if (REPEATS.has(b) && now >= held[b]) { held[b] = now + 80; padButton(b, true); }
+  }
+  for (const b of Object.keys(held)) if (!pressed.has(Number(b))) delete held[b];
   syncCursor();
 }
 
