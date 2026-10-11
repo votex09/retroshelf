@@ -137,9 +137,9 @@ function openKeys() {
           ["Esc", "Close, or clear the search"]])}
           <p class="note">Outside the lists, the arrow keys move between controls and Enter presses them. ↑ on the first game and ↓ on the last leave the list.</p></div>
         <div><div class="label">Gamepad</div>${helpRows([
-          ["D-pad / Stick", "Move through the list"], ["A", "Mark"], ["X", "Flip to the other list"], ["Y", "Undo"],
+          ["D-pad ▲ ▼ / Stick", "Move through the list"], ["D-pad ◀ ▶", "Keeping / Moving list"], ["A", "Mark"], ["X", "Flip to the other list"], ["Y", "Undo"],
           ["L1 / R1", "Next / previous part: header, filters, the lists, details, buttons"], ["L2 / R2", "A page up / down"],
-          ["Menu (☰)", "☰ menu"], ["View (⧉)", "Search"], ["R3", "The game's menu"], ["Right stick ◀ ▶", "Keeping / Moving list"], ["Right stick ▲ ▼", "Scroll the details"],
+          ["Menu (☰)", "☰ menu"], ["View (⧉)", "Search"], ["R3", "The game's menu"], ["Right stick ▲ ▼", "Scroll the details"],
           ["B", "Back, close"]])}
           <p class="note">Outside the lists, the d-pad moves between controls, A presses them and A in a text box opens an on-screen keyboard. The bottom of the window always lists what the buttons do right there, and goes back to keys as soon as you use the mouse or keyboard.</p>
           <p class="note">${S.opts.gamepad ? (pads.length ? `Connected: ${esc(pads.join(", "))}. While you use it, the bottom of the window shows what its buttons do.`
