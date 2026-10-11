@@ -463,3 +463,35 @@ body.pad .r-foot kbd { display: none; }
 .imports .trow { grid-template-columns: 22px minmax(0, 1fr) 170px 110px 70px minmax(0, 220px); }
 .compress .done, .imports .trow.done .st { color: var(--keep); }
 .compress .failed, .imports .trow.problem .st, .imports .trow.problem .sys { color: var(--move); }
+
+/* ---------- stores ---------- */
+.sheet.stores-sheet { width: min(1180px, calc(100vw - 48px)); height: calc(100vh - 48px); }
+.head-row { display: flex; align-items: center; gap: 10px; }
+.head-row .grow, .sheet-tools .grow, .waiting .grow { flex: 1; }
+.small-text { font-size: 12px; }
+.results-line { padding: 0 22px 6px; color: var(--muted); font-size: 12px; }
+.sheet-tools.under { padding: 8px 22px 0; font-size: 13px; }
+.sheet-tools.queue-head { padding: 10px 22px 6px; }
+.trow .sort { cursor: pointer; }
+.trow .sort:hover { color: var(--text); }
+.trow .st-ok { color: var(--keep); }
+.trow .st-have { color: #e8a33d; }
+.trow .st-bad { color: var(--danger); }
+.nps-rows .trow { grid-template-columns: minmax(0, 1fr) 100px 80px 90px 190px; cursor: default; }
+.nps-queue { flex: 0 0 140px; }
+.nps-queue .trow { grid-template-columns: minmax(0, 1fr) 90px 260px; cursor: default; }
+.nps-progress { padding: 0 22px; }
+.path-text { max-width: 320px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.store-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+.store-list { display: flex; flex-direction: column; min-height: 0; }
+.store-list .table { margin-right: 8px; }
+.store-rows .trow { grid-template-columns: var(--cols); cursor: default; }
+.store-details { overflow-y: auto; padding: 0 22px 0 8px; user-select: text; }
+.store-details .shot { display: grid; place-items: center; min-height: 160px; margin-bottom: 12px; border-radius: 10px; background: var(--surface-2); font-size: 13px; }
+.store-details .shot img { width: min(100%, 320px); max-height: 288px; object-fit: contain; image-rendering: pixelated; }
+.store-details h3 { margin: 0 0 4px; font-size: 17px; }
+.store-details p { margin: 0 0 10px; font-size: 13px; }
+.store-details .desc { white-space: pre-line; font-size: 14px; }
+.store-status { padding: 0 22px; }
+.waiting { display: flex; align-items: center; gap: 10px; padding-top: 6px; color: var(--muted); font-size: 13px; }
+.waiting[hidden] { display: none; }
