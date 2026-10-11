@@ -6,14 +6,14 @@ import handoff
 import launchbox as lb
 from rpc import ctx, method
 
-OPTIONS = ("play_videos", "gamepad", "animations", "show_details", "check_updates")
+OPTIONS = ("play_videos", "stream_videos", "gamepad", "animations", "show_details", "check_updates")
 
 
 @method
 def settings():
     """The window's options; with a system open, also its LaunchBox platform and the ones to pick from."""
     cfg = ctx["cfg"]
-    out = {k: bool(cfg.get(k, True)) for k in OPTIONS}
+    out = {k: bool(cfg.get(k, k != "stream_videos")) for k in OPTIONS}
     out["light"] = cfg.get("theme") == "light"  # the Tk version's setting, so it carries over
     sc = ctx["current"]["sc"]
     if sc:

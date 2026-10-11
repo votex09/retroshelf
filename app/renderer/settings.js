@@ -14,6 +14,7 @@ const OPTION_LABELS = [
   ["light", "Light theme", "dark text on a light background"],
   ["show_details", "Details panel", "the game's box art, text and video beside the lists"],
   ["play_videos", "Play gameplay videos", "ES-DE's clips start by themselves after a moment in the details panel (▶ always plays one)"],
+  ["stream_videos", "Gameplay from YouTube when there's no clip", "plays the top YouTube gameplay video in YouTube's own player (needs the internet)"],
   ["gamepad", "Use a gamepad", "a Steam Deck's or Xbox-style pad moves through the lists"],
   ["animations", "Animations", "lists slide, numbers roll and the focus ring glides"],
   ["check_updates", "Check for updates when RetroShelf starts", "new versions download by themselves and go in when you restart"],

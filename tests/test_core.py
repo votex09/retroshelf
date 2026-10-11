@@ -2239,5 +2239,30 @@ class Handoff(unittest.TestCase):
             self.assertEqual(get(os.path.join("cache", "launchbox", "meta.json")), {"v": 1})
             self.assertEqual(handoff.copy_data(new, new), [])
 
+
+class YouTube(unittest.TestCase):
+    PAGE = ('{"adSlotRenderer":{"videoId":"AAAAAAAAAAA"}} {"channelRenderer":{"channelId":"x"}} '
+            '{"videoRenderer":{"videoId":"dQw4w9WgXcQ","title":{}}} {"videoRenderer":{"videoId":"BBBBBBBBBBB"}}')
+
+    def test_first_video_skips_ads(self):
+        import youtube
+        self.assertEqual(youtube.first_video(self.PAGE), "dQw4w9WgXcQ")
+        self.assertIsNone(youtube.first_video("<html>no results</html>"))
+
+    def test_find_remembers(self):
+        import youtube
+        with tempfile.TemporaryDirectory() as cache:
+            asked = []
+
+            def fetch(url):
+                asked.append(url)
+                return self.PAGE
+            self.assertEqual(youtube.find("Super Mario World", "SNES", cache, fetch), "dQw4w9WgXcQ")
+            self.assertEqual(youtube.find("Super Mario World", "SNES", cache, fetch), "dQw4w9WgXcQ")
+            self.assertEqual(len(asked), 1)
+            self.assertIn("Super+Mario+World+SNES+gameplay", asked[0])
+            self.assertIsNone(youtube.find("Nothing", "", cache, lambda url: "none"))
+            self.assertTrue(youtube.embed("dQw4w9WgXcQ").startswith(youtube.EMBED + "dQw4w9WgXcQ?"))
+
 if __name__ == "__main__":
     unittest.main()

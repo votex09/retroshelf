@@ -2,7 +2,7 @@
 //   npm install && npm start        run from a checkout (uses python3 for the helper)
 //   npm run dist                    build an AppImage (Linux) or installer + portable .exe (Windows) into dist/
 //   electron . --smoke              start, check the window and the helper work together, print SMOKE OK, quit
-const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { Helper } = require("./helper");
@@ -60,7 +60,10 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.js"), sandbox: true, contextIsolation: true },
   });
   win.once("ready-to-show", () => { if (!smoke) win.show(); });
-  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.setWindowOpenHandler(({ url }) => {  // YouTube's player links to the video on YouTube
+    if (/^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
 }
@@ -166,6 +169,10 @@ if (!app.requestSingleInstanceLock()) {
   Menu.setApplicationMenu(null);
   app.whenReady().then(() => {
     protocol.handle("rsmedia", serveMedia);
+    // YouTube's embedded player refuses to play for a page without a web address (error 153), and this window is a
+    // file: page, so its requests say where they come from: the project's page.
+    session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["https://www.youtube-nocookie.com/*"] }, (d, done) =>
+      done({ requestHeaders: { ...d.requestHeaders, Referer: "https://github.com/votex09/retroshelf" } }));
     startHelper();
     createWindow();
   });

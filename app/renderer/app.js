@@ -17,7 +17,7 @@ const S = {
   marked: new Set(),
   undo: [],
   pad: false,       // a gamepad was used: show its buttons in the hints
-  opts: { light: false, play_videos: true, gamepad: true, animations: true, show_details: true, check_updates: true },  // ☰ → Settings (settings.js)
+  opts: { light: false, play_videos: true, stream_videos: false, gamepad: true, animations: true, show_details: true, check_updates: true },  // ☰ → Settings (settings.js)
 };
 
 // ---------- small things ----------
@@ -308,6 +308,9 @@ function showDetails() {
       det.data = d;
       renderDetails(g, false);
       if (d.video && S.opts.play_videos) det.videoTimer = setTimeout(() => seq === det.seq && playVideo(true), 1500);
+      else if (!d.video && S.opts.stream_videos && S.opts.play_videos) {  // a longer wait: streams cost bandwidth
+        det.videoTimer = setTimeout(() => seq === det.seq && playYouTube(g), 2500);
+      }
     }).catch(oops);
   }, 90);
 }
@@ -316,6 +319,7 @@ function stopVideo() {
   clearTimeout(det.videoTimer);
   const v = document.querySelector("#details-body video");
   if (v) { v.pause(); v.removeAttribute("src"); v.load(); }
+  document.querySelector("#details-body iframe")?.remove();
 }
 
 function renderDetails(g, fresh) {
@@ -352,7 +356,8 @@ function renderDetails(g, fresh) {
   stateLine(g);
   showImage(g, images, det.image);
   const thumbs = $("thumbs");
-  if (images.length > 1 || d?.video) {
+  const yt = d && !d.video && S.opts.stream_videos;
+  if (images.length > 1 || d?.video || yt) {
     images.forEach((im, i) => {
       const b = document.createElement("button");
       b.title = im.type;
@@ -360,10 +365,10 @@ function renderDetails(g, fresh) {
       b.onclick = () => { stopVideo(); det.image = i; showImage(g, images, i); };
       thumbs.appendChild(b);
     });
-    if (d?.video) {
+    if (d?.video || yt) {
       const b = document.createElement("button");
-      b.className = "vid"; b.title = "Video"; b.textContent = "▶";
-      b.onclick = () => playVideo(false);
+      b.className = "vid"; b.title = yt ? "Gameplay from YouTube" : "Video"; b.textContent = "▶";
+      b.onclick = () => (yt ? playYouTube(g) : playVideo(false));
       thumbs.appendChild(b);
     }
     markThumb(det.image);
@@ -397,6 +402,25 @@ function playVideo(quiet) {
     const v = media.querySelector("video");
     v.muted = false; v.controls = true; e.target.remove();
   });
+  markThumb($("thumbs").children.length - 1);
+}
+
+// No ES-DE clip: the top YouTube gameplay video, in YouTube's own player (the helper finds it: lib/youtube.py).
+async function playYouTube(g) {
+  const d = det.data, seq = det.seq;
+  if (!d) return;
+  clearTimeout(det.videoTimer);
+  let r;
+  try {
+    r = await call("youtube_video", { title: d.title || g.title, console: d.console || S.sys.fullname });
+  } catch (e) {
+    console.error(e);
+    if (seq === det.seq && $("yt")) $("yt").textContent = "▶ YouTube can't be reached: search it in your browser ↗";
+    return;
+  }
+  if (seq !== det.seq) return;
+  if (!r.embed) { if ($("yt")) $("yt").textContent = "▶ No gameplay video found: search YouTube ↗"; return; }
+  $("media").innerHTML = `<iframe src="${esc(r.embed)}" title="Gameplay video" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
   markThumb($("thumbs").children.length - 1);
 }
 
