@@ -711,7 +711,7 @@ function uiHints() {
   }
   if (inBox(layer) && !ownsAll() && sheetAreas(layer).length > 1) h.push(pad ? ["l1/r1", "Next area"] : k("F6", "Next area"));
   if (ownsAll()) { if (scrollsIn(layer)) h.push(pad ? ["l2/r2", "Scroll details"] : k("PgUp PgDn", "Scroll details")); }
-  else if (onRow()) h.push(pad ? ["l2/r2", "Page"] : k("PgUp PgDn", "Page"));
+  else if (onRow() && scrollsIn(layer)) h.push(pad ? ["l2/r2", "Page"] : k("PgUp PgDn", "Page"));  // (not when it all fits)
   else if (layer === $("sheet") && scrollsIn(layer)) h.push(pad ? ["l2/r2", "Scroll"] : k("PgUp PgDn", "Scroll"));
   return h;
 }
