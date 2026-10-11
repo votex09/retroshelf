@@ -119,6 +119,15 @@ rename can be undone, and games only go for good when you delete them from the h
   playlists still naming discs that have since been compressed, a missing `.cue` written, leftovers deleted.
   Problems it can't fix are listed with what's missing.
 
+**Find duplicates**
+- **Tools → Find duplicates…** finds games kept twice in one folder in different forms (a `.cue` / `.bin` and a
+  `.chd`, a `.zip` and the ROM it holds), and identical files anywhere in the library, compared by content: the
+  same game in two folders (`snes` and `sfc`, `genesis` and `megadrive`) or under two names.
+- One copy of each stays, chosen for you: the one ES-DE's gamelist knows, then the better form (`.chd` over
+  `.cue` / `.bin`), then the copy in the fuller folder. Double-click another copy to keep that one instead. The rest
+  go to the holding folder, so **Restore a move…** can bring them back. When a game is kept in another form, its
+  gamelist entry (play count, favorite) is moved over to it.
+
 **NoPayStation (PS3, PS Vita, PSP)**
 - **Tools → NoPayStation…** searches the NoPayStation lists. Queue games, DLC, demos and PS3 updates, and download and install them.
 - Shows which games you already have; can list available updates for installed PS3 games.

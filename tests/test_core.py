@@ -32,6 +32,7 @@ import padhints  # noqa: E402
 import compress  # noqa: E402
 import health  # noqa: E402
 import storage  # noqa: E402
+import dupes  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
 import discs  # noqa: E402
@@ -1662,6 +1663,66 @@ class Storage(unittest.TestCase):
         self.assertEqual(found[1].games["Game"]["size"], 200_000)  # keyed as the main window keys it
         self.assertEqual(found[2].size, 1000)
         self.assertEqual(found[2].compressible, 0)
+
+
+class Dupes(unittest.TestCase):
+    """lib/dupes.py: one game in two forms, and identical copies anywhere."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.roms = os.path.join(self.tmp, "retrodeck", "roms")
+
+    def put(self, rel, data):
+        p = os.path.join(self.roms, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(data if isinstance(data, bytes) else data.encode())
+        return p
+
+    def test_finds_keeps_the_right_one_and_moves_the_rest(self):
+        disc = os.urandom(5000)
+        self.put("psx/Game (USA).cue", 'FILE "Game (USA).bin" BINARY\n  TRACK 01 MODE2/2352\n')
+        self.put("psx/Game (USA).bin", disc)
+        self.put("psx/Game (USA).chd", b"MComprHD" + os.urandom(900))
+        for d in (1, 2):  # a two-disc game isn't a duplicate of itself
+            self.put(f"psx/Multi (USA) (Disc {d}).chd", os.urandom(800))
+        rom = os.urandom(4096)
+        self.put("snes/Mario (USA).sfc", rom)
+        self.put("snes/Zelda (USA).sfc", os.urandom(4096))
+        self.put("sfc/Mario (USA).sfc", rom)            # the same file in another folder
+        self.put("snes/Mario (U) [!].smc", rom)          # and under another name
+        self.put("snes/Same Size (USA).sfc", os.urandom(4096))  # same size, different game
+        gl = os.path.join(self.tmp, "retrodeck", "ES-DE", "gamelists", "psx", "gamelist.xml")
+        os.makedirs(os.path.dirname(gl))
+        with open(gl, "w") as f:
+            f.write('<?xml version="1.0"?>\n<gameList>\n<game><path>./Game (USA).cue</path><name>Game</name>'
+                    "<playcount>9</playcount></game>\n</gameList>\n")
+        found = dupes.find(self.roms, rs.unit_key)
+        kinds = {(s.kind, s.title): s for s in found}
+        self.assertEqual(sorted(kinds), [("copies", "Mario (USA)"), ("formats", "Game (USA)")])
+        game = kinds[("formats", "Game (USA)")]
+        self.assertEqual(sorted(c.fmt for c in game.copies), ["chd", "cue + 1 file"])
+        # ES-DE knows the .cue (play count 9), so that one is kept over the better format
+        self.assertEqual(game.copies[game.keep].rel, "Game (USA).cue")
+        game.keep = next(i for i, c in enumerate(game.copies) if c.rel.endswith(".chd"))  # keep the CHD instead
+        mario = kinds[("copies", "Mario (USA)")]
+        self.assertEqual(sorted(f"{c.system}/{c.rel}" for c in mario.copies),
+                         ["sfc/Mario (USA).sfc", "snes/Mario (U) [!].smc", "snes/Mario (USA).sfc"])
+        self.assertEqual(mario.copies[mario.keep].system, "snes")
+        holding = os.path.join(self.tmp, "pruned")
+        moves, problems = dupes.resolve(found, self.roms, holding)
+        self.assertEqual(problems, [])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.roms, "psx"))),
+                         ["Game (USA).chd", "Multi (USA) (Disc 1).chd", "Multi (USA) (Disc 2).chd"])
+        self.assertEqual(sorted(os.path.basename(t) for _, t in moves["psx"]), ["Game (USA).bin", "Game (USA).cue"])
+        self.assertEqual(len([n for n in os.listdir(os.path.join(self.roms, "snes")) if "Mario" in n]), 1)
+        self.assertEqual(os.listdir(os.path.join(self.roms, "sfc")), [])
+        with open(gl) as f:  # the gamelist entry follows the copy that stayed
+            text = f.read()
+        self.assertIn("./Game (USA).chd", text)
+        self.assertIn("<playcount>9</playcount>", text)
+        self.assertEqual(dupes.find(self.roms, rs.unit_key), [])
 
 
 class SevenZip(unittest.TestCase):

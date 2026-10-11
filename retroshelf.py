@@ -69,6 +69,7 @@ import compress  # noqa: E402
 import compress_gui  # noqa: E402
 import health_gui  # noqa: E402
 import storage_gui  # noqa: E402
+import dupes_gui  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
@@ -1041,6 +1042,7 @@ class App:
         tools.add_command(label="Rename files…", command=self.rename_dialog)
         tools.add_command(label="Compress games…", command=lambda: compress_gui.open_window(self))
         tools.add_command(label="Library health check…", command=lambda: health_gui.open_window(self))
+        tools.add_command(label="Find duplicates…", command=lambda: dupes_gui.open_window(self))
         tools.add_command(label="NoPayStation…", command=lambda: nps_gui.open_window(self))
         tools.add_command(label="Homebrew Hub…", command=lambda: homebrew_gui.open_window(self))
         tools.add_command(label="itch.io homebrew…", command=lambda: itch_gui.open_window(self))
