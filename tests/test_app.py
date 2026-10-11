@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -953,6 +953,37 @@ class AppTest(unittest.TestCase):
         self.assertEqual({p.system for p in w.problems.values()} - {a.system}, set())
         w.close()
         self.assertIsNone(a.health_window)
+
+    def test_storage_overview(self):
+        a = self.app
+        gui = sys.modules["storage_gui"]
+        w = gui.open_window(a)
+        self.pump(lambda: not w.busy)
+        self.assertEqual(set(w.sys_tv.get_children()), {"snes", "psx"})
+        self.assertEqual(w.sys_tv.selection(), ("snes",))  # starts on the system in the main window
+        rows = w.game_tv.get_children()
+        self.assertEqual(len(rows), SNES_N)
+        biggest = max(a.units, key=lambda k: a.units[k]["size"])
+        self.assertEqual(rows[0], biggest)  # the same games and sizes as the main window's rows
+        self.assertEqual(w.game_tv.set(rows[0], "size"), sys.modules["frontend"].human_size(a.units[biggest]["size"]))
+        self.assertIn("Could compress", w.sys_tv.heading("compress", "text"))
+        self.assertTrue(w.sys_tv.set("psx", "compress"))  # psx has a cue / bin game
+        # double-click a game: the main window goes to it, even when the search box hides it
+        a.view_filter.set("zzz no such game")
+        a.refresh()
+        w.game_tv.selection_set(rows[0])
+        w.open(game=True)
+        self.root.update()
+        self.assertEqual(a.view_filter.get(), "")
+        tv = a.keep_tv if a.keep_tv.exists(biggest) else a.move_tv
+        self.assertEqual(tv.focus(), biggest)
+        # another system
+        w.sys_tv.selection_set("psx")
+        self.root.update()
+        w.open()
+        self.assertEqual(a.system, "psx")
+        w.close()
+        self.assertIsNone(a.storage_window)
 
     def test_pad_hints_for_any_window(self):
         """Windows that don't describe their buttons get hints by the kind of widget; every style draws."""

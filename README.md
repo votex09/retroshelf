@@ -47,6 +47,12 @@ rename can be undone, and games only go for good when you delete them from the h
 - A details panel shows the selected game's artwork, LaunchBox description, year, developer,
   rating and genres, plus a button that searches YouTube for gameplay videos.
 
+**Storage overview**
+- **Library → Storage overview…** (or click the free-space figure at the top) shows how much each system takes:
+  its games, its ES-DE media (artwork, videos, manuals), and how much of it is disc images that
+  **Tools → Compress games** could shrink. Pick a system to see its biggest games. Double-click a system or a
+  game to go to it in the main window.
+
 **Import ROMs**
 - **Import ROMs…** (top bar, or **Library → Import ROMs…**) is a bucket for games in whatever form you have them:
   zip / 7z / rar archives, disc images, loose ROMs, folders full of them. Put them in the `import` folder next to
