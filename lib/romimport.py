@@ -1087,6 +1087,8 @@ def name_after_archive(unit, stage, title):
                 renames[t] = title + tstem[len(stem):] + tx
             else:
                 renames[t] = f"{title} (Track {i}){tx}"
+    if len({n.lower() for n in renames.values()}) < len(renames):
+        return  # two files would get the same name
     taken = {n.lower() for n in os.listdir(os.path.join(stage, *folder.split("/")) if folder else stage)}
     if any(new.lower() in taken and new.lower() != old.lower() for old, new in renames.items()):
         return  # another file already has the name

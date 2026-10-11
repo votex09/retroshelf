@@ -2070,6 +2070,17 @@ class RomImport(unittest.TestCase):
             self.assertEqual(ri.parse_cue(f.read())[1][0], "Tekken 3 (USA) (Track 2).bin")
         self.assertEqual(ri.archive_title("x/Game (USA).7z.001"), "Game (USA)")
 
+    def test_archive_names_that_would_clash_are_left_alone(self):
+        """A .cue whose tracks would get the same new name keeps the names inside (no track overwrites another)."""
+        cue = 'FILE "tk3 (Track 2).bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n' \
+              'FILE "zz.bin" BINARY\n  TRACK 02 AUDIO\n    INDEX 01 00:00:00\n'
+        self.put("Tekken 3 (USA).zip", zip_bytes({"tk3.cue": cue, "tk3 (Track 2).bin": discs.raw(discs.ps1()),
+                                                  "zz.bin": b"\0" * 2352}))
+        row = ri.scan(ri.collect([self.inbox], self.inbox)[0])
+        for _, res in ri.import_row(row, self.roms):
+            self.assertNotIsInstance(res, Exception)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.roms, "psx"))), ["tk3 (Track 2).bin", "tk3.cue", "zz.bin"])
+
     def test_split_archives_and_no_space(self):
         data = discs.seven_zip({"Game.iso": discs.ps2() + os.urandom(3000)})
         self.put("Game.7z.001", data[:1000])
