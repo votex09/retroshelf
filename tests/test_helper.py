@@ -371,13 +371,27 @@ print(json.dumps({"before": before, "picked": picked["platform"], "with": with_s
     def test_youtube_video(self):
         out = session(self.data, """
 import youtube
-youtube._fetch = lambda url: '{"videoRenderer":{"videoId":"dQw4w9WgXcQ"}}' if "Mario" in url else ""
+youtube._fetch = lambda url, data=None: ('{"itemSectionRenderer":{"contents":[{"videoRenderer":{"videoId":"dQw4w9WgXcQ"}}]}}'
+                                         if "Mario" in url else '{"itemSectionRenderer":{"contents":[]}}')
 print(json.dumps([h.youtube_video("Super Mario World", "SNES"), h.youtube_video("Zzz")]))""")
         self.assertEqual(out[0]["id"], "dQw4w9WgXcQ")
         self.assertIn("youtube-nocookie.com/embed/dQw4w9WgXcQ", out[0]["embed"])
         self.assertEqual(out[1], {"id": None, "embed": None,
                                   "page": "https://www.youtube.com/results?search_query=Zzz+gameplay"})
         self.assertTrue(os.path.exists(os.path.join(self.data, "cache", "youtube.json")))
+
+    def test_certificates_found_where_this_linux_keeps_them(self):
+        """The bundled helper's OpenSSL looks in Ubuntu's /usr/lib/ssl; on SteamOS it's pointed at /etc/ssl instead."""
+        bundle = os.path.join(self.tmp.name, "ca-certificates.crt")
+        open(bundle, "w").close()
+        out = session(self.data, f"""
+import os, ssl, types
+os.environ.pop("SSL_CERT_FILE", None)
+ssl.get_default_verify_paths = lambda: types.SimpleNamespace(cafile="/nowhere/cert.pem", capath="/nowhere")
+helper.CA_BUNDLES = ("/nowhere/ca.crt", {bundle!r})
+helper.use_system_certificates()
+print(json.dumps(os.environ.get("SSL_CERT_FILE")))""")
+        self.assertEqual(out, bundle if sys.platform == "linux" else None)
 
     def test_browse_folders_for_the_gamepad(self):
         out = session(self.data, f"""

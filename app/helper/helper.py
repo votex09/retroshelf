@@ -20,6 +20,29 @@ else:
     APP_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     sys.path.insert(0, os.path.join(APP_DIR, "lib"))
 
+# Where Linux systems keep their trusted certificates: Debian / Ubuntu / Arch / SteamOS, Fedora, openSUSE, others
+CA_BUNDLES = ("/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
+              "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", "/etc/ssl/ca-bundle.pem", "/etc/ssl/cert.pem")
+
+
+def use_system_certificates():
+    """The bundled helper's OpenSSL looks for trusted certificates where the machine that built it keeps them
+    (Ubuntu's /usr/lib/ssl). SteamOS, Arch and Fedora have nothing there, so every https request (YouTube, LaunchBox,
+    updates) would fail to verify: point it at this computer's own certificates instead."""
+    if sys.platform != "linux" or os.environ.get("SSL_CERT_FILE"):
+        return
+    import ssl
+    p = ssl.get_default_verify_paths()
+    if (p.cafile and os.path.isfile(p.cafile)) or (p.capath and os.path.isdir(p.capath) and os.listdir(p.capath)):
+        return
+    for f in CA_BUNDLES:
+        if os.path.isfile(f):
+            os.environ["SSL_CERT_FILE"] = f
+            return
+
+
+use_system_certificates()
+
 import esde_collections  # noqa: E402
 import hiding  # noqa: E402
 import holding  # noqa: E402
