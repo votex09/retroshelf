@@ -42,20 +42,29 @@ def _api(path):
         return json.load(r)
 
 
+# The standalone app's download for this system, once releases carry it (see lib/handoff.py)
+APP_ASSET = re.compile(r"-win-[^-]+\.exe$" if is_windows() else r"\.AppImage$")
+
+
 def latest_release():
-    """-> (tag, release notes) of the newest published release, or (None, "") if there isn't one yet."""
+    """-> (tag, release notes, the new app's download for this system or None) of the newest published release,
+    or (None, "", None) if there isn't one yet."""
     try:
         rel = _api("releases/latest")
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            return None, ""
+            return None, "", None
         raise
-    return rel["tag_name"], (rel.get("body") or "").strip()
+    app = next(({"name": a["name"], "url": a["browser_download_url"], "size": a.get("size", 0),
+                 "page": rel.get("html_url", "")}
+                for a in rel.get("assets") or () if APP_ASSET.search(a.get("name", ""))), None)
+    return rel["tag_name"], (rel.get("body") or "").strip(), app
 
 
 def check():
     """-> {"behind": commits to pull (None = unknown), "commits": [subject lines, newest first], "note": str,
-    "tag": release to install (None = the main branch, or a git clone), "notes": that release's notes}.
+    "tag": release to install (None = the main branch, or a git clone), "notes": that release's notes,
+    "app": the standalone app's download once there is one (see latest_release), else None}.
     Raises RuntimeError with a readable message when the check can't be done."""
     if is_git():
         if _git("rev-parse", "--abbrev-ref", "@{u}").returncode:
@@ -68,11 +77,15 @@ def check():
         log = _git("log", "--format=%s", "HEAD..@{u}").stdout.splitlines()
         note = f"You have {ahead} local commits that aren't on GitHub; git can't fast-forward." if ahead and behind \
             else ""
-        return {"behind": behind, "commits": log, "note": note, "tag": None, "notes": ""}
+        try:
+            app = latest_release()[2]
+        except (urllib.error.URLError, OSError, ValueError, KeyError):
+            app = None
+        return {"behind": behind, "commits": log, "note": note, "tag": None, "notes": "", "app": app}
     try:
-        tag, notes = latest_release()
+        tag, notes, app = latest_release()
         target = tag or BRANCH
-        res = {"behind": None, "commits": [], "note": "", "tag": tag, "notes": notes}
+        res = {"behind": None, "commits": [], "note": "", "tag": tag, "notes": notes, "app": app}
         local = local_sha()
         if not local:
             return dict(res, note="This copy doesn't know its version, so updating replaces it with the latest one.")

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; img-src 'self' data: rsmedia:; media-src rsmedia:; style-src 'self' 'unsafe-inline'">
+        content="default-src 'self'; img-src 'self' data: rsmedia:; media-src rsmedia:; style-src 'self' 'unsafe-inline'; frame-src https://www.youtube-nocookie.com">
   <title>RetroShelf</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -24,6 +24,7 @@
       <svg viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="15"/><circle class="fill" id="space-ring" cx="18" cy="18" r="15"/></svg>
       <div><b id="free"></b><small>free</small></div>
     </div>
+    <button class="update-btn" id="update-btn" hidden></button>
     <div class="menu-wrap">
       <button class="icon-btn" id="menu-btn" title="More">☰</button>
       <div class="popover menu" id="menu" hidden>
@@ -43,7 +44,7 @@
         <button data-cmd="change-roms">Change ROMs folder…</button>
         <button data-cmd="launchbox">Download LaunchBox data</button>
         <hr>
-        <button data-cmd="settings">Settings…<small>LaunchBox platform, videos, gamepad, animations</small></button>
+        <button data-cmd="settings">Settings…<small>LaunchBox platform, theme, videos, gamepad, updates</small></button>
         <button data-cmd="keys">Keyboard and gamepad</button>
       </div>
     </div>

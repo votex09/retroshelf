@@ -274,3 +274,9 @@ def import_run(job, delete=False):
         _imp["busy"] = False
     done = [r for _, r in items if r.status.startswith("Imported")]
     return {**_listed(), "imported": len(done), "systems": romimport.imported_systems(done), "stopped": stop()}
+
+
+@method
+def import_waiting():
+    """How many things wait in the import folder (the window mentions them when it opens)."""
+    return romimport.waiting(romimport.inbox_dir(ctx["cfg"])) if ctx["cfg"]["roms_root"] else 0

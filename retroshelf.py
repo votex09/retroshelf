@@ -35,7 +35,7 @@ for updates (see lib/updater.py).
 Add to app menu (or --install-desktop) installs a .desktop entry (Windows: a Start menu shortcut); retroshelf.sh
 (Windows: retroshelf.bat) is a launcher for Steam / file managers.
 """
-import datetime, json, os, queue, shutil, sys, threading
+import datetime, json, os, queue, shutil, sys, threading, webbrowser
 import xml.etree.ElementTree as ET
 from collections import Counter
 import tkinter as tk
@@ -71,6 +71,7 @@ import desktop  # noqa: E402
 import dialogs  # noqa: E402
 import frontend  # noqa: E402,F401  (the tests reach it through here)
 import gamepad  # noqa: E402
+import handoff  # noqa: E402
 import padhints  # noqa: E402
 import padfocus  # noqa: E402
 import compress  # noqa: E402
@@ -377,6 +378,12 @@ class App:
                 if not quiet:
                     messagebox.showerror("Couldn't check for updates", str(res))
                 return
+            if res.get("app"):  # RetroShelf is a standalone app now: this copy's last update points to it
+                label = "⬆ Get the new app"
+                if self._menu_item(self.menubar, label) is None:
+                    self.menubar.add_command(label=label, command=lambda: self.app_dialog(res["app"]))
+                self.app_dialog(res["app"])
+                return
             if res["behind"] == 0:
                 if not quiet:
                     self.toast("You have the latest RetroShelf.")
@@ -391,6 +398,49 @@ class App:
 
         threading.Thread(target=work, daemon=True).start()
         poll()
+
+    def app_dialog(self, app):
+        """RetroShelf is now one download with everything inside: offer it, and bring this copy's settings, logs,
+        matches and downloaded data over to it (lib/handoff.py)."""
+        win = tk.Toplevel(self.root)
+        win.title("The new RetroShelf")
+        win.transient(self.root)
+        win.configure(bg=ttk.Style().lookup("TFrame", "background"))
+        body = ttk.Frame(win, padding=18)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="RetroShelf is now a standalone app", style="Section.TLabel").pack(anchor="w")
+        how = ("Run the installer (or the portable .exe)." if is_windows() else
+               "Make the AppImage executable (right-click → Properties, or chmod +x) and run it. On a Steam Deck, add "
+               "it to Steam as a non-Steam game.")
+        size = frontend.human_size(app["size"]) if app.get("size") else "about 120 MB"
+        text = (f"It's one download ({app['name']}, {size}) "
+                "with everything inside: no Python or Tk needed, a new look, videos with sound, and it updates "
+                "itself. This copy gets no more updates.\n\n"
+                "Get it below: your settings, move and rename logs, hand-picked LaunchBox matches and downloaded "
+                f"LaunchBox / NoPayStation data are copied over for it first. Then: {how}")
+        ttk.Label(body, text=text, wraplength=520, justify="left").pack(anchor="w", pady=(8, 0))
+        status = ttk.Label(body, style="Muted.TLabel", wraplength=520, justify="left")
+        status.pack(anchor="w", pady=(10, 0))
+        foot = ttk.Frame(body, padding=(0, 14, 0, 0))
+        foot.pack(fill="x")
+
+        def get():
+            self.save_state()
+            self.save_cfg()
+            try:
+                done = handoff.copy_data(os.path.dirname(CONFIG), handoff.app_data_dir())
+                status.config(text=f"Copied {', '.join(done)} to {handoff.app_data_dir()}." if done else
+                              "Nothing to copy: the new app starts fresh.")
+            except OSError as e:
+                status.config(text=f"Couldn't copy your settings ({e}); the new app can bring them over later from "
+                                   "☰ → Settings.")
+            webbrowser.open(app["url"])
+
+        ttk.Button(foot, text="Download the new app", style="Accent.TButton", command=get).pack(side="right")
+        ttk.Button(foot, text="Not now", command=win.destroy).pack(side="right", padx=(0, 6))
+        if app.get("page"):
+            ttk.Button(foot, text="Release page ↗", command=lambda: webbrowser.open(app["page"])).pack(side="left")
+        win.bind("<Escape>", lambda e: win.destroy())
 
     def update_dialog(self, res):
         win = tk.Toplevel(self.root)

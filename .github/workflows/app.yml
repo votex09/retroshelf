@@ -1,20 +1,23 @@
-# The new Electron app (app/): builds the Linux AppImage and the Windows installer + portable .exe with the Python
-# helper bundled in, starts each build once to check the window and the helper work together, and keeps the builds
-# as downloads on the run's page (Actions tab). Nothing is released from here until the switch-over; releases still
-# come from release.yml.
+# The app (app/): builds the Linux AppImage and the Windows installer + portable .exe with the Python helper bundled
+# in, starts each build once to check the window and the helper work together, and keeps the builds as downloads on
+# the run's page (Actions tab). Pull requests run it here; release.yml runs it with the release's version and
+# publishes what it builds.
 name: Electron app
 
 on:
   pull_request:
     paths: ["app/**", "lib/**", ".github/workflows/app.yml"]
-  push:
-    branches: [main]
-    paths: ["app/**", "lib/**", ".github/workflows/app.yml"]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: "The app's version (from the release tag: v2026.10.11.2 -> 2026.1011.1)"
+        type: string
+        required: true
 
-concurrency:
-  group: app-${{ github.ref }}
-  cancel-in-progress: true
+concurrency:  # a release's build (inputs.version) is never cancelled
+  group: ${{ inputs.version && format('app-release-{0}', inputs.version) || format('app-{0}', github.ref) }}
+  cancel-in-progress: ${{ !inputs.version }}
 
 jobs:
   build:
@@ -44,6 +47,9 @@ jobs:
         run: python -m unittest tests.test_helper -v
       - name: Install Electron and electron-builder
         run: npm ci
+      - name: Set the version
+        if: inputs.version
+        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
       - name: Build
         env:
           GH_TOKEN: ${{ github.token }}
@@ -68,4 +74,6 @@ jobs:
           path: |
             app/dist/*.AppImage
             app/dist/*.exe
+            app/dist/*.blockmap
+            app/dist/latest*.yml
           if-no-files-found: error

@@ -256,6 +256,16 @@ class Updater(unittest.TestCase):
         self.assertEqual((res["behind"], res["tag"], res["commits"]), (2, "v2026.10.09", ["New", "Old"]))
         self.assertEqual(res["notes"], "## Changes")
 
+    def test_new_app_download(self):
+        assets = [{"name": "retroshelf-v2026.10.12.zip", "browser_download_url": "z"},
+                  {"name": "RetroShelf-2026.1012.0-linux-x86_64.AppImage", "browser_download_url": "a", "size": 9},
+                  {"name": "RetroShelf-2026.1012.0-win-x64.exe", "browser_download_url": "w", "size": 8}]
+        res, _ = self.check(lambda p: dict(self.release(p), assets=assets) if p == "releases/latest"
+                            else self.release(p))
+        self.assertEqual(res["app"]["url"], "w" if updater.is_windows() else "a")
+        res, _ = self.check(self.release)
+        self.assertIsNone(res["app"])
+
     def test_up_to_date_or_newer_than_the_release(self):
         for status in ("identical", "behind"):
             res, _ = self.check(lambda p: self.release(p, status, 0))
@@ -2200,6 +2210,59 @@ class RealWindows(unittest.TestCase):
             self.assertEqual(ctr.update(bytes.fromhex("874d6191b620e3261bef6864990db6ce")).hex(),
                              "6bc1bee22e409f96e93d7e117393172a")  # NIST SP 800-38A F.5.2
 
+
+
+class Handoff(unittest.TestCase):
+    def test_copy_and_merge(self):
+        import handoff
+        with tempfile.TemporaryDirectory() as old, tempfile.TemporaryDirectory() as new:
+            def put(folder, name, data):
+                with open(os.path.join(folder, name), "w", encoding="utf-8") as f:
+                    json.dump(data, f)
+            put(old, "config.json", {"roms_root": "/roms", "theme": "dark"})
+            put(old, "moves.json", [{"id": 1}, {"id": 2}])
+            put(old, "matches.json", {"snes": {"a": 1}})
+            os.makedirs(os.path.join(old, "cache", "launchbox"))
+            put(os.path.join(old, "cache", "launchbox"), "meta.json", {"v": 1})
+            put(new, "config.json", {"roms_root": "", "setup_offered": True})
+            put(new, "moves.json", [{"id": 2}, {"id": 3}])
+            self.assertTrue(handoff.has_data(old))
+            done = handoff.copy_data(old, new)
+            self.assertEqual(done, ["config.json", "moves.json", "matches.json", "cache"])
+
+            def get(name):
+                with open(os.path.join(new, name), encoding="utf-8") as f:
+                    return json.load(f)
+            self.assertEqual(get("config.json"), {"roms_root": "/roms", "setup_offered": True, "theme": "dark"})
+            self.assertEqual(get("moves.json"), [{"id": 2}, {"id": 3}, {"id": 1}])
+            self.assertEqual(get("matches.json"), {"snes": {"a": 1}})
+            self.assertEqual(get(os.path.join("cache", "launchbox", "meta.json")), {"v": 1})
+            self.assertEqual(handoff.copy_data(new, new), [])
+
+
+class YouTube(unittest.TestCase):
+    PAGE = ('{"adSlotRenderer":{"videoId":"AAAAAAAAAAA"}} {"channelRenderer":{"channelId":"x"}} '
+            '{"videoRenderer":{"videoId":"dQw4w9WgXcQ","title":{}}} {"videoRenderer":{"videoId":"BBBBBBBBBBB"}}')
+
+    def test_first_video_skips_ads(self):
+        import youtube
+        self.assertEqual(youtube.first_video(self.PAGE), "dQw4w9WgXcQ")
+        self.assertIsNone(youtube.first_video("<html>no results</html>"))
+
+    def test_find_remembers(self):
+        import youtube
+        with tempfile.TemporaryDirectory() as cache:
+            asked = []
+
+            def fetch(url):
+                asked.append(url)
+                return self.PAGE
+            self.assertEqual(youtube.find("Super Mario World", "SNES", cache, fetch), "dQw4w9WgXcQ")
+            self.assertEqual(youtube.find("Super Mario World", "SNES", cache, fetch), "dQw4w9WgXcQ")
+            self.assertEqual(len(asked), 1)
+            self.assertIn("Super+Mario+World+SNES+gameplay", asked[0])
+            self.assertIsNone(youtube.find("Nothing", "", cache, lambda url: "none"))
+            self.assertTrue(youtube.embed("dQw4w9WgXcQ").startswith(youtube.EMBED + "dQw4w9WgXcQ?"))
 
 if __name__ == "__main__":
     unittest.main()

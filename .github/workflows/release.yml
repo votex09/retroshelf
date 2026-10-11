@@ -1,8 +1,9 @@
 # Every change to the app that lands on main is tested and published as a release, versioned by date
-# (v2026.10.09, then v2026.10.09.2 for a second one that day). Zip copies of RetroShelf update from these releases.
-# Changes that only touch docs, tests, CI or the new Electron app (app/, built by app.yml) don't make a release;
-# "Run workflow" on the Actions tab forces one.
-# Pull requests run the tests only.
+# (v2026.10.09, then v2026.10.09.2 for a second one that day). Each release carries the app (app/, built by app.yml
+# with the release's version: the Linux AppImage, the Windows installer and portable .exe, and the latest*.yml files
+# the installed app updates from) and the old Tk version's zip, which zip copies update to and which points them to
+# the app. Changes that only touch docs, tests or CI don't make a release; "Run workflow" on the Actions tab forces one.
+# Pull requests run the tests only (app.yml builds the app for them).
 name: Release
 
 on:
@@ -12,7 +13,6 @@ on:
       - "**.md"
       - "docs/**"
       - "tests/**"
-      - "app/**"
       - "mockups/**"
       - ".claude/**"
       - ".github/**"
@@ -63,17 +63,44 @@ jobs:
           path: retroshelf-windows.png
           if-no-files-found: ignore
 
-  release:
+  version:
     needs: [test, test-windows]
     if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags, for the next free tag
+      - id: tag
+        run: .github/scripts/release.sh --tag >> "$GITHUB_OUTPUT"
+
+  app:
+    needs: version
+    if: needs.version.outputs.tag
+    uses: ./.github/workflows/app.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  release:
+    needs: [version, app]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # tags and history, for the version number and the notes
-      - name: Build and publish
+          fetch-depth: 0  # tags and history, for the notes
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: retroshelf-app-*
+          path: assets
+          merge-multiple: true
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          ASSETS: assets
         run: .github/scripts/release.sh
