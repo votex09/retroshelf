@@ -2261,8 +2261,36 @@ class YouTube(unittest.TestCase):
             self.assertEqual(youtube.find("Super Mario World", "SNES", cache, fetch), "dQw4w9WgXcQ")
             self.assertEqual(len(asked), 1)
             self.assertIn("Super+Mario+World+SNES+gameplay", asked[0])
-            self.assertIsNone(youtube.find("Nothing", "", cache, lambda url: "none"))
+            self.assertIsNone(youtube.find("Nothing", "", cache, lambda url, data=None: '{"itemSectionRenderer":{}}'))
             self.assertTrue(youtube.embed("dQw4w9WgXcQ").startswith(youtube.EMBED + "dQw4w9WgXcQ?"))
+
+    def test_old_misses_are_searched_again(self):
+        """Older versions saved None for every search that failed: those games get searched again."""
+        import youtube
+        with tempfile.TemporaryDirectory() as cache:
+            with open(os.path.join(cache, "youtube.json"), "w") as f:
+                json.dump({"Chrono Trigger SNES gameplay": None}, f)
+            self.assertEqual(youtube.find("Chrono Trigger", "SNES", cache, lambda url, data=None: self.PAGE),
+                             "dQw4w9WgXcQ")
+            with open(os.path.join(cache, "youtube.json")) as f:
+                self.assertEqual(json.load(f), {"Chrono Trigger SNES gameplay": "dQw4w9WgXcQ"})
+
+    def test_cookie_notice_falls_back_to_the_api(self):
+        """A cookie notice instead of results (YouTube in Europe): the API is asked; neither working is an error."""
+        import youtube
+        asked = []
+
+        def fetch(url, data=None):
+            asked.append((url, data))
+            if data is None:
+                return "<html><form action='https://consent.youtube.com/save'></form></html>"
+            return '{"contents":{"twoColumnSearchResultsRenderer":{}},"x":{"contentId":"CCCCCCCCCCC",' \
+                   '"contentType":"LOCKUP_CONTENT_TYPE_VIDEO"}}'
+        self.assertEqual(youtube.search("Ecco SMS gameplay", fetch), "CCCCCCCCCCC")
+        self.assertEqual(asked[1][0], youtube.SEARCH_API)
+        self.assertEqual(asked[1][1]["query"], "Ecco SMS gameplay")
+        with self.assertRaises(OSError):
+            youtube.search("x", lambda url, data=None: "<html>consent</html>")
 
 
 class MediaFolder(unittest.TestCase):

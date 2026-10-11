@@ -449,7 +449,7 @@ async function playYouTube(g) {
     r = await call("youtube_video", { title: d.title || g.title, console: d.console || S.sys.fullname });
   } catch (e) {
     console.error(e);
-    if (seq === det.seq && $("yt")) $("yt").textContent = "▶ YouTube can't be reached: search it in your browser ↗";
+    if (seq === det.seq && $("yt")) $("yt").textContent = "▶ YouTube's search didn't answer: try it in your browser ↗";
     return;
   }
   if (seq !== det.seq) return;
