@@ -32,9 +32,9 @@ rename can be undone, and games only go for good when you delete them from the h
     between Keeping and Moving, back where you were.
 - Any standard gamepad works, with no Steam Input or extra software: D-pad or stick to move, A marks (Space), X flips
   (Enter), Y undoes, LT / RT page, B goes back. **LB / RB** go round the parts of the window (header, filter tabs,
-  Keeping, Moving, details, the buttons at the bottom), **Start** opens the ☰ menu, **Select** (View) searches with
+  the lists, details, the buttons at the bottom), the right stick left / right goes between Keeping and Moving, **Start** opens the ☰ menu, **Select** (View) searches with
   the on-screen keyboard, **R3** opens the game's menu (hide in ES-DE, LaunchBox match, collections) and the right stick
-  scrolls the details. **☰ → Settings → Use a gamepad** turns it off. On a Steam Deck, Steam keeps the built-in
+  up / down scrolls the details. **☰ → Settings → Use a gamepad** turns it off. On a Steam Deck, Steam keeps the built-in
   controls while it's running; other pads work.
   Everything else in the window works from the pad too: outside the lists the D-pad moves an accent ring from control
   to control (menus, filter tabs, settings, every tool window), A presses what it's on and B steps back; each part
