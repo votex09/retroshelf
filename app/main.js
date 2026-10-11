@@ -107,8 +107,8 @@ ipcMain.handle("open-folder", (_e, folder) => {  // folders only: opening a file
   return shell.openPath(folder);
 });
 ipcMain.handle("open-url", (_e, url) => {  // web pages only, in the user's browser
-  if (!/^https:\/\//.test(String(url))) return "not a web address";
-  return shell.openExternal(url).then(() => "");
+  if (!/^https?:\/\//i.test(String(url))) return "not a web page";
+  return shell.openExternal(url).then(() => "", (e) => e.message);
 });
 ipcMain.handle("app:version", () => app.getVersion());
 

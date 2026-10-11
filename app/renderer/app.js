@@ -17,6 +17,7 @@ const S = {
   marked: new Set(),
   undo: [],
   pad: false,       // a gamepad was used: show its buttons in the hints
+  opts: { play_videos: true, gamepad: true, animations: true, show_details: true },  // ☰ → Settings (settings.js)
 };
 
 // ---------- small things ----------
@@ -306,7 +307,7 @@ function showDetails() {
       if (seq !== det.seq) return;
       det.data = d;
       renderDetails(g, false);
-      if (d.video) det.videoTimer = setTimeout(() => seq === det.seq && playVideo(true), 1500);
+      if (d.video && S.opts.play_videos) det.videoTimer = setTimeout(() => seq === det.seq && playVideo(true), 1500);
     }).catch(oops);
   }, 90);
 }
@@ -681,6 +682,7 @@ function menuCommand(cmd) {
     review: openReview, collection: () => openCollection(),
     "change-holding": changeHolding, launchbox: downloadLaunchbox,
     "change-roms": () => pickRoms().then((ok) => ok && toggleSystems()),
+    settings: () => openSettings(), keys: () => openKeys(),
   }[cmd] || TOOLS.find((t) => t.cmd === cmd)?.open;
   Promise.resolve().then(run).catch(oops);
 }
@@ -855,6 +857,7 @@ const BUTTONS = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRig
   4: "Tab", 5: "Tab", 6: "PageUp", 7: "PageDown", 1: "Escape" };
 const held = {};
 function pollPads(now) {
+  if (!S.opts.gamepad) { requestAnimationFrame(pollPads); return; }
   for (const pad of navigator.getGamepads ? navigator.getGamepads() : []) {
     if (!pad) continue;
     const pressed = new Set(Object.keys(BUTTONS).filter((b) => pad.buttons[b]?.pressed).map(Number));
@@ -907,6 +910,7 @@ async function start() {
     const hello = await call("hello");
     Object.assign(summary, { python: hello.python, frozen: hello.frozen });
     S.overview = await call("startup");
+    applyOptions(await call("settings"));
     showOverview();
     summary.roms = S.overview.roms;
     summary.systems = S.overview.systems.filter((s) => s.games > 0).length;
