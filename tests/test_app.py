@@ -207,7 +207,8 @@ class AppTest(unittest.TestCase):
         self.assertNotEqual(a.keep_tv.focus(), here)
         a.load_system("snes")
         self.assertEqual(a.keep_tv.focus(), here)
-        self.assertIs(self.root.focus_get(), a.keep_tv)
+        # and the list has the keyboard (asked of Tk directly: on Windows CI the window may not be the active one)
+        self.assertEqual(str(self.root.tk.call("focus", "-lastfor", self.root)), str(a.keep_tv))
         self.restart()  # and after a restart (it opens on snes, the last system)
         self.assertEqual(self.app.keep_tv.focus(), here)
 
