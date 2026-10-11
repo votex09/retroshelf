@@ -644,13 +644,30 @@ async function doMove() {
   }
 }
 
+// ---------- long jobs in the helper, with progress and Stop ----------
+const jobListeners = new Map();
+let jobCount = 0;
+// -> { done: promise of the answer, stop() }; onProgress({message, done, total}) as it goes
+function runJob(method, params, onProgress) {
+  const job = `${method}-${Date.now()}-${++jobCount}`;
+  jobListeners.set(job, onProgress);
+  const done = call(method, { ...params, job }).finally(() => jobListeners.delete(job));
+  return { done, stop: () => call("cancel", { job }) };
+}
+
 // ---------- the ☰ menu ----------
+// Tool windows add themselves: registerTool({ cmd, label, sub, system: needs an open system, open })
+const TOOLS = [];
+function registerTool(t) { TOOLS.push(t); }
+
 function openMenu() {
   const m = $("menu");
+  $("menu-tools").innerHTML = TOOLS.map((t) => `<button data-cmd="${t.cmd}">${esc(t.label)}${t.sub ? `<small>${esc(t.sub)}</small>` : ""}</button>`).join("");
   for (const b of m.querySelectorAll("button[data-cmd]")) {
     b.disabled = ["priority", "export", "rescan", "review", "collection"].includes(b.dataset.cmd) && !S.sys ||
       b.dataset.cmd === "export" && !S.games.some((g) => g.move) || ["holding", "moves", "change-holding"].includes(b.dataset.cmd) && !S.overview?.roms;
   }
+  for (const t of TOOLS) m.querySelector(`[data-cmd="${t.cmd}"]`).disabled = t.system && !S.sys || !S.overview?.roms;
   m.querySelector('[data-cmd="launchbox"]').firstChild.textContent = S.overview?.launchbox ? "Update LaunchBox data" : "Download LaunchBox data";
   m.hidden = false;
 }
@@ -661,7 +678,7 @@ function menuCommand(cmd) {
     review: openReview, collection: () => openCollection(),
     "change-holding": changeHolding, launchbox: downloadLaunchbox,
     "change-roms": () => pickRoms().then((ok) => ok && toggleSystems()),
-  }[cmd];
+  }[cmd] || TOOLS.find((t) => t.cmd === cmd)?.open;
   Promise.resolve().then(run).catch(oops);
 }
 
@@ -858,6 +875,7 @@ async function start() {
   rs.onHelperExit((info) => overlay(`<h2>RetroShelf's helper stopped</h2>
     <p>Nothing can load or change until RetroShelf is restarted.</p><p class="error">${esc(info.error || info.stderr || "")}</p>`));
   rs.onHelperEvent((name, data) => {
+    if (name === "progress") { jobListeners.get(data.job)?.(data); return; }
     if (name !== "launchbox") return;
     if ($("lb-progress")) $("lb-progress").textContent = data.message;
     const h2 = document.querySelector("#overlay-box h2");

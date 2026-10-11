@@ -35,7 +35,7 @@ for updates (see lib/updater.py).
 Add to app menu (or --install-desktop) installs a .desktop entry (Windows: a Start menu shortcut); retroshelf.sh
 (Windows: retroshelf.bat) is a launcher for Steam / file managers.
 """
-import datetime, json, os, queue, re, shutil, sys, threading
+import datetime, json, os, queue, shutil, sys, threading
 import xml.etree.ElementTree as ET
 from collections import Counter
 import tkinter as tk
@@ -54,7 +54,7 @@ import shelf  # noqa: E402
 from rules import (  # noqa: E402,F401  (lib/rules.py; the tests use some of these from here)
     DEFAULT_PRIORITY, DUPES, KNOWN_REGIONS, PART_RE, PREFIX_RE, PRESETS, PRESET_LABELS, REGION_MODES, TAG_RE,
     dir_size, human, junk, parse_priority, region_dupes, regions_of, title_of, unit_key, wildcard_re)
-from library import PARTIAL_EXT, read_systeminfo  # noqa: E402
+from library import read_systeminfo  # noqa: E402
 import listkeys  # noqa: E402
 import motion  # noqa: E402
 import review  # noqa: E402
@@ -62,7 +62,6 @@ import nps  # noqa: E402
 import nps_gui  # noqa: E402
 import homebrew_gui  # noqa: E402
 import import_gui  # noqa: E402
-import romimport  # noqa: E402
 import itch_gui  # noqa: E402
 import mamedev_gui  # noqa: E402
 import pdroms_gui  # noqa: E402
@@ -83,6 +82,10 @@ import collections_gui  # noqa: E402
 import esde_collections  # noqa: E402
 import hiding  # noqa: E402
 import holding  # noqa: E402
+import renaming  # noqa: E402
+from renaming import (  # noqa: E402,F401  (lib/renaming.py; the tests use these from here)
+    ARCADE_SYSTEMS, DEFAULT_TEMPLATE, RENAME_FIELDS, apply_renames, fix_refs, name_fields, plan_renames, render_name,
+    split_ext)
 from holding import DESTS  # noqa: E402
 import osk  # noqa: E402
 import details  # noqa: E402
@@ -130,159 +133,6 @@ PATTERN_NOTES = (
 )
 CONFIG = os.path.join(APP_DIR, "config.json")
 HEAD_PAD = 4  # px left/right inside column headings, matching the theme's cell text inset
-# ---------- renaming ----------
-DEFAULT_TEMPLATE = "{title} ({region}) ({lang}) ({rev}) {tags}"  # No-Intro order
-RENAME_FIELDS = {
-    "title": "name without tags or set number", "region": "USA, Europe …", "lang": "En,Fr,Es …",
-    "rev": "Rev 1, v1.1 …", "tags": "every other tag, brackets kept", "lbname": "LaunchBox name (else title)",
-}
-ANY_TAG_RE = re.compile(r"[\(\[][^\)\]]*[\)\]]")
-LANG_RE = re.compile(r"[A-Z][a-z](?:[+-][A-Z][a-z])*(?:,\s*[A-Z][a-z](?:[+-][A-Z][a-z])*)*")
-REV_RE = re.compile(r"Rev\s*[\w.]+|v\d[\w.]*|Version\s*[\w.]+", re.I)
-REF_EXT = (".cue", ".m3u", ".gdi")  # text files that name the game's other files
-WIN_RESERVED_RE = re.compile(r"(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", re.I)  # device names Windows won't use
-WIN_MAX_PATH = 259  # longer paths fail unless long paths are switched on in Windows
-
-
-def split_ext(name):
-    """('Mr. Driller (USA)', '') rather than ('Mr', '. Driller (USA)') for folders and extensionless names."""
-    stem, ext = os.path.splitext(name)
-    return (stem, ext) if re.fullmatch(r"\.[A-Za-z0-9_+-]{1,10}", ext) else (name, "")
-
-
-SCENE_REGIONS = {"USA": "USA", "US": "USA", "EUR": "Europe", "EU": "Europe", "JPN": "Japan", "JP": "Japan"}
-SCENE_REGION_RE = re.compile(r"(?:^|(?<=[_\s.-]))(USA|US|EUR|EU|JPN|JP)(?=$|[_\s.-])"
-                             r"|(?:(?<=[a-z])|(?<=[A-Z]{2}))(USA|US|EUR|JPN)$")
-
-
-def name_fields(stem, lb_name=None, lb_title=False):
-    """lb_title: the file name isn't a real title (scene name, or the game was matched by hand), so {title} comes
-    from LaunchBox, and a region word like _USA_ or ...US becomes {region}."""
-    s = PREFIX_RE.sub("", stem)
-    f = {"title": TAG_RE.sub("", s).strip(), "region": "", "lang": "", "rev": ""}
-    if lb_title and lb_name:
-        f["title"] = lb_name
-    other = []
-    for tag in ANY_TAG_RE.findall(s):
-        inner = tag[1:-1].strip()
-        if tag[0] == "(" and not f["region"] and all(p.strip() in KNOWN_REGIONS for p in inner.split(",")):
-            f["region"] = ", ".join(p.strip() for p in inner.split(","))
-        elif tag[0] == "(" and not f["lang"] and LANG_RE.fullmatch(inner):
-            f["lang"] = inner
-        elif not f["rev"] and REV_RE.fullmatch(inner):
-            f["rev"] = inner
-        else:
-            other.append(tag)
-    if lb_title and not f["region"]:
-        m = SCENE_REGION_RE.search(TAG_RE.sub("", s))
-        if m:
-            f["region"] = SCENE_REGIONS[m.group(1) or m.group(2)]
-    f["tags"] = " ".join(other)
-    f["lbname"] = lb_name or f["title"]
-    return f
-
-
-def render_name(template, fields):
-    """Fill template; empty () / [] are dropped and characters other filesystems reject are cleaned out."""
-    unknown = set(re.findall(r"\{(\w*)\}", template)) - fields.keys()
-    if unknown:
-        raise ValueError("unknown field " + ", ".join("{%s}" % u for u in sorted(unknown)))
-    out = re.sub(r"\{(\w+)\}", lambda m: fields[m.group(1)], template)
-    out = re.sub(r"\(\s*\)|\[\s*\]", "", out)
-    out = re.sub(r"\s*:\s*", " - ", out).replace("/", "-")  # Fate/Unlimited Codes -> Fate-Unlimited Codes
-    out = re.sub(r'[<>"\\|?*\x00-\x1f]', "", out)
-    return re.sub(r"^[\s-]+|[\s-]+$", "", " ".join(out.split()))
-
-
-# arcade systems whose emulators look games up by ROM set name, so their files must keep the names they have
-ARCADE_SYSTEMS = romimport.ARCADE
-
-
-def plan_renames(units, template):
-    """units: [(key, [paths], LaunchBox name or None, use it as {title})] -> rows {key, old, new, status}; status
-    is "rename", "same", or why it's skipped. A conflict anywhere in a multi-file game skips the whole game."""
-    rows = []
-    for key, paths, lb_name, lb_title in units:
-        for p in paths:
-            name = os.path.basename(p)
-            row = {"key": key, "old": p, "new": p, "status": "same"}
-            rows.append(row)
-            if name.lower().endswith(PARTIAL_EXT):
-                row["status"] = "partial download"
-                continue
-            stem, ext = split_ext(name)
-            parts = "".join(" " + m.strip() for m in PART_RE.findall(stem))
-            try:
-                base = render_name(template, name_fields(PART_RE.sub("", stem).strip(), lb_name, lb_title))
-            except ValueError as e:
-                row["status"] = str(e)
-                continue
-            if not base:
-                row["status"] = "empty name"
-                continue
-            if WIN_RESERVED_RE.fullmatch(base) or (not ext and base.endswith(".")):
-                row["status"] = "name Windows can't use"  # also on Linux: the drive may be shared with Windows
-                continue
-            row["new"] = os.path.join(os.path.dirname(p), base + parts + ext)
-            if is_windows() and len(os.path.abspath(row["new"])) > WIN_MAX_PATH:
-                row["status"] = "path too long for Windows"
-                continue
-            if row["new"] != p:
-                row["status"] = "rename"
-    sources = {os.path.normcase(r["old"]) for r in rows if r["status"] == "rename"}
-    seen = Counter(os.path.normcase(r["new"]).lower() for r in rows)
-    for r in rows:
-        if r["status"] != "rename":
-            continue
-        if seen[os.path.normcase(r["new"]).lower()] > 1:
-            r["status"] = "two games get this name"
-        elif os.path.lexists(r["new"]) and os.path.normcase(r["new"]) not in sources and \
-                not os.path.samefile(r["new"], r["old"]):
-            r["status"] = "name already taken"
-    bad = {r["key"] for r in rows if r["status"] not in ("rename", "same")}
-    for r in rows:
-        if r["key"] in bad and r["status"] == "rename":
-            r["status"] = "skipped with the rest of its game"
-    return rows
-
-
-def apply_renames(pairs):
-    """Rename [(old, new)] in two steps through hidden temp names, so swaps and chains can't collide.
-    -> (pairs done, error messages). Then fixes .cue/.m3u references to the renamed files."""
-    staged, failed = [], []
-    for i, (old, new) in enumerate(pairs):
-        tmp = os.path.join(os.path.dirname(old), f".retroshelf-rename-{os.getpid()}-{i}")
-        try:
-            os.rename(old, tmp)
-            staged.append((old, new, tmp))
-        except OSError as e:
-            failed.append(f"{os.path.basename(old)}: {e}")
-    done = []
-    for old, new, tmp in staged:
-        try:
-            if os.path.lexists(new):
-                raise OSError("name already taken")
-            os.rename(tmp, new)
-            done.append([old, new])
-        except OSError as e:
-            failed.append(f"{os.path.basename(old)}: {e}")
-            try:
-                os.rename(tmp, old)
-            except OSError as e2:
-                failed.append(f"{os.path.basename(old)} is left as {tmp}: {e2}")
-    by_name = {os.path.basename(o): os.path.basename(n) for o, n in done}
-    for _, new in done:
-        if new.lower().endswith(REF_EXT):
-            try:
-                fix_refs(new, by_name)
-            except OSError as e:
-                failed.append(f"{os.path.basename(new)} (updating file names inside): {e}")
-    return done, failed
-
-
-fix_refs = compress.fix_refs  # swaps old file names for new ones inside a .cue / .m3u / .gdi
-
-
 find_gamelist = scraper.find_gamelist
 
 
@@ -2175,14 +2025,10 @@ class App:
         return os.path.join(APP_DIR, "renames.json")
 
     def _read_renames(self):
-        try:
-            with open(self.renames_log(), encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return []
+        return renaming.read_log(self.renames_log())
 
     def _write_renames(self, batches):
-        write_json(self.renames_log(), batches, indent=1, ensure_ascii=False)
+        renaming.write_log(self.renames_log(), batches)
 
     def _carry_over(self, done, failed):
         """ES-DE media + gamelist follow the renamed files. -> short summary for the result message."""
@@ -2190,17 +2036,12 @@ class App:
         failed += problems
         return f"\n\nES-DE: renamed {media:,} media files and {entries:,} gamelist entries."
 
-    def _carry_matches(self, done, system):
-        """Hand-picked LaunchBox matches are stored by title; copy them to the renamed games' new titles."""
-        plat = self.platform if system == self.system else lb.resolve_platform(
+    def _platform_of(self, system):
+        return self.platform if system == self.system else lb.resolve_platform(
             system, nps.FULL_NAMES.get(system), self.cfg["platform_overrides"])
-        titles = {title_of(unit_key(os.path.basename(o))): title_of(unit_key(os.path.basename(n))) for o, n in done}
-        titles = {o: n for o, n in titles.items() if o != n}
-        if plat and titles:
-            try:
-                lb.copy_manual(plat, titles)
-            except OSError:
-                pass
+
+    def _carry_matches(self, done, system):
+        renaming.carry_matches(done, self._platform_of(system))
 
     def _after_rename(self, done):
         """Carry double-click flips over to the games' new names, then rescan."""
@@ -2278,16 +2119,7 @@ class App:
 
         def refresh():
             state["after"] = None
-            lb_names, fix = {}, set()
-            if self.platform:
-                m = lb.Matcher(self.platform)
-                lb_names = {k: m.games[gid]["n"] for k, gid in self.lb_links.items() if gid in m.games}
-                if fix_titles.get():  # hand-picked, or only matched after cleaning up a scene-style name
-                    fix = {k for k in lb_names
-                           if self.lb_kind.get(k) == "manual" or not m.matches_as_written(title_of(k))}
-                    for k in fix:
-                        if self.lb_kind.get(k) != "manual":
-                            lb_names[k] = m.proper_name(title_of(k), self.lb_links[k]) or lb_names[k]
+            lb_names, fix = renaming.lb_names(self.sc, fix_titles.get())
             keys = list(self.units) if scope.get() == 0 else [k for k in scopes[scope.get()][1] if k in self.units]
             state["rows"] = rows = plan_renames(
                 [(k, self.units[k]["paths"], lb_names.get(k), k in fix) for k in keys], template.get())
@@ -2321,9 +2153,7 @@ class App:
             esde = self._carry_over(done, failed) if done else ""
             self._carry_matches(done, self.system)
             if done:
-                batches = self._read_renames()
-                batches.append({"time": datetime.datetime.now().isoformat(timespec="seconds"),
-                                "system": self.system, "template": template.get(), "renames": done})
+                batches = self._read_renames() + [renaming.log_entry(self.system, template.get(), done)]
                 try:
                     self._write_renames(batches)
                 except OSError as e:
@@ -2382,22 +2212,8 @@ class App:
             sel = sorted((int(i) for i in tv.selection()), reverse=True)  # newest first undoes in order
             if not sel:
                 return
-            back, failed = [], []
-            for i in sel:
-                pairs = [(n, o) for o, n in batches[i]["renames"] if os.path.lexists(n)]
-                done, errs = apply_renames(pairs)
-                back += done
-                failed += errs
-                if done:  # ES-DE media + gamelist and hand-picked matches follow the names back
-                    failed += scraper.carry_over(done, batches[i]["system"], self.cfg["roms_root"],
-                                                 find_gamelist(self.cfg["roms_root"], batches[i]["system"]))[2]
-                    self._carry_matches(done, batches[i]["system"])
-                undone = {o for _, o in done}
-                left = [[o, n] for o, n in batches[i]["renames"] if os.path.lexists(n) and o not in undone]
-                if left:
-                    batches[i]["renames"] = left
-                else:
-                    del batches[i]
+            nonlocal batches
+            back, failed, batches = renaming.undo_batches(batches, sel, self.cfg["roms_root"], self._platform_of)
             try:
                 self._write_renames(batches)
             except OSError as e:

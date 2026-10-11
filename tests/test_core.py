@@ -374,7 +374,7 @@ class Windows(unittest.TestCase):
         rows = rs.plan_renames([("k", [os.path.join(self.dir, "Game (USA).sfc")], None, False)], "Con Man")
         self.assertEqual(rows[0]["status"], "rename")
         long_name = "A" * 300
-        with mock.patch.object(rs, "is_windows", return_value=True):
+        with mock.patch.object(rs.renaming, "is_windows", return_value=True):
             rows = rs.plan_renames([("k", [os.path.join(self.dir, "x.sfc")], None, False)], long_name)
         self.assertEqual(rows[0]["status"], "path too long for Windows")
 
