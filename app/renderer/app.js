@@ -81,7 +81,10 @@ function confirmBox({ title = "", message = "", detail = "", ok = "OK", cancel =
     overlay(`<h2>${esc(short ? message : title)}</h2>${short ? "" : `<p class="lines">${esc(message)}</p>`}
       ${detail ? `<p class="lines">${esc(detail)}</p>` : ""}`, [[cancel, () => done(false)], [ok, () => done(true), true]]);
     overlayCancel = () => done(false);
-    if (warning) $("overlay-box").querySelector(".primary").classList.add("danger");
+    if (warning) {  // (something that can't be undone: the cursor starts on Cancel, so a stray A / Enter doesn't do it)
+      $("overlay-box").querySelector(".primary").classList.add("danger");
+      $("overlay-box").querySelector(".btns .ghost").focus();
+    }
   });
 }
 // Folders and files are always picked in the window (pad.js's browseBox): the desktop's dialog can't be worked with a
