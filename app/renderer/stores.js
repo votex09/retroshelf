@@ -2,11 +2,11 @@
 // MAMEDEV), which share one window. (Uses app.js, sheets.js and tools.js: call, runJob, sheet, setProgress …)
 "use strict";
 
-registerTool({ cmd: "nps", label: "NoPayStation…", sub: "PS3, PS Vita and PSP packages", system: false, open: () => openNps() });
-registerTool({ cmd: "homebrew", label: "Homebrew Hub…", sub: "free GB / GBC / GBA / NES homebrew", system: false, open: () => openStore("homebrew") });
-registerTool({ cmd: "itch", label: "itch.io homebrew…", sub: "free homebrew, downloaded in your browser", system: false, open: () => openStore("itch") });
-registerTool({ cmd: "pdroms", label: "PDRoms homebrew…", sub: "homebrew since 1998, downloaded in your browser", system: false, open: () => openStore("pdroms") });
-registerTool({ cmd: "mamedev", label: "Free arcade games (MAMEDEV)…", sub: "arcade games released for free", system: false, open: () => openStore("mamedev") });
+registerTool({ cmd: "nps", group: "get", label: "NoPayStation…", sub: "PS3, PS Vita and PSP packages", system: false, open: () => openNps() });
+registerTool({ cmd: "homebrew", group: "get", label: "Homebrew Hub…", sub: "free GB / GBC / GBA / NES homebrew", system: false, open: () => openStore("homebrew") });
+registerTool({ cmd: "itch", group: "get", label: "itch.io homebrew…", sub: "free homebrew, downloaded in your browser", system: false, open: () => openStore("itch") });
+registerTool({ cmd: "pdroms", group: "get", label: "PDRoms homebrew…", sub: "homebrew since 1998, downloaded in your browser", system: false, open: () => openStore("pdroms") });
+registerTool({ cmd: "mamedev", group: "get", label: "Free arcade games (MAMEDEV)…", sub: "arcade games released for free", system: false, open: () => openStore("mamedev") });
 
 const options = (items, current) => items.map(([v, label]) => `<option value="${esc(v)}"${v === current ? " selected" : ""}>${esc(label)}</option>`).join("");
 
@@ -177,7 +177,7 @@ async function openNps(system) {
     const keys = pending.map((q) => q.key);
     try {
       const room = await call("nps_space", { system: info.system, keys });
-      if (room.free < room.need && !await rs.confirm({ title: "Low disk space", ok: "Start anyway", warning: true,
+      if (room.free < room.need && !await confirmBox({ title: "Low disk space", ok: "Start anyway", warning: true,
         message: `About ${npsSize(room.need)} is needed but only ${npsSize(room.free)} is free in ${room.dir}`, detail: "Start anyway?" })) return;
     } catch (e) { oops(e); return; }
     const others = N.queue.filter((q) => !keys.includes(q.key)).map((q) => N.states.get(q.key) || "");
@@ -234,7 +234,7 @@ async function openNps(system) {
     if (key === "Delete") { dequeue(); return true; }
     if (key === "ArrowDown" || key === "ArrowUp") {
       const keys = N.list?.rows.map((x) => x.key) || [];
-      if (!keys.length) return true;
+      if (!keys.length) return false;
       const cur = keys.findIndex((k) => N.sel.has(k));
       const i = Math.max(0, Math.min(keys.length - 1, cur < 0 ? 0 : cur + (key === "ArrowDown" ? 1 : -1)));
       N.sel = new Set([keys[i]]);
@@ -415,7 +415,7 @@ async function openStore(store) {
     const g = W.game;
     if (W.job) { W.job.stop(); $("w-install").disabled = true; $("w-install").textContent = "Stopping…"; return; }
     if (!g?.can_install) return;
-    if (g.confirm && !await rs.confirm({ title: `Install ${g.title}`, ok: "Install", message: g.confirm })) return;
+    if (g.confirm && !await confirmBox({ title: `Install ${g.title}`, ok: "Install", message: g.confirm })) return;
     $("w-install").textContent = "Stop";
     $("w-barbox").hidden = false;
     $("w-bar").style.width = "0%";
@@ -470,7 +470,7 @@ async function openStore(store) {
   function storeKeys(key) {
     if (key === "Enter") { if (W.sel) activate(); return true; }
     if (key === "ArrowDown" || key === "ArrowUp") {
-      if (!W.rows.length) return true;
+      if (!W.rows.length) return false;
       const cur = W.rows.findIndex((x) => x.key === W.sel);
       const i = Math.max(0, Math.min(W.rows.length - 1, cur < 0 ? 0 : cur + (key === "ArrowDown" ? 1 : -1)));
       select(W.rows[i].key);
@@ -506,7 +506,7 @@ async function openStore(store) {
     $("w-dir").title = path;
   };
   $("w-close").onclick = async () => {
-    if (W.waiting.count && !await rs.confirm({ title: "Still waiting", ok: "Close",
+    if (W.waiting.count && !await confirmBox({ title: "Still waiting", ok: "Close",
       message: "RetroShelf is still waiting for downloads to put in your ROMs folder. Close anyway?" })) return;
     closeSheet();
   };

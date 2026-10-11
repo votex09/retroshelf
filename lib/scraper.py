@@ -80,11 +80,41 @@ def gamelist_path(roms_root, system):
         os.path.join(roms_root, "..", "ES-DE", "gamelists", system, "gamelist.xml"))
 
 
+_MEDIA_SETTING = re.compile(r'<string\s+name="MediaDirectory"\s+value="([^"]*)"')
+_media_settings = {}  # es_settings.xml -> (mtime, value): media_root() is asked for every game's thumbnail
+
+
+def media_setting(home):
+    """ES-DE's own media folder setting (es_settings.xml: Other settings → Game media directory), or ""."""
+    path = os.path.join(home, "settings", "es_settings.xml")
+    try:
+        mtime = os.stat(path).st_mtime
+    except OSError:
+        return ""
+    cached = _media_settings.get(path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        with open(path, encoding="utf-8") as f:
+            m = _MEDIA_SETTING.search(f.read())
+    except (OSError, UnicodeDecodeError):
+        m = None
+    value = (m.group(1) if m else "").replace("&amp;", "&").replace("&quot;", '"').replace("&apos;", "'").strip()
+    value = os.path.expanduser(value.replace("%ESPATH%", os.path.dirname(home))) if value else ""
+    _media_settings[path] = (mtime, value)
+    return value
+
+
 def media_root(roms_root):
-    for p in (os.path.join(roms_root, "..", "ES-DE", "downloaded_media"), os.path.expanduser("~/ES-DE/downloaded_media")):
-        if os.path.isdir(p):
-            return os.path.realpath(p)
-    return os.path.realpath(os.path.join(roms_root, "..", "ES-DE", "downloaded_media"))
+    """ES-DE's downloaded_media folder: the one its settings name, else next to the ROMs (RetroDECK, portable ES-DE),
+    ~/ES-DE, or EmuDeck's Emulation/tools."""
+    homes = (os.path.join(roms_root, "..", "ES-DE"), os.path.expanduser("~/ES-DE"), os.path.expanduser("~/.emulationstation"))
+    choices = [m for m in (media_setting(h) for h in homes) if m]
+    choices += [os.path.join(roms_root, "..", "ES-DE", "downloaded_media"), os.path.expanduser("~/ES-DE/downloaded_media"),
+                os.path.join(roms_root, "..", "tools", "downloaded_media"), os.path.join(roms_root, "..", "downloaded_media"),
+                os.path.expanduser("~/.emulationstation/downloaded_media")]
+    return os.path.realpath(next((p for p in choices if os.path.isdir(p)),
+                                 os.path.join(roms_root, "..", "ES-DE", "downloaded_media")))
 
 
 def primary_file(paths):

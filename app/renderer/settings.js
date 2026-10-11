@@ -133,10 +133,14 @@ function openKeys() {
           ["→ / Del", "Move the game (Keeping list)"], ["←", "Keep the game (Moving list)"], ["Enter", "Flip it to the other list"],
           ["Space", "Mark it; flips then act on all marked games"], ["Tab", "Switch list"], ["Ctrl+Z / Backspace", "Undo"],
           ["/ / Ctrl+F", "Search"], ["S", "Pick a system"], ["Ctrl+R", "Review one at a time"], ["Ctrl+I", "Import ROMs"], ["F5", "Rescan"],
-          ["Esc", "Close, or clear the search"]])}</div>
+          ["F6", "Next part of the window: header, filters, details, buttons"], ["Shift+F10", "The game's menu (hide, LaunchBox match …)"],
+          ["Esc", "Close, or clear the search"]])}
+          <p class="note">Outside the lists, the arrow keys move between controls and Enter presses them. ↑ on the first game and ↓ on the last leave the list.</p></div>
         <div><div class="label">Gamepad</div>${helpRows([
           ["D-pad / Stick", "Move through the list"], ["A", "Mark"], ["X", "Flip to the other list"], ["Y", "Undo"],
-          ["LB / RB", "Switch list"], ["LT / RT", "A page up / down"], ["B", "Close"]])}
+          ["LB / RB", "Switch list"], ["LT / RT", "A page up / down"], ["Start", "☰ menu"], ["View", "Header and buttons"],
+          ["R3", "The game's menu"], ["Right stick", "Scroll the details"], ["B", "Back, close"]])}
+          <p class="note">Outside the lists, the d-pad moves between controls, A presses them, LB / RB jump to the next part of the window and A in a text box opens an on-screen keyboard.</p>
           <p class="note">${S.opts.gamepad ? (pads.length ? `Connected: ${esc(pads.join(", "))}. While you use it, the bottom of the window shows what its buttons do.`
             : "No gamepad found yet: plug one in (or press a button) and it's picked up by itself. On a Steam Deck, Steam keeps the built-in controls while it runs; other pads work.")
             : "The gamepad is off in ☰ → Settings."}</p></div>

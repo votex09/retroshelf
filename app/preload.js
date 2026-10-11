@@ -8,7 +8,6 @@ contextBridge.exposeInMainWorld("retroshelf", {
   saveFile: (opts) => ipcRenderer.invoke("save-file", opts),
   openFolder: (folder) => ipcRenderer.invoke("open-folder", folder),
   openUrl: (url) => ipcRenderer.invoke("open-url", url),
-  confirm: (opts) => ipcRenderer.invoke("confirm", opts),
   version: () => ipcRenderer.invoke("app:version"),
   checkUpdates: (auto) => ipcRenderer.invoke("update:check", auto),
   installUpdate: () => ipcRenderer.invoke("update:install"),
