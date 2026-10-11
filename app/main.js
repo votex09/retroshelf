@@ -101,6 +101,10 @@ ipcMain.handle("open-folder", (_e, folder) => {  // folders only: opening a file
   try { if (!fs.statSync(folder).isDirectory()) return "not a folder"; } catch (e) { return e.message; }
   return shell.openPath(folder);
 });
+ipcMain.handle("open-url", (_e, url) => {  // web pages only, in the user's browser
+  if (!/^https?:\/\//i.test(String(url))) return "not a web page";
+  return shell.openExternal(url).then(() => "", (e) => e.message);
+});
 ipcMain.handle("app:version", () => app.getVersion());
 
 // ---------- --smoke: used by CI on the built app ----------

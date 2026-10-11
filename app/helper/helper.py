@@ -538,6 +538,7 @@ rpc.ctx.update(cfg=cfg, save_cfg=save_cfg, need_system=_need_system, open_system
                state_lock=_state_lock, data_dir=DATA_DIR, app_dir=APP_DIR)
 import tool_rename  # noqa: E402,F401
 import tool_scrape  # noqa: E402,F401
+import tool_stores  # noqa: E402,F401
 
 
 # ---------- plumbing ----------
