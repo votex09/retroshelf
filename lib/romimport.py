@@ -1045,3 +1045,144 @@ def prune(folder, stop):
         except OSError:
             return
         folder = os.path.dirname(folder)
+
+
+# ---------- the Import ROMs window's list (both apps) ----------
+def default_inbox(roms_root):
+    """The import folder: next to the ROMs folder (same drive, so filing big discs is a quick move)."""
+    base = os.path.dirname(os.path.normpath(roms_root)) if roms_root else os.path.expanduser("~")
+    return os.path.join(base, "import")
+
+
+def inbox_dir(cfg):
+    return cfg.get("import_dir") or default_inbox(cfg.get("roms_root"))
+
+
+def waiting(inbox):
+    """How many things are in the import folder."""
+    try:
+        return sum(1 for n in os.listdir(inbox) if not n.startswith("."))
+    except OSError:
+        return 0
+
+
+def inbox_paths(inbox):
+    """What's in the import folder, to collect()."""
+    if not os.path.isdir(inbox):
+        return []
+    return [os.path.join(inbox, n) for n in sorted(os.listdir(inbox)) if not n.startswith(".")]
+
+
+def inbox_state(inbox):
+    """{file: (size, modified)} for everything in the import folder: two looks the same and a copy has finished."""
+    state = {}
+    for d, dirs, files in os.walk(inbox):
+        dirs[:] = [x for x in dirs if not x.startswith(".")]
+        for n in files:
+            p = os.path.join(d, n)
+            try:
+                st = os.stat(p)
+                state[p] = (st.st_size, st.st_mtime)
+            except OSError:
+                pass
+    return state
+
+
+def inbox_problem(path, roms_root):
+    """Why path can't be the import folder, or None."""
+    path, root = os.path.normpath(path), os.path.normpath(roms_root)
+    if os.path.normcase(path) == os.path.normcase(root) or _inside(path, root):
+        return "The import folder can't be inside your ROMs folder."
+    return None
+
+
+def system_choices(roms_root):
+    """Systems to offer: every known one plus any other folder in the ROMs folder."""
+    codes = set(LABELS)
+    try:
+        codes |= {d for d in os.listdir(roms_root) if not d.startswith((".", "_"))
+                  and os.path.isdir(os.path.join(roms_root, d))}
+    except OSError:
+        pass
+    return sorted(codes, key=lambda c: label(c).lower())
+
+
+def new_rows(rows, listed):
+    """The rows that aren't in the list (listed) yet."""
+    known = {os.path.normcase(r.path) for r in listed if not r.status.startswith("Imported")}
+    return [r for r in rows if os.path.normcase(r.path) not in known]
+
+
+def gone(row):
+    """A row whose files have left where they were (and that wasn't imported from here)."""
+    return not row.status.startswith("Imported") and not all(os.path.exists(p) for p in row.sources()[:1])
+
+
+def scan_row(row):
+    """scan(), with what went wrong in the row's status."""
+    try:
+        scan(row)
+        if row.status == "Checking …":
+            row.status = ""
+    except Exception as e:  # shown in the row
+        row.status = f"Can't read it: {e}"
+    return row
+
+
+def shown(row):
+    """What the list shows for a row: name, system, how it was found, size, status, and tag ("done", "problem"
+    or "")."""
+    system = "found when unpacked" if row.opaque and not row.override else row.describe()
+    hows = sorted({u.how for u in row.units if u.how})
+    how = "you" if row.override else (hows[0] if len(hows) == 1 else ", ".join(hows)[:60])
+    n = len(row.units)
+    tag = ""
+    if row.status.startswith(("Imported", "Already")):
+        tag = "done"
+    elif not row.status.startswith("Checking") and (not row.ready() or row.status):
+        tag = "problem"
+    return {"name": row.name + (f"  ({n} games)" if row.archive and n > 1 else ""), "system": system,
+            "how": how if row.units else "", "size": row.size, "status": row.status, "tag": tag}
+
+
+def set_system(row, code):
+    """The user picked row's system (None: back to the one detected)."""
+    if row.status.startswith("Imported"):
+        return
+    row.override = code
+    if row.status.startswith(("Can't tell", "Pick")):
+        row.status = ""
+
+
+def to_import(rows):
+    return [r for r in rows if not r.status.startswith(("Imported", "Checking")) and r.ready()]
+
+
+def import_one(row, roms_root, inbox, report=lambda text=None, fraction=None: None, cancelled=lambda: False,
+               delete_originals=False):
+    """import_row(), with how it went in the row's status; folders it empties in the import folder go too."""
+    try:
+        results = import_row(row, roms_root, report, cancelled, delete_originals)
+        good = [x for _, x in results if not isinstance(x, Exception)]
+        bad = [x for _, x in results if isinstance(x, Exception)]
+        systems = sorted({os.path.basename(os.path.dirname(p[0])) for p in good if p})
+        if good and not bad:
+            row.status = "Imported → roms/" + ", roms/".join(systems)
+        elif good:
+            row.status = f"Imported {len(good)}, {len(bad)} not: {bad[0]}"
+        elif bad and all(isinstance(x, FileExistsError) for x in bad):
+            row.status = f"Already there: {bad[0]}"
+        else:
+            row.status = f"{bad[0]}"[:200]
+        if row.inbox and good and not bad:
+            prune(os.path.dirname(row.path), inbox)
+    except InterruptedError:
+        row.status = "Stopped"
+    except Exception as e:  # shown in the row
+        row.status = str(e)[:200] or type(e).__name__
+    return row
+
+
+def imported_systems(rows):
+    """The roms/ folders the imported rows went into, for saying where."""
+    return sorted({s.strip(", ") for r in rows if r.status.startswith("Imported") for s in r.status.split("roms/")[1:]})

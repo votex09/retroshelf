@@ -11,6 +11,14 @@ answers and events to the window, long jobs with progress and Stop, and what the
         stop = stopped(job)            # stop() -> True once the window called cancel(job)"""
 import json, sys, threading
 
+# The window speaks UTF-8 whatever the system's own encoding is (Windows': cp1252), so names like "Pokémon" and
+# messages with "→" get through even when the helper isn't started with PYTHONIOENCODING=utf-8.
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):  # not a text stream (tests may swap them)
+        pass
+
 METHODS = {}
 ctx = {}  # filled by helper.py: cfg, save_cfg, need_system, open_system, state_lock, data_dir
 _out = sys.stdout

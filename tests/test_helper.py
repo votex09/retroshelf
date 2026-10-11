@@ -1,11 +1,13 @@
 """The Electron app's Python helper (app/helper/helper.py), spoken to the way the app does: JSON lines over a pipe.
 Needs no tkinter or display. Also lib/library.py, the Tk-free ROMs-folder code it shares with retroshelf.py."""
-import json, os, subprocess, sys, tempfile, unittest
+import io, json, os, subprocess, sys, tempfile, unittest, zipfile
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(TESTS)
 HELPER = os.path.join(REPO, "app", "helper", "helper.py")
 sys.path.insert(0, os.path.join(REPO, "lib"))
+sys.path.insert(0, TESTS)
+import discs  # noqa: E402
 import library  # noqa: E402
 
 
@@ -245,9 +247,184 @@ rpc.METHODS["cancel"]("j1")
 print(json.dumps({"before": before, "after": stop(), "other": rpc.stopped("j2")()}))""")
         self.assertEqual(out, {"before": False, "after": True, "other": False})
 
+    def test_first_run_setup(self):
+        place = os.path.join(self.tmp.name, "sd")
+        os.makedirs(place)
+        out = session(self.data, f"""
+import rpc, frontend, tool_setup
+events = []
+rpc.event = lambda name, data=None: events.append(data["message"])
+tool_setup.is_windows = frontend.is_windows = lambda: False  # the Linux flow, wherever the tests run
+frontend.retrodeck_installed = lambda: False
+frontend.install_retrodeck = lambda log, cancelled: [log("$ install"), log("done")]
+start = h.startup()
+info = h.setup_info()
+res = h.setup_install("j1", "custom", {place!r})
+try:
+    h.setup_install("j2", "custom", {os.path.join(place, "nope")!r})
+    bad = ""
+except PermissionError as e:
+    bad = str(e)
+done = h.setup_done({self.roms!r})
+print(json.dumps({{"offered": start["setup_offered"], "name": info["name"], "res": res, "events": events, "bad": bad,
+                  "roms": done["roms"], "tips": len(done["tips"])}}))""")
+        self.assertFalse(out["offered"])
+        self.assertEqual(out["name"], "RetroDECK")
+        self.assertEqual(out["events"], ["$ install", "done"])
+        self.assertEqual(out["res"]["expected"], os.path.join(place, "retrodeck", "roms"))
+        self.assertIn(place, out["res"]["steps"][1])
+        self.assertIn("can't write", out["bad"])
+        self.assertEqual(out["roms"], os.path.realpath(self.roms))
+        self.assertEqual(out["tips"], 2)
+        self.assertTrue(self.config()["setup_offered"])
+        self.assertEqual(session(self.data, 'print(json.dumps(h.startup()["setup_offered"]))'), True)
+
+    def test_storage_overview(self):
+        with open(os.path.join(self.roms, "snes", "Chrono Trigger (USA).sfc"), "w") as f:
+            f.write("x" * 100)
+        out = session(self.data, """
+import rpc
+events = []
+rpc.event = lambda name, data=None: events.append(data)
+h.startup()
+print(json.dumps({"st": h.storage_scan("j1"), "events": events}))""")
+        (snes,) = out["st"]["systems"]
+        self.assertEqual((snes["code"], snes["label"]), ("snes", "snes — Nintendo SNES (Super Nintendo)"))
+        self.assertEqual((snes["games"], snes["size"], snes["media"], snes["more"]), (3, 100, 0, 0))
+        self.assertEqual(snes["biggest"][0], ["Chrono Trigger (USA)", 100])  # the main window's keys
+        self.assertGreater(out["st"]["drive"]["total"], 0)
+        self.assertEqual(out["events"][0]["job"], "j1")
+
+    def test_health_check(self):
+        out = session(self.data, """
+h.startup(); h.open_system("snes")
+found = h.health_scan("j1", system="snes")
+ids = [p["id"] for p in found["problems"] if p["fix"]]
+plan = h.health_fix_plan(ids)
+print(json.dumps({"found": found, "plan": plan, "fixed": h.health_fix(ids), "again": h.health_scan("j2")}))""")
+        self.assertEqual([(p["kind"], p["name"]) for p in out["found"]["problems"]],
+                         [("empty", "Chrono Trigger (USA).sfc"), ("empty", "Super Metroid (USA).zip")])
+        self.assertEqual(out["plan"], {"lines": ["Empty game files: 2 (delete it)"], "deletes": 2})
+        self.assertEqual(out["fixed"]["done"], {"0": "Deleted Chrono Trigger (USA).sfc",
+                                                "1": "Deleted Super Metroid (USA).zip"})
+        self.assertEqual((out["fixed"]["failed"], out["fixed"]["systems"]), ({}, ["snes"]))
+        self.assertEqual(out["again"]["problems"], [])
+        self.assertNotIn("Chrono Trigger (USA).sfc", os.listdir(os.path.join(self.roms, "snes")))
+
+    def test_find_duplicates(self):
+        game = os.path.join(self.roms, "snes", "Chrono Trigger (USA).sfc")
+        with open(game, "w") as f:
+            f.write("x" * 100)
+        os.makedirs(os.path.join(self.roms, "sfc"))
+        with open(os.path.join(self.roms, "sfc", "Chrono Trigger (USA).sfc"), "w") as f:
+            f.write("x" * 100)
+        out = session(self.data, """
+h.startup()
+found = h.dupes_scan("j1")
+s = found["sets"][0]
+keep = [i for i, c in enumerate(s["copies"]) if c["system"] == "sfc"][0]  # keep the sfc one instead
+done = h.dupes_resolve({str(s["id"]): keep})
+print(json.dumps({"found": found, "done": done, "twice": h.dupes_resolve({str(s["id"]): keep}),
+                  "runs": h.moves()}))""")
+        (s,) = out["found"]["sets"]
+        self.assertEqual((s["kind"], s["title"], s["extra"]), ("copies", "Chrono Trigger (USA)", 100))
+        self.assertEqual(s["copies"][s["keep"]]["system"], "snes")  # the fuller folder keeps its copy
+        self.assertEqual(out["found"]["holding"], os.path.join(self.tmp.name, "pruned", "to_delete"))
+        self.assertEqual(out["done"], {"moved": 1, "sets": [0], "systems": ["snes"], "problems": []})
+        self.assertEqual(out["twice"]["moved"], 0)  # a set is only moved once
+        self.assertFalse(os.path.exists(game))
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, "pruned", "to_delete", "snes",
+                                                    "Chrono Trigger (USA).sfc")))
+        self.assertEqual((out["runs"][0]["system"], out["runs"][0]["files"]), ("snes", 1))
+
     def test_needs_a_system(self):
         with self.assertRaisesRegex(AssertionError, "No system is open"):
             session(self.data, 'h.startup(); h.decide({})')
+
+    def write(self, path, data):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+
+    def test_compress(self):
+        psx = os.path.join(self.roms, "psx")
+        sotn = "Castlevania - Symphony of the Night (USA)"
+        self.write(os.path.join(psx, f"{sotn}.cue"), f'FILE "{sotn} (Track 1).bin" BINARY\n  TRACK 01 MODE2/2352\n'
+                   f'FILE "{sotn} (Track 2).bin" BINARY\n  TRACK 02 AUDIO\n'.encode())
+        for t in (1, 2):
+            self.write(os.path.join(psx, f"{sotn} (Track {t}).bin"), b"\0" * 300_000)
+        self.write(os.path.join(psx, "Final Fantasy VII (USA).chd"), b"\0" * 1000)
+        out = session(self.data, f"""
+import compress, rpc, tool_files
+compress.find_tool = lambda name: compress.Tool(name, "the tests", [sys.executable, {os.path.join(TESTS, "fake_disc_tool.py")!r}])
+events = []
+rpc.event = tool_files.event = lambda name, data=None: events.append(data)
+h.startup()
+snes = h.open_system("snes") and h.compress_info()
+h.open_system("psx")
+info, tool = h.compress_info(), h.compress_tool()
+done = h.compress_games("j1", [{sotn!r}])
+print(json.dumps({{"snes": snes, "info": info, "tool": tool, "done": done, "after": h.compress_info(),
+                  "rows": [e for e in events if "key" in e], "runs": h.moves()}}))""")
+        self.assertEqual(out["snes"], {"supported": False, "listed": False})
+        self.assertEqual(out["info"]["format"], "CHD")
+        self.assertEqual([(r["key"], r["now"], r["discs"]) for r in out["info"]["rows"]], [(sotn, "cue + 2 bin", 1)])
+        self.assertEqual(out["info"]["skipped"], [{"key": "Final Fantasy VII (USA)", "why": "already compressed"}])
+        self.assertEqual(out["info"]["holding"], os.path.join(self.tmp.name, "pruned", "to_delete", "psx"))
+        self.assertEqual(out["tool"]["where"], "the tests")
+        self.assertEqual((out["done"]["games"], out["done"]["problems"], out["done"]["stopped"]), (1, [], False))
+        self.assertEqual(out["rows"][-1]["tag"], "done")
+        self.assertEqual(sorted(n for n in os.listdir(psx) if n.startswith(sotn)), [f"{sotn}.chd"])
+        self.assertEqual(len(os.listdir(out["info"]["holding"])), 3)
+        self.assertEqual(out["after"]["rows"], [])
+        self.assertEqual((out["runs"][0]["system"], out["runs"][0]["files"]), ("psx", 3))  # Restore a move can undo it
+
+    def test_import(self):
+        inbox = os.path.join(self.tmp.name, "import")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("mystery.p1", b"x" * 10)
+        for name, data in (("Gran Turismo 4 (USA).7z", discs.seven_zip({"Gran Turismo 4 (USA).iso": discs.ps2()})),
+                           ("mystery.zip", buf.getvalue()), ("Tetris (World).gb", b"T" * 64)):
+            self.write(os.path.join(inbox, name), data)
+        nas = os.path.join(self.tmp.name, "nas", "PS2 Collection")
+        for rel in ("Okami (USA)/Okami (USA).7z", "Ico (USA).7z"):
+            self.write(os.path.join(nas, rel), discs.seven_zip({"x.iso": discs.ps2()}))
+        out = session(self.data, f"""
+import rpc
+rpc.event = lambda name, data=None: None
+h.startup()
+info = h.import_info()
+scanned = h.import_scan()
+h.import_set_system([r["id"] for r in scanned["rows"] if r["name"] == "mystery.zip"], "fbneo")
+done = h.import_run("j1")
+try:
+    h.import_set_inbox({os.path.join(self.roms, "inbox")!r})
+    inside = None
+except ValueError as e:
+    inside = str(e)
+folder = h.import_folder({nas!r})
+added = h.import_add_folder()
+with open({os.path.join(inbox, "Metroid (USA).gba")!r}, "wb") as f:
+    f.write(b"M" * 64)
+watch = [h.import_watch(), h.import_watch()]
+print(json.dumps({{"info": info, "scanned": scanned, "done": done, "inside": inside, "folder": folder,
+                  "added": added, "watch": watch}}))""")
+        self.assertEqual(out["info"]["inbox"], inbox)
+        self.assertTrue(all(r["status"] == "Checking …" for r in out["info"]["rows"]))
+        self.assertEqual({r["name"]: r["system"] for r in out["scanned"]["rows"]},
+                         {"Gran Turismo 4 (USA).7z": "PlayStation 2", "mystery.zip": "?", "Tetris (World).gb": "Game Boy"})
+        self.assertEqual((out["scanned"]["ready"], out["scanned"]["unknown"]), (2, 1))
+        self.assertEqual((out["done"]["imported"], out["done"]["systems"]), (3, ["fbneo", "gb", "ps2"]))
+        for rel in ("ps2/Gran Turismo 4 (USA).iso", "fbneo/mystery.zip", "gb/Tetris (World).gb"):
+            self.assertTrue(os.path.exists(os.path.join(self.roms, *rel.split("/"))), rel)
+        self.assertEqual(out["inside"], "The import folder can't be inside your ROMs folder.")
+        self.assertEqual(out["folder"], {"games": 2, "folders": 2})
+        self.assertEqual(sorted(r["name"] for r in out["added"]["rows"] if r["status"] == "Checking …"),
+                         ["Ico (USA).7z", "Okami (USA).7z"])
+        self.assertIsNone(out["watch"][0])  # seen once: it might still be copying
+        self.assertIn("Metroid (USA).gba", [r["name"] for r in out["watch"][1]["rows"]])
+        self.assertTrue(os.path.exists(os.path.join(nas, "Ico (USA).7z")))  # added from elsewhere: copied, not moved
 
 
 class Library(unittest.TestCase):

@@ -1,5 +1,5 @@
 """Tools → Library health check: lists what lib/health.py finds, grouped by kind, and fixes what can be fixed."""
-import os, queue, threading
+import queue, threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -163,7 +163,7 @@ class HealthWindow:
             return
         self.fix_btn.state(["!disabled"] if ids else ["disabled"])
         self.fix_btn.config(text=f"Fix {len(ids):,}" if ids else "Fix")
-        freed = sum(self.problems[i].size for i in ids if self.problems[i].kind in ("media", "leftover"))
+        freed = health.frees([self.problems[i] for i in ids])
         self.summary.config(text=(f"{len(ids):,} to fix" + (f"  ·  frees {human(freed)}" if freed else ""))
                             if ids else "")
 
@@ -171,18 +171,11 @@ class HealthWindow:
         ids = self.chosen()
         if not ids or self.busy:
             return
-        lines, deletes = [], 0
-        for kind, heading in health.KINDS:
-            mine = [self.problems[i] for i in ids if self.problems[i].kind == kind]
-            if not mine:
-                continue
-            what = mine[0].fix.lower()
-            lines.append(f"• {heading}: {len(mine):,} ({what})")
-            if kind in ("media", "leftover", "empty"):
-                deletes += sum(len(p.paths) for p in mine)
+        lines, deletes = health.fix_plan([self.problems[i] for i in ids])
         note = (f"\n\n{deletes:,} files are deleted for good (artwork and videos can be scraped again)."
                 if deletes else "")
-        if not messagebox.askyesno(TITLE, "Fix these?\n\n" + "\n".join(lines) + note, parent=self.win):
+        lines = "\n".join(f"• {x}" for x in lines)
+        if not messagebox.askyesno(TITLE, f"Fix these?\n\n{lines}{note}", parent=self.win):
             return
         failed = []
         touched = set()

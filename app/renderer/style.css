@@ -413,3 +413,53 @@ body.pad .r-foot kbd { display: none; }
 .sheet.wide { width: min(700px, calc(100vw - 48px)); }
 .form::-webkit-scrollbar { width: 10px; }
 .form::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 10px; border: 3px solid var(--surface); }
+
+/* ---------- first-run setup ---------- */
+.setup code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 12.5px; overflow-wrap: anywhere; user-select: text; }
+.setup .found { display: flex; align-items: center; gap: 14px; padding: 12px 14px; margin: 6px 0; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--border); }
+.setup .found span { flex: 1; min-width: 0; }
+.setup .places .place { display: grid; grid-template-columns: auto 150px 90px 1fr; }
+.setup .places .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup .dim { color: var(--muted); }
+.setup .steps, .setup .tips { margin: 6px 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.setup .log { flex: 1; min-height: 160px; margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; overflow: auto;
+  background: var(--surface-2); color: var(--muted); font: 12px ui-monospace, "Cascadia Mono", monospace; user-select: text; }
+.progress-bar div.indeterminate { width: 30%; animation: slide 1.2s var(--ease) infinite alternate; transition: none; }
+@keyframes slide { from { margin-left: 0; } to { margin-left: 70%; } }
+.spinner.small { display: inline-block; width: 12px; height: 12px; border-width: 2px; margin: 0 6px -1px 0; }
+/* ---------- library-tools: storage overview, health check, duplicates ---------- */
+.storage-sheet { width: min(1100px, calc(100vw - 48px)); }
+.progress-bar.drive { margin: 0 22px 12px; }
+.storage .trow { grid-template-columns: minmax(0, 1fr) 70px 100px 90px 100px 140px 120px; }
+.storage-games .trow { grid-template-columns: minmax(0, 1fr) 100px 140px; }
+.storage { flex: 3; }
+.storage-games { flex: 2; }
+.storage-games .trow.more { grid-template-columns: 1fr; cursor: default; }
+.table-label { padding: 12px 22px 6px; font-weight: 600; }
+.share { height: 6px; border-radius: 6px; background: var(--surface-3); overflow: hidden; }
+.share i { display: block; height: 100%; background: var(--accent); }
+.tool-progress { display: flex; align-items: center; gap: 16px; padding: 10px 22px 0; }
+.tool-progress .progress-text { flex: 1; }
+.tool-progress .progress-bar { width: 220px; margin: 0; }
+.health .trow { grid-template-columns: 22px minmax(0, 1.1fr) 90px minmax(0, 1.4fr) 150px; }
+.trow.group, .dupes .trow.set { font-weight: 600; }
+.trow.group { grid-template-columns: 1fr; padding-top: 12px; }
+.health .nofix .nm, .health .nofix .fix { color: var(--muted); }
+.health .fixed .fix, .dupes .keep { color: var(--keep); }
+.health .failed .fix, .dupes .go { color: var(--move); }
+.dupes .trow { grid-template-columns: minmax(0, 1fr) 160px 100px 130px 100px; }
+.dupes .trow.copy > .nm { padding-left: 18px; }
+.dupes .trow.done { color: var(--muted); cursor: default; }
+
+/* ---------- file-tools ---------- */
+.tool-line { margin: 0 22px 12px; }
+.job-progress { padding: 0 22px; }
+.job-progress .progress-bar { margin-top: 10px; }
+.sheet-tools .grow { flex: 1; }
+.inbox-path { flex: 1; min-width: 0; font-size: 13px; }
+.compress .trow { grid-template-columns: 22px minmax(0, 1fr) 120px 80px minmax(0, 220px); }
+.compress .trow.skip { cursor: default; }
+.imports .trow { grid-template-columns: 22px minmax(0, 1fr) 170px 110px 70px minmax(0, 220px); }
+.compress .done, .imports .trow.done .st { color: var(--keep); }
+.compress .failed, .imports .trow.problem .st, .imports .trow.problem .sys { color: var(--move); }

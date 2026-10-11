@@ -18,9 +18,12 @@ main.js            the app: opens the window, runs the helper, answers the windo
 helper.js          runs the Python helper and matches its answers to requests
 preload.js         what the window is allowed to ask for (window.retroshelf)
 renderer/          the window: app.js (the main window), list.js (the game lists), sheets.js (holding folder,
-                   restore, Review, collections, region priority, LaunchBox match), art.js (stand-in box art);
-                   the look comes from mockups/electron
+                   restore, Review, collections, region priority, LaunchBox match), the ☰ menu's tool windows
+                   (tools.js: scrape, rename; file-tools.js: compress, import; library-tools.js: storage, health check, duplicates; setup.js:
+                   first-run setup), art.js (stand-in box art); the look comes from mockups/electron
 helper/helper.py   the Python helper: JSON lines over stdin / stdout, calling lib/ (see its docstring)
+helper/rpc.py      its plumbing: @method, events, long jobs with progress and Stop
+helper/tool_*.py   each tool window's Python side
 helper/*.spec      how PyInstaller bundles the helper (and lib/) for the built app
 updates.js         self-updates from GitHub Releases; off until this app is the one released
 ```
@@ -49,7 +52,7 @@ The Linux build is made on Ubuntu 22.04 so the bundled helper runs on distros th
 
 ## Adding something the window can ask Python for
 
-Add a function with `@method` to `helper/helper.py` (its keyword arguments are the request's `params`, its return
+Add a function with `@method` to `helper/helper.py`, or to a `helper/tool_*.py` for a tool window (its keyword arguments are the request's `params`, its return
 value the answer, an exception becomes an error the window gets), then call it from the window with
 `await window.retroshelf.call("name", {...})`. Keep the work itself in `lib/`, without Tk, so both apps and the tests
 can use it; `tests/test_helper.py` shows how to test through the helper.

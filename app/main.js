@@ -92,6 +92,11 @@ ipcMain.handle("pick-folder", async (_e, start, title) => {
     properties: ["openDirectory", "createDirectory"] });
   return r.canceled ? null : r.filePaths[0];
 });
+ipcMain.handle("pick-files", async (_e, start, title) => {
+  const r = await dialog.showOpenDialog(win, { title: title || "Add games", defaultPath: start || undefined,
+    properties: ["openFile", "multiSelections"] });
+  return r.canceled ? [] : r.filePaths;
+});
 ipcMain.handle("save-file", async (_e, opts) => {
   const r = await dialog.showSaveDialog(win, { title: opts.title, defaultPath: opts.name,
     filters: [{ name: "Text", extensions: ["txt"] }] });
@@ -100,6 +105,10 @@ ipcMain.handle("save-file", async (_e, opts) => {
 ipcMain.handle("open-folder", (_e, folder) => {  // folders only: opening a file could run it
   try { if (!fs.statSync(folder).isDirectory()) return "not a folder"; } catch (e) { return e.message; }
   return shell.openPath(folder);
+});
+ipcMain.handle("open-url", (_e, url) => {  // web pages only, in the user's browser
+  if (!/^https:\/\//.test(String(url))) return "not a web address";
+  return shell.openExternal(url).then(() => "");
 });
 ipcMain.handle("app:version", () => app.getVersion());
 
