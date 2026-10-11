@@ -279,6 +279,8 @@ footer { display: flex; align-items: center; gap: 16px; padding: 12px 18px; }
   font-size: 15px; font-weight: 600;
 }
 .osk-key.wide { min-width: 96px; }
+.osk.numbers .osk-key { min-width: 56px; height: 46px; }
+.osk.numbers .osk-row:last-child .osk-key { flex: 1; }
 .osk-key.on { background: var(--accent); color: #04263a; border-color: var(--accent); }
 .osk-key.lit { color: var(--accent); }
 body.light .osk { background: rgba(255, 255, 255, .98); box-shadow: 0 24px 60px rgba(20, 30, 50, .2); }

@@ -380,14 +380,15 @@ function openReview() {
       </div>
     </div>`, "review-sheet", null, keys);
 
+  keys.all = true;  // (every button does one thing here: no cursor going round the buttons)
   keys.hints = { pad: [["a", "Keep"], ["x", "Move"], ["dpad-lr", "Back / Skip"], ["y", "Undo"]],
     keys: [["key", "Space", "Keep"], ["key", "Enter", "Move"], ["key", "← →", "Back / Skip"], ["key", "Ctrl+Z", "Undo"]] };
   function keys(key, e = {}) {
     const k = key.length === 1 ? key.toLowerCase() : key;
     if (k === "k" || k === " ") decide(false);
     else if (k === "m" || k === "Enter") decide(true);
-    else if (k === "s" || k === "ArrowRight" || k === "PageDown") go(1);
-    else if (k === "ArrowLeft" || k === "PageUp") go(-1);
+    else if (k === "s" || k === "ArrowRight") go(1);
+    else if (k === "ArrowLeft") go(-1);
     else if (k === "Backspace" || (k === "z" && e.ctrlKey)) back();
     else return false;
     return true;

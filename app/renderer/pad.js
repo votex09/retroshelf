@@ -45,7 +45,10 @@ const LAYERS = "#picker, #overlay-box, #sheet, #ctx, #menu, #systems-pop, #filte
 const layerOf = (el) => el.closest(LAYERS) || document.body;
 
 // Where a control is, for the purposes of moving: a tick box is its whole label.
-const box = (el) => (el.matches("input[type=checkbox], input[type=radio]") && el.closest("label") || el);
+const box = (el) => {
+  const label = el.matches("input[type=checkbox], input[type=radio]") && el.closest("label");
+  return label && !label.querySelector("input:not([type=checkbox]):not([type=radio]), select, button") ? label : el;  // (the label
+};  // holds more boxes, the rating filter's numbers: just the tick box, so those can be reached)
 
 function rectOf(el) {
   if (el?.classList?.contains("list")) {  // a game list: its selected row
@@ -177,6 +180,11 @@ function landing(layer) {
 // Called on every key or button and every frame: keep the cursor in the top layer.
 function syncCursor(force = false) {
   const layer = topLayer();
+  if (ownsAll()) {  // (Review: every button has its own job, nothing to move between)
+    if (P.cur) box(P.cur).classList.remove("pad-cur");
+    if (P.layer !== layer || P.cur) { P.layer = layer; P.cur = null; P.sig = null; hints(); }
+    return;
+  }
   if (layer !== P.layer) {
     const from = P.layer;
     P.layer = layer;
@@ -249,7 +257,7 @@ const onRow = () => Boolean(P.cur?.matches(".trow") && topLayer() !== document.b
 
 // A sheet moved its own selection (its arrow keys): a cursor on its table goes along.
 function followSelection(table) {
-  const on = table?.querySelector(".trow.on");
+  const on = (table || (topLayer() === $("sheet") && !P.cur ? $("sheet") : null))?.querySelector(".trow.on");  // (no cursor yet: onto it)
   if (on) setCursor(on); else syncCursor();
 }
 const tableOf = () => (P.cur?.matches(".trow") ? P.cur.closest("[id]") : null);
@@ -329,6 +337,45 @@ function nextZone(step) {
   }
 }
 
+// L1 / R1 (F6) in a window or box: its parts in turn (the filters along the top, a table, the panel beside it, the
+// buttons along the bottom …), each remembering where the cursor was in it.
+const SHEET_AREAS = ".sheet-head, .sheet-tools, .table, .nps-side, .store-details, .store-status, .sheet-foot, .form, .prio, "
+  + ".browse-places, .browse-list, .btns";
+const sheetAreaSaved = new WeakMap();
+function sheetAreas(layer = topLayer()) {
+  const groups = [];
+  for (const el of focusables(layer)) {
+    const area = el.closest(SHEET_AREAS) || [...layer.children].find((c) => c.contains(el)) || layer;
+    let g = groups.find((x) => x.area === area);
+    if (!g) groups.push(g = { area, els: [] });
+    g.els.push(el);
+  }
+  return groups;
+}
+function nextArea(step) {
+  const groups = sheetAreas();
+  if (groups.length < 2) return;
+  const at = P.cur ? groups.findIndex((g) => g.els.includes(P.cur)) : -1;
+  if (at >= 0) sheetAreaSaved.set(groups[at].area, P.cur);
+  const g = groups[at < 0 ? (step > 0 ? 0 : groups.length - 1) : (at + step + groups.length) % groups.length];
+  const saved = sheetAreaSaved.get(g.area);
+  setCursor(g.els.includes(saved) ? saved : g.els.find((el) => el.matches(".trow.on, .cur")) || g.els.find((el) => el.matches(".primary"))
+    || g.els.find((el) => el.matches(".trow:not([data-all])")) || g.els[0]);
+}
+const inBox = (layer = topLayer()) => layer === $("sheet") || layer === $("overlay-box");
+const ownsAll = () => Boolean(sheetKeys?.all) && topLayer() === $("sheet");
+
+// A window that takes every button itself (Review): what each one is, as keys for its handler. The d-pad ▲ ▼, the
+// right stick and L2 / R2 scroll it; B closes.
+const OWN_KEYS = { 0: " ", 2: "Enter", 3: "Backspace", 14: "ArrowLeft", 15: "ArrowRight" };
+function ownButton(b) {
+  if (b === 1) { back(); return; }
+  if (b === 9) { startMenu(); return; }
+  if (b === 12 || b === 13) { padScroll(b === 13 ? 60 : -60); return; }
+  if (b === 6 || b === 7) { padScroll(b === 7 ? 1 : -1, true); return; }
+  if (OWN_KEYS[b]) sheetKeys(OWN_KEYS[b], {});
+}
+
 // View: search, with the on-screen keyboard.
 function openSearch() {
   closePopovers();
@@ -401,6 +448,14 @@ document.addEventListener("keydown", (e) => {
   const layer = topLayer(), dir = NAV[e.key];
   if (e.key === "Escape") { e.preventDefault(); back(); return; }
   if (e.key === "F10" && !e.shiftKey) { e.preventDefault(); startMenu(); return; }  // (Menu on a pad)
+  if (ownsAll()) {
+    e.preventDefault();
+    if (e.key === "PageUp" || e.key === "PageDown") padScroll(e.key === "PageDown" ? 1 : -1, true);
+    else if (e.key === "ArrowUp" || e.key === "ArrowDown") padScroll(e.key === "ArrowDown" ? 60 : -60);
+    else if (!sheetKeys(e.key, e)) return;
+    return;
+  }
+  if (inBox(layer) && e.key === "F6") { e.preventDefault(); nextArea(e.shiftKey ? -1 : 1); return; }
   const navKey = dir || e.key === "Enter" || e.key === " ";
   const table = tableOf();
   if (onRow() && ["PageUp", "PageDown", "Home", "End"].includes(e.key)) {
@@ -474,7 +529,9 @@ function padButton(b, repeat) {
   }
   syncCursor(!repeat);
   const layer = topLayer(), dir = DIRS[b];
+  if (ownsAll()) { ownButton(b); return; }
   if (b === 9) { startMenu(); return; }
+  if ((b === 4 || b === 5) && inBox(layer)) { nextArea(b === 5 ? 1 : -1); return; }
   if (layer === document.body && !P.cur) {  // the lists
     if (b === 1) { back(); return; }
     if (b === 8) { openSearch(); return; }
@@ -513,6 +570,10 @@ function padButton(b, repeat) {
   if ((b === 4 || b === 5) && layer === document.body) { nextZone(b === 5 ? 1 : -1); return; }
   if (b === 6 || b === 7) padScroll(b === 7 ? 1 : -1, true);
 }
+
+// Something in the layer that scrolls (for the Scroll hint: no hint when there's nothing to scroll)
+const scrollsIn = (layer) => [...layer.querySelectorAll(".table, .form, .r-info, .store-details, .help-rows, .controls, .sheet > div")]
+  .some((x) => x.scrollHeight > x.clientHeight + 2 && /auto|scroll/.test(getComputedStyle(x).overflowY));
 
 // The right stick (and LT / RT in sheets) scrolls what's under the cursor: the details panel in the main window.
 function padScroll(amount, page = false) {
@@ -611,7 +672,8 @@ function uiHints() {
   const layer = topLayer(), pad = S.pad, main = layer === document.body;
   const k = (key, text) => ["key", key, text];
   if (osk.shown()) {
-    return [["dpad", "Keys"], ["a", "Type"], ["x", "Space"], ["y", "Delete"], ["l1", "Shift"], ["b", "Done"]];
+    return osk.numbers() ? [["dpad", "Keys"], ["a", "Type"], ["y", "Delete"], ["b", "Done"]]
+      : [["dpad", "Keys"], ["a", "Type"], ["x", "Space"], ["y", "Delete"], ["l1", "Shift"], ["b", "Done"]];
   }
   if (typingIn()) {  // a text box with the keyboard in it
     return pad ? [["a", "On-screen keyboard"], ["dpad", "Leave the box"], ["b", "Done typing"]]
@@ -640,13 +702,17 @@ function uiHints() {
   const backHint = backText ? [pad ? ["b", backText] : k("Esc", backText)] : [];
   const sheetHints = typeof sheetKeys?.hints === "function" ? sheetKeys.hints(P.cur) : sheetKeys?.hints;
   const own = layer === $("sheet") && sheetHints && (!P.cur || P.cur.matches(".trow")) ? sheetHints[pad ? "pad" : "keys"] : null;
+  const lone1 = !main && focusables(layer).length < 2;  // (one button: nothing to move to)
   const h = own ? [...own, ...backHint]
-    : [pad ? ["dpad", "Move"] : k("↑ ↓ ← →", "Move"), pad ? ["a", what] : k("Enter", what), ...backHint];
+    : [...(lone1 ? [] : [pad ? ["dpad", "Move"] : k("↑ ↓ ← →", "Move")]), ...(P.cur ? [pad ? ["a", what] : k("Enter", what)] : []), ...backHint];
   if (main) {
     h.push(...around);
     if (P.cur?.closest("#details")) h.push(pad ? ["rs-ud", "Scroll"] : k("PgUp PgDn", "Scroll"));
   }
-  if (layer === $("sheet")) h.push(onRow() ? (pad ? ["l2/r2", "Page"] : k("PgUp PgDn", "Page")) : pad ? ["l2/r2", "Scroll"] : k("PgUp PgDn", "Scroll"));
+  if (inBox(layer) && !ownsAll() && sheetAreas(layer).length > 1) h.push(pad ? ["l1/r1", "Next area"] : k("F6", "Next area"));
+  if (ownsAll()) { if (scrollsIn(layer)) h.push(pad ? ["l2/r2", "Scroll details"] : k("PgUp PgDn", "Scroll details")); }
+  else if (onRow()) h.push(pad ? ["l2/r2", "Page"] : k("PgUp PgDn", "Page"));
+  else if (layer === $("sheet") && scrollsIn(layer)) h.push(pad ? ["l2/r2", "Scroll"] : k("PgUp PgDn", "Scroll"));
   return h;
 }
 
@@ -739,6 +805,10 @@ const osk = (() => {
   const K = { el: null, target: null, r: 1, c: 0, shift: false };
 
   function keys() {
+    if (K.target?.type === "number") {  // a number: just a keypad
+      return [..."789 456 123".split(" ").map((r) => [...r].map((ch) => ({ ch, label: ch }))),
+        [{ ch: ".", label: "." }, { ch: "0", label: "0" }, { act: "del", label: "⌫" }], [{ act: "done", label: "Done" }]];
+    }
     const rows = ROWS.map((r) => [...(K.shift ? r.toUpperCase() : r)].map((ch) => ({ ch, label: ch })));
     rows.push([{ act: "shift", label: "⇧ Shift" }, { ch: " ", label: "Space" }, { act: "del", label: "⌫" },
       ...(K.target?.tagName === "TEXTAREA" ? [{ ch: "\n", label: "↵" }] : []), { act: "done", label: "Done" }]);
@@ -789,6 +859,7 @@ const osk = (() => {
     draw();
     const low = target.getBoundingClientRect().bottom > innerHeight - K.el.offsetHeight - 90;  // (don't cover the box)
     K.el.classList.toggle("top", low);
+    K.el.classList.toggle("numbers", target.type === "number");
     hints();
   }
 
@@ -823,7 +894,7 @@ const osk = (() => {
     else if (b === 1 || b === 9) close();
   }
 
-  return { open, close, pad, shown: () => Boolean(K.el && !K.el.hidden) };
+  return { open, close, pad, shown: () => Boolean(K.el && !K.el.hidden), numbers: () => K.target?.type === "number" };
 })();
 
 requestAnimationFrame(pollPads);

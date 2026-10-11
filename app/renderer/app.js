@@ -82,10 +82,11 @@ function confirmBox({ title = "", message = "", detail = "", ok = "OK", cancel =
     if (warning) $("overlay-box").querySelector(".primary").classList.add("danger");
   });
 }
-// Folders and files: the desktop's own dialog, or RetroShelf's while a gamepad is in use (pad.js: browseBox).
-const pickFolder = (start, title) => (S.pad ? browseBox({ start, title }) : rs.pickFolder(start, title));
-const pickFiles = (start, title) => (S.pad ? browseBox({ start, title, files: true }) : rs.pickFiles(start, title));
-const saveFile = (opts) => (S.pad ? browseBox({ title: `${opts.title}: pick a folder`, save: opts.name }) : rs.saveFile(opts));
+// Folders and files are always picked in the window (pad.js's browseBox): the desktop's dialog can't be worked with a
+// gamepad.
+const pickFolder = (start, title) => browseBox({ start, title });
+const pickFiles = (start, title) => browseBox({ start, title, files: true });
+const saveFile = (opts) => browseBox({ title: `${opts.title}: pick a folder`, save: opts.name });
 const busy = (text) => overlay(`<div class="spinner"></div><h2>${esc(text)}</h2>`);
 
 function rollNumber(el, to, fmt = (v) => Math.round(v).toLocaleString()) {
