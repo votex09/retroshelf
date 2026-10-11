@@ -114,7 +114,7 @@ ipcMain.handle("app:version", () => app.getVersion());
 
 // ---------- updates (updates.js) ----------
 const updates = new Updates(app, (state) => win?.webContents.send("update", state));
-ipcMain.handle("update:check", () => updates.check());
+ipcMain.handle("update:check", (_e, auto) => updates.check(Boolean(auto)));
 ipcMain.handle("update:install", () => updates.install());
 
 // ---------- the app menu entry (Linux AppImage: it has no installer to add one) ----------

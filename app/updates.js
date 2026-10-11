@@ -43,7 +43,9 @@ class Updates {
   }
 
   // -> { state: idle | checking | latest | available | downloading | ready | error, version, url, self, message }
-  async check() {
+  // auto: the check when RetroShelf starts, skipped when running from a checkout (its version is a placeholder)
+  async check(auto = false) {
+    if (auto && !this.app.isPackaged) return { ...this.status };
     if (["checking", "downloading", "ready"].includes(this.status.state)) return { ...this.status };
     this.set({ state: "checking", message: "" });
     try {

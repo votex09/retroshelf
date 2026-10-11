@@ -4,12 +4,14 @@
 // The options change how the window behaves right away: see S.opts in app.js.
 function applyOptions(o) {
   for (const k of Object.keys(S.opts)) if (k in o) S.opts[k] = o[k];
+  document.body.classList.toggle("light", S.opts.light);
   document.body.classList.toggle("still", !S.opts.animations);
   document.body.classList.toggle("no-details", !S.opts.show_details);
   if (!S.opts.gamepad && S.pad) { S.pad = false; hints(); }
 }
 
 const OPTION_LABELS = [
+  ["light", "Light theme", "dark text on a light background"],
   ["show_details", "Details panel", "the game's box art, text and video beside the lists"],
   ["play_videos", "Play gameplay videos", "ES-DE's clips start by themselves after a moment in the details panel (▶ always plays one)"],
   ["gamepad", "Use a gamepad", "a Steam Deck's or Xbox-style pad moves through the lists"],

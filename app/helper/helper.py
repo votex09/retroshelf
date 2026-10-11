@@ -76,7 +76,7 @@ MOVES = os.path.join(DATA_DIR, "moves.json")
 CFG_DEFAULTS = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {},
                 "region_priority": rules.DEFAULT_PRIORITY, "system_state": {}, "esde_bases": [],
                 "setup_offered": False, "play_videos": True, "gamepad": True, "animations": True,
-                "show_details": True, "check_updates": True}
+                "show_details": True, "check_updates": True, "theme": "dark"}
 _state_lock = threading.Lock()  # one system-changing request at a time
 cfg = {}
 current = {"sc": None, "decision": None, "fullname": None}

@@ -17,7 +17,7 @@ const S = {
   marked: new Set(),
   undo: [],
   pad: false,       // a gamepad was used: show its buttons in the hints
-  opts: { play_videos: true, gamepad: true, animations: true, show_details: true, check_updates: true },  // ☰ → Settings (settings.js)
+  opts: { light: false, play_videos: true, gamepad: true, animations: true, show_details: true, check_updates: true },  // ☰ → Settings (settings.js)
 };
 
 // ---------- small things ----------
@@ -345,6 +345,7 @@ function renderDetails(g, fresh) {
     <div class="rating">${rating}</div>
     <div class="genres">${g.genres.map((x) => `<span>${esc(x)}</span>`).join("")}</div>
     <p class="state-line" id="state-line"></p>
+    ${d && !d.video ? `<button class="link" id="yt">▶ Gameplay videos on YouTube ↗</button>` : ""}
     ${lbCard}
     ${d?.description ? `<div class="desc">${esc(d.description)}</div>` : ""}
     <div class="facts">${facts.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join("")}</div>`;
@@ -370,6 +371,8 @@ function renderDetails(g, fresh) {
   const bg = images[0] ? Art.media(images[0].path) : Art.cover(g.title, sys);
   $("backdrop").style.backgroundImage = `url("${bg}")`;
   $("lb-download")?.addEventListener("click", downloadLaunchbox);
+  $("yt")?.addEventListener("click", () => rs.openUrl("https://www.youtube.com/results?search_query=" +
+    encodeURIComponent([d.title || g.title, d.console || S.sys.fullname, "gameplay"].join(" "))));  // no clip from ES-DE
   if (fresh) { body.classList.remove("swap"); void body.offsetHeight; body.classList.add("swap"); body.scrollTop = 0; }
 }
 
@@ -912,7 +915,7 @@ async function start() {
     Object.assign(summary, { python: hello.python, frozen: hello.frozen });
     S.overview = await call("startup");
     applyOptions(await call("settings"));
-    if (S.opts.check_updates) rs.checkUpdates().catch(() => {});
+    if (S.opts.check_updates) rs.checkUpdates(true).catch(() => {});
     showOverview();
     summary.roms = S.overview.roms;
     summary.systems = S.overview.systems.filter((s) => s.games > 0).length;

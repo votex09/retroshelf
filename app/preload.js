@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld("retroshelf", {
   openUrl: (url) => ipcRenderer.invoke("open-url", url),
   confirm: (opts) => ipcRenderer.invoke("confirm", opts),
   version: () => ipcRenderer.invoke("app:version"),
-  checkUpdates: () => ipcRenderer.invoke("update:check"),
+  checkUpdates: (auto) => ipcRenderer.invoke("update:check", auto),
   installUpdate: () => ipcRenderer.invoke("update:install"),
   onUpdate: (fn) => ipcRenderer.on("update", (_e, state) => fn(state)),
   desktopStatus: () => ipcRenderer.invoke("desktop:status"),

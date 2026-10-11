@@ -14,6 +14,7 @@ def settings():
     """The window's options; with a system open, also its LaunchBox platform and the ones to pick from."""
     cfg = ctx["cfg"]
     out = {k: bool(cfg.get(k, True)) for k in OPTIONS}
+    out["light"] = cfg.get("theme") == "light"  # the Tk version's setting, so it carries over
     sc = ctx["current"]["sc"]
     if sc:
         overrides = cfg["platform_overrides"]
@@ -26,9 +27,12 @@ def settings():
 
 @method
 def set_option(name, value):
-    if name not in OPTIONS:
+    if name == "light":
+        ctx["cfg"]["theme"] = "light" if value else "dark"
+    elif name in OPTIONS:
+        ctx["cfg"][name] = bool(value)
+    else:
         raise ValueError(f"No option {name!r}")
-    ctx["cfg"][name] = bool(value)
     ctx["save_cfg"]()
     return settings()
 
