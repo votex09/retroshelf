@@ -254,7 +254,7 @@ print(json.dumps({"before": before, "after": stop(), "other": rpc.stopped("j2")(
 import rpc, frontend, tool_setup
 events = []
 rpc.event = lambda name, data=None: events.append(data["message"])
-tool_setup.is_windows = lambda: False
+tool_setup.is_windows = frontend.is_windows = lambda: False  # the Linux flow, wherever the tests run
 frontend.retrodeck_installed = lambda: False
 frontend.install_retrodeck = lambda log, cancelled: [log("$ install"), log("done")]
 start = h.startup()
