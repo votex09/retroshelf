@@ -44,6 +44,12 @@ class Tooltip:
         st = ttk.Style()
         self.tip = tk.Toplevel(self.widget)
         self.tip.wm_overrideredirect(True)
+        try:  # fades in (set before it's first drawn, so it never flashes up at full strength)
+            self.tip.attributes("-alpha", 0.0 if motion.ENABLED else 1.0)
+            tip = self.tip
+            motion.tween(tip, "fade", 160, lambda p: tip.attributes("-alpha", p))
+        except tk.TclError:
+            pass
         tk.Label(self.tip, text=text, justify="left", wraplength=360, padx=10, pady=6,
                  bg=st.lookup("TEntry", "fieldbackground") or "#333", fg=st.lookup("TLabel", "foreground") or "#eee",
                  highlightthickness=1, highlightbackground="#777", font="SunValleyCaptionFont").pack()

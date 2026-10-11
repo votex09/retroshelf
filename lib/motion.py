@@ -3,6 +3,7 @@
 Everything here is quick (well under half a second) and can be switched off (View → Animations); with ENABLED
 False every effect jumps straight to its end state, so nothing depends on an animation having run."""
 import time
+import tkinter as tk
 
 ENABLED = True   # View → Animations (the app sets this from config.json)
 FRAME_MS = 15    # ~60 frames a second; durations are wall-clock, so a slow frame shortens the tween, not stretches it
@@ -214,3 +215,74 @@ def progress(bar, name, value, ms=420):
     except (TypeError, ValueError):
         old = 0.0
     tween(bar, name, ms, lambda p: bar.config(value=old + (value - old) * p), ease=ease_in_out)
+
+
+class RowHover:
+    """The row under the mouse lights up gently instead of at once, and the one it left fades back. Tags hover-1…N
+    (even rows) and hoverodd-1…N (striped rows); like RowGlow's, style(...) runs before the stripe tag is first
+    configured, and before the glow's, so a hovered row shows the hover."""
+    STEPS, MS = 6, 130
+
+    def __init__(self, tv):
+        self.tv, self.levels, self.target = tv, {}, None  # iid -> 0..1 shown now
+
+    def style(self, hover, base, stripe):
+        for i in range(1, self.STEPS + 1):
+            p = i / self.STEPS
+            self.tv.tag_configure(f"hover-{i}", background=mix(self.tv, base, hover, p))
+            self.tv.tag_configure(f"hoverodd-{i}", background=mix(self.tv, stripe, hover, p))
+
+    def set(self, row):
+        """The mouse is over row now (None: over no row)."""
+        if row == self.target:
+            return
+        self.target = row
+        start = dict(self.levels)
+        if row and row not in start:
+            start[row] = 0.0
+        tween(self.tv, "hover", self.MS if ENABLED else 0, lambda p: self._paint(start, p), ease=lambda t: t)
+
+    def reset(self):
+        """The list was rebuilt: no row is lit."""
+        cancel(self.tv, "hover")
+        self.levels, self.target = {}, None
+
+    def _paint(self, start, p):
+        for iid, level in start.items():
+            goal = 1.0 if iid == self.target else 0.0
+            now = level + (goal - level) * p
+            if not self.tv.exists(iid):
+                self.levels.pop(iid, None)
+                continue
+            step = round(now * self.STEPS)
+            tags = [t for t in self.tv.item(iid, "tags") if not t.startswith(("hover-", "hoverodd-"))]
+            if step:
+                tags.append(f"{'hoverodd' if 'odd' in tags else 'hover'}-{step}")
+                self.levels[iid] = now
+            else:
+                self.levels.pop(iid, None)
+            self.tv.item(iid, tags=tags)
+
+
+def fly(root, text, src, dst, bg, fg, font, delay=0, ms=420):
+    """A game's name lifting off one list and flying to its place in the other: a label from src to dst, rectangles
+    (x, y, w, h) in root's coordinates, gone when it lands (the row it lands on then glows)."""
+    if not ENABLED:
+        return
+    lbl = tk.Label(root, text=text, bg=bg, fg=fg, font=font, anchor="w", padx=6, bd=0, highlightthickness=1,
+                   highlightbackground=fg)
+    lbl.pad_ring = True  # (not a widget anyone navigates to)
+
+    def step(p):
+        x, y, w, h = (a + (b - a) * p for a, b in zip(src, dst))
+        lift = 6 * (1 - abs(1 - 2 * p))  # rises a little mid-flight
+        lbl.place(in_=root, x=round(x - lift), y=round(y - lift), width=max(20, round(w)), height=round(h))
+        tk.Misc.lift(lbl)
+
+    def go():
+        tween(lbl, "fly", ms, step, done=lbl.destroy, ease=ease_in_out)
+
+    if delay:
+        lbl.after(delay, go)
+    else:
+        go()

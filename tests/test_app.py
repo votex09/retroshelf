@@ -94,6 +94,7 @@ class AppTest(unittest.TestCase):
         if self.root:
             for job in self.root.tk.splitlist(self.root.tk.call("after", "info")):  # debounces, toasts
                 self.root.tk.call("after", "cancel", job)  # (after_cancel would also delete commands others own)
+            sys.modules["motion"]._running.clear()  # (the animations those were)
             self.app._close()
             self.root = None
 
@@ -1247,6 +1248,35 @@ class AppTest(unittest.TestCase):
         self.assertFalse(motion._running)
         a.motion_var.set(True)
         a.toggle_motion()
+
+    def test_keyboard_ring_hover_and_flight(self):
+        """The keyboard gets the focus ring too, a flip sends the game's name flying to its new list, and the row
+        under the mouse lights up; the mouse puts the ring away."""
+        a, motion = self.app, sys.modules["motion"]
+        keep, move = a.keep_tv, a.move_tv
+        a.keys.place(keep, 0)
+        keep.focus_force()
+        self.pump(lambda: "KeyRing" in self.root.tk.call("bindtags", str(keep)))  # (on getting the keyboard)
+        self.key(keep, "<Down>")
+        self.root.update()
+        ring = a.pad_ring.rings[str(self.root)]
+        rows = keep.get_children()
+        self.assertEqual(ring.target[1], keep.winfo_rooty() - self.root.winfo_rooty() + keep.bbox(rows[1])[1])
+        a.keys.flip(keep, True, [rows[1]])
+        self.assertTrue(any(type(w).__name__ == "Label" and w.cget("text") == a._label(rows[1])
+                            for w in self.root.winfo_children()))  # in flight
+        self.pump(lambda: not motion._running)
+        self.assertFalse([w for w in self.root.winfo_children() if type(w).__name__ == "Label"
+                          and w.cget("text") == a._label(rows[1])])  # landed
+        move.event_generate("<Motion>", x=40, y=move.bbox(rows[1])[1] + 5, warp=False)
+        a._hover(move, rows[1])
+        self.pump(lambda: not motion._running)
+        self.assertTrue(any(t.startswith("hover") for t in move.item(rows[1], "tags")))
+        a._hover(move, None)
+        self.pump(lambda: not motion._running)
+        self.assertFalse(any(t.startswith("hover") for t in move.item(rows[1], "tags")))
+        a._ring_mouse(type("E", (), {"x_root": -500, "y_root": -500})())  # the mouse moves: the ring goes
+        self.assertIsNone(ring.target)
 
     def test_details_artwork_never_moves_the_layout(self):
         """Pictures of any size, long captions and no picture at all take the same box: nothing beside it shifts."""

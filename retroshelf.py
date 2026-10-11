@@ -610,6 +610,12 @@ class App:
         self.pad_ring = padfocus.FocusRing(root, lambda: self.colors)
         self.gamepads.watchers.append(self.pad_ring.update)
         self.gamepads.presses.append(self.pad_ring.pressed)
+        # the same ring follows the keyboard: Tab, arrows, F6 … show it; the mouse puts it away
+        self.key_ring = None  # pointer position when the keyboard last moved the ring
+        root.bind_class("KeyRing", "<KeyPress>", self._ring_key, add="+")
+        root.bind_all("<FocusIn>", self._ring_watch, add="+")
+        root.bind_all("<Motion>", self._ring_mouse, add="+")
+        root.bind_all("<ButtonPress>", lambda e: self._ring_mouse(e, force=True), add="+")
         if not self.cfg["roms_root"] and not self.cfg["setup_offered"]:  # no library anywhere: offer to set one up
             root.after(600, lambda: setup_gui.open_window(self))
         if self.cfg["roms_root"] and import_gui.waiting(self):
@@ -617,6 +623,44 @@ class App:
                                                 "press Import ROMs to file them."))
         if self.cfg["check_updates"]:
             root.after(1500, lambda: self.check_updates(quiet=True))
+
+    # ---------- keyboard focus ring ----------
+    NAV_KEYS = {"Tab", "ISO_Left_Tab", "Up", "Down", "Left", "Right", "Prior", "Next", "Home", "End", "F6"}
+
+    def _ring_watch(self, e):
+        """A widget got the keyboard: put KeyRing first in its bindtags, so its keys reach _ring_key before any
+        binding of its own can stop them."""
+        try:
+            tags = self.root.tk.splitlist(self.root.tk.call("bindtags", str(e.widget)))
+            if "KeyRing" not in tags:
+                self.root.tk.call("bindtags", str(e.widget), ("KeyRing",) + tuple(tags))
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _ring_key(self, e):
+        if e.keysym in self.NAV_KEYS and not self.gamepads.active:
+            self.root.after_idle(self._ring_show)
+
+    def _ring_show(self):
+        try:
+            focus = self.root.focus_get()
+        except KeyError:  # a combobox's drop-down list
+            return
+        if focus is None:
+            return
+        self.key_ring = self.root.winfo_pointerxy()
+        self.pad_ring.update(True, str(focus))
+
+    def _ring_mouse(self, e, force=False):
+        if self.key_ring is None or self.gamepads.active:
+            return
+        try:
+            x, y = e.x_root, e.y_root
+        except AttributeError:
+            return
+        if force or abs(x - self.key_ring[0]) + abs(y - self.key_ring[1]) >= 8:
+            self.key_ring = None
+            self.pad_ring.hide()
 
     # ---------- look ----------
     def _fonts(self):
@@ -665,9 +709,9 @@ class App:
         self.region_lb.configure(activestyle="none", **field)
         for tv in (self.keep_tv, self.move_tv):
             # a row's tags compete by when they were first configured, earliest winning: hover, then glow, then stripe
-            tv.tag_configure("hover", background=c["hover"])
-            # games that just arrived in a list glow green / red for a moment, fading into the row (lib/motion.py)
             base = st.lookup("Treeview", "background") or c["field"]
+            tv.hovering.style(c["hover"], base, c["stripe"])  # the row under the mouse lights up gently
+            # games that just arrived in a list glow green / red for a moment, fading into the row (lib/motion.py)
             tv.glow.style({k: motion.mix(tv, base, c[k], 0.45) for k in ("keep", "move")}, base, c["stripe"])
             tv.tag_configure("odd", background=c["stripe"])
             tv.tag_configure("manual", foreground=c["manual"])
@@ -1138,7 +1182,7 @@ class App:
         sb.pack(side="right", fill="y")
         # shown when no rows; a plain Label, so its fade in recolours just itself (a ttk style would redraw them all)
         tv.empty = tk.Label(inner, justify="center", anchor="center", font="SunValleyBodyFont", bd=0)
-        tv.hover = None
+        tv.hovering = motion.RowHover(tv)
         tv.glow = motion.RowGlow(tv)
         tv.bind("<Motion>", lambda e: self._hover(tv, tv.identify_row(e.y)))
         tv.bind("<Leave>", lambda e: self._hover(tv, None))
@@ -1146,13 +1190,7 @@ class App:
         return lbl, tv
 
     def _hover(self, tv, row):
-        if row == tv.hover:
-            return
-        for r, on in ((tv.hover, False), (row, True)):
-            if r and tv.exists(r):
-                tags = [t for t in tv.item(r, "tags") if t != "hover"] + (["hover"] if on else [])
-                tv.item(r, tags=tags)
-        tv.hover = row
+        tv.hovering.set(row or None)
 
     def _on_modified(self, _):
         self.pat_text.edit_modified(False)
@@ -1960,6 +1998,7 @@ class App:
     def render(self):
         q = self.view_filter.get().lower()
         before = dict(self.listed)
+        flights = self._takeoff(before)
         for tv, keys, lbl, title in (
             (self.keep_tv, self.kept, self.keep_lbl, "●  Keeping"),
             (self.move_tv, self.to_move, self.move_lbl, "●  Moving"),
@@ -1974,7 +2013,7 @@ class App:
             keep_sel = tv.selection()  # survive the rebuild (flips, filter changes) where the game is still listed
             keep_cursor = tv.focus()   # and so does the keyboard cursor (a late refresh mustn't lose your place)
             tv.delete(*tv.get_children())
-            tv.hover = None
+            tv.hovering.reset()
             for i, k in enumerate(shown):
                 g = self.ratings.get(k)
                 rating = "—" if not g or g["r"] is None else f"{ui.stars(g['r'])}  {g['r']:.1f}"
@@ -2013,6 +2052,7 @@ class App:
                     motion.tween(tv.empty, "fade", 300, lambda p, e=tv.empty, bg=bg, muted=muted: e.configure(
                         fg=motion.mix(e, bg, muted, p)))
                 tv.empty.place(relx=0.5, rely=0.45, anchor="center")
+        self._land(flights)
         n, size = len(self.to_move), sum(self.units[k]["size"] for k in self.to_move)
         self.move_btn.config(state="normal" if n else "disabled")
         old, self.move_counted = getattr(self, "move_counted", None), (n, size)
@@ -2023,6 +2063,50 @@ class App:
         self.render_status()
         if not self.keep_tv.selection() and not self.move_tv.selection():
             self._details_idle()
+
+    def _takeoff(self, before):
+        """Games about to change lists (a flip, or a filter moving a few): where each one's row is now, so it can fly
+        to its new place once the lists are redrawn. [(key, source list, (x, y, w, h) in the window)]"""
+        if not motion.ENABLED or not before:
+            return []
+        out = []
+        for src, dst_keys, src_lbl in ((self.keep_tv, self.to_move, self.keep_lbl),
+                                       (self.move_tv, self.kept, self.move_lbl)):
+            was = before.get(src_lbl, ((),))[0]
+            moving = [k for k in dst_keys if k in was]
+            if len(moving) > 8:  # a filter sweeping many over: the glow says enough
+                return []
+            for k in moving:
+                box = src.bbox(k) if src.exists(k) else ""
+                if box:
+                    out.append((k, src, self._in_window(src, box)))
+        return out
+
+    def _in_window(self, tv, box):
+        x, y, w, h = box
+        return (tv.winfo_rootx() - self.root.winfo_rootx() + x, tv.winfo_rooty() - self.root.winfo_rooty() + y,
+                min(w, tv.winfo_width() - x), h)
+
+    def _land(self, flights):
+        """Send each game's name flying from its old row to its new one (or to the edge of the new list, if the row
+        is scrolled out of sight)."""
+        c = self.colors
+        for i, (k, src, start) in enumerate(flights):
+            dst = self.move_tv if src is self.keep_tv else self.keep_tv
+            if not dst.exists(k):  # hidden by the search box
+                continue
+            box = dst.bbox(k)
+            if box:
+                end = self._in_window(dst, box)
+            else:  # scrolled out of sight: aim for the top or bottom edge of the list
+                rows = dst.get_children()
+                above = rows.index(k) < len(rows) * dst.yview()[0]
+                h = start[3]
+                y = dst.winfo_rooty() - self.root.winfo_rooty() + (h if above else dst.winfo_height() - h)
+                end = (dst.winfo_rootx() - self.root.winfo_rootx(), y, dst.winfo_width(), h)
+            color = c["move"] if dst is self.move_tv else c["keep"]
+            motion.fly(self.root, self._label(k), start, end, motion.mix(self.root, c["field"], color, 0.35),
+                       c["fg"], "SunValleyBodyFont", delay=40 * i)
 
     def render_status(self):
         nfiles = sum(len(u["paths"]) for u in self.units.values())
