@@ -51,6 +51,8 @@ function toast(text, { undo = false, error = false } = {}) {
   toastTimer = setTimeout(() => t.classList.remove("show"), error ? 5000 : 2400);
 }
 const oops = (e) => { console.error(e); toast(e.message || String(e), { error: true }); };
+// A button or key whose work failed without its own catch (Hide, F5, …): say so rather than doing nothing at all.
+window.addEventListener("unhandledrejection", (e) => { e.preventDefault(); oops(e.reason ?? "Something went wrong"); });
 
 // A box over the window. buttons: [[label, fn, primary?]]; none: it can't be closed (busy).
 function overlay(html, buttons = []) {
@@ -651,7 +653,15 @@ async function openSystem(code) {
   $("system-tag").textContent = code;
   $("system-name").textContent = "Loading…";
   for (const name of LISTS) $(name).querySelector(".empty").textContent = "Loading…";
-  const res = await call("open_system", { system: code });
+  let res;
+  try {
+    res = await call("open_system", { system: code });
+  } catch (e) {  // (the folder went, say): the header goes back to the system that's still open
+    $("system-tag").textContent = S.sys?.system || "";
+    $("system-name").textContent = S.sys?.fullname || "Pick a system";
+    for (const name of LISTS) { const l = lists[name]; l.emptyEl.textContent = l.emptyText(); }
+    throw e;
+  }
   loadSystem(res);
 }
 
