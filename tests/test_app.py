@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui", "esde_collections", "collections_gui", "hiding", "osk"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui", "esde_collections", "collections_gui", "hiding", "osk", "motion"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -39,6 +39,10 @@ def zip_bytes(members):
         for n, d in members.items():
             z.writestr(n, d)
     return buf.getvalue()
+
+
+def details_pil():
+    return sys.modules["details"].Image is not None
 
 
 class AppTest(unittest.TestCase):
@@ -822,6 +826,13 @@ class AppTest(unittest.TestCase):
         self.assertEqual(hints.shown(), [])  # no bar before the pad is used
         press("down")
         self.assertEqual(keep.focus(), rows[1])
+        # a focus ring outlines the cursor row (lib/padfocus.py), and follows it
+        ring = a.pad_ring.rings[str(self.root)]
+        y = keep.winfo_rooty() - self.root.winfo_rooty() + keep.bbox(rows[1])[1]
+        self.assertEqual(ring.target[1], y)
+        press("down")
+        self.assertEqual(ring.target[1], y + keep.bbox(rows[2])[1] - keep.bbox(rows[1])[1])
+        press("up")
         # the pad was used last: the main window shows what its buttons do in the Keeping list
         shown = dict(hints.shown(self.root))
         self.assertEqual(shown["a"], "Mark")
@@ -906,6 +917,7 @@ class AppTest(unittest.TestCase):
         self.assertEqual(press("down"), [])
         self.assertFalse(self.cfg()["gamepad"])
         self.assertEqual(hints.shown(), [])
+        self.assertIsNone(ring.target)  # and the ring goes with it
 
     def test_gamepad_reaches_search_and_filters_and_types(self):
         a = self.app
@@ -1210,6 +1222,56 @@ class AppTest(unittest.TestCase):
                 self.fail("timed out waiting for the window")
             self.root.update()
             time.sleep(0.02)
+
+    def test_animations(self):
+        """A flipped game glows in its new list and the counts roll to the new numbers; then everything settles where
+        it would have been without the motion. View → Animations off: straight there."""
+        a, motion = self.app, sys.modules["motion"]
+        keep, move = a.keep_tv, a.move_tv
+        game = keep.get_children()[0]
+        a.keys.flip(keep, True, [game])
+        self.assertEqual(move.glow.rows, {game: "move"})  # (not its colour on screen: a slow machine may be done)
+        final = f"●  Moving   1 games  ·  {self.rs.human(a.units[game]['size'])}"
+        self.pump(lambda: not motion._running)
+        self.assertFalse([t for t in move.item(game, "tags") if t.startswith("glow")])
+        self.assertEqual(a.move_lbl.cget("text"), final)
+        self.assertEqual([tuple(keep.item(k, "tags")) for k in keep.get_children()[:2]], [(), ("odd",)])
+
+        a.motion_var.set(False)
+        a.toggle_motion()
+        self.assertFalse(self.cfg()["animations"])
+        a.keys.flip(move, False, [game])
+        self.assertEqual(a.move_lbl.cget("text"), "●  Moving   0 games  ·  0 KB")
+        self.assertFalse(move.get_children())
+        self.assertFalse(keep.glow.rows)
+        self.assertFalse(motion._running)
+        a.motion_var.set(True)
+        a.toggle_motion()
+
+    def test_details_artwork_never_moves_the_layout(self):
+        """Pictures of any size, long captions and no picture at all take the same box: nothing beside it shifts."""
+        a, d = self.app, self.app.details
+        covers = os.path.join(os.path.dirname(self.p["roms"]), "ES-DE", "downloaded_media", "snes", "covers")
+        os.makedirs(covers, exist_ok=True)
+        sizes = {"Chrono Trigger (USA)": (220, 300), "Final_Fantasy_III_USA": (900, 300),
+                 "NBA Jam (USA) (Rev 1)": (40, 30)}
+        for stem, size in sizes.items():
+            tk.PhotoImage(width=size[0], height=size[1]).write(os.path.join(covers, stem + ".png"), format="png")
+        files = [k for k in a.keep_tv.get_children() if a.keep_tv.item(k, "text").startswith(
+            ("Chrono Trigger (USA)", "Final_Fantasy", "NBA Jam", "Star Fox"))]
+        self.assertEqual(len(files), 4)
+        seen, pictures = set(), 0
+        for k in files:
+            a.keep_tv.selection_set(k)
+            self.root.update()
+            d.pic_lbl.config(text="screenshots  ·  12 / 14  ·  finding a video…")  # longer than any real caption
+            self.root.update()
+            seen.add((d.pic.winfo_width(), d.pic.winfo_height(), d.desc.winfo_rootx(), a.details_card.winfo_height()))
+            if details_pil() and d.photo is not None:
+                pictures += 1
+                self.assertEqual((d.photo.width(), d.photo.height()), (d.img_w, d.img_h))  # filled out to the box
+        self.assertEqual(len(seen), 1, seen)
+        self.assertEqual(pictures, 3 if details_pil() else pictures)
 
     def test_rename_dialog_and_undo(self):
         a = self.app

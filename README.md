@@ -37,6 +37,9 @@ rename can be undone, and games only go for good when you delete them from the h
   While the pad is what you're using, a bar along the bottom of the window shows the buttons that do something
   there, drawn the way your pad labels them (Xbox letters, PlayStation shapes or Nintendo letters), and what each
   does right now ("Mark", "Move 3 marked", "Keep", …). It goes away when you type or move the mouse.
+  A highlight sits on whatever the pad has reached (the row under the cursor, a button, a filter tab, a key of
+  the on-screen keyboard) and glides to the next thing as you move, the way a console menu does; A and X make it
+  flash.
   The View / Select button (F6 on a keyboard) goes from the lists to the search box to the filter tabs and back,
   and A in a text box opens an on-screen keyboard (D-pad to move, A types, Y deletes, LB for capitals, X when done).
 - Each system goes back to the game you were on when you left it, after a restart too.
@@ -56,7 +59,13 @@ rename can be undone, and games only go for good when you delete them from the h
 - **Library → Holding folder…** lists everything you've moved out, with artwork and details. Put games back one by one,
   or delete them for good (with their ES-DE artwork and gamelist entries) to free the space.
 - A details panel shows the selected game's artwork, LaunchBox description, year, developer,
-  rating and genres, plus a button that searches YouTube for gameplay videos.
+  rating and genres, plus a button that searches YouTube for gameplay videos. Artwork and videos always fill the
+  same box (small pictures are scaled up), so the panel never shifts between games; Review shows them bigger.
+- Short, quick animations show what just happened: a flipped game glows in the list it lands in, the list counts roll
+  to their new numbers, artwork and details fade in (not while you're flicking down a list, so browsing stays
+  instant), notifications slide in and out, the gamepad's button bar rises into view, and Review slides each game's
+  name in as its progress bar glides along.
+  **View → Animations** turns them off.
 
 **Storage overview**
 - **Library → Storage overview…** (or click the free-space figure at the top) shows how much each system takes:

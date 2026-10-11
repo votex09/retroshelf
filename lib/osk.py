@@ -63,6 +63,7 @@ class Keyboard:
         win.protocol("WM_DELETE_WINDOW", self.close)
         win.pad_hints = lambda: [("dpad:udlr", "Move"), ("a", "Type"), ("y", "Delete"), ("lb", "Capitals"),
                                  ("x", "Done")]
+        win.pad_focus = lambda: self.cells[self.row][self.col][0]  # the focus ring sits on the key (lib/padfocus.py)
         self._place()
         self._show()
         # take the keyboard once the window is up (asking before it's mapped can be ignored)

@@ -1,19 +1,23 @@
 """Game details panel: artwork already on disk (ES-DE downloaded_media), LaunchBox text, and a gameplay-video link.
-Pillow, when installed, shows JPEG art and scales smoothly; without it only PNG / GIF art can be shown."""
+Pillow, when installed, shows JPEG art and draws every picture to fill one fixed box (rounded, with a shadow), so
+nothing moves between games; without it only PNG / GIF art can be shown, as it comes."""
 import math, os, urllib.parse, webbrowser
 import tkinter as tk
 from tkinter import ttk
 
+import motion
 import video
 from ui import stars
 
 try:
-    from PIL import Image, ImageTk
+    from PIL import Image, ImageDraw, ImageFilter, ImageTk
 except ImportError:
     Image = ImageTk = None
 
 MEDIA_ORDER = ["covers", "3dboxes", "miximages", "screenshots", "titlescreens", "physicalmedia", "marquees"]
 IMG_W, IMG_H = 280, 220
+WIDE_W, WIDE_H = 224, 168  # the main window's details band: as tall as the filter tabs beside it allow
+RADIUS, MARGIN = 10, 6      # artwork corners, and room around it for its shadow
 PLAY_VIDEOS = True     # View → Play gameplay videos: ES-DE's local clips (the app sets these from config.json)
 STREAM_VIDEOS = False  # View → … and stream from YouTube when there's no clip (mpv + yt-dlp)
 _listings = {}  # media folder -> (mtime, {stem: [file names]})
@@ -41,11 +45,56 @@ def media_for(media_dir, stems):
     return out
 
 
-def load_image(path, w=IMG_W, h=IMG_H):
+def load_picture(path, w=IMG_W, h=IMG_H, bg="#202020"):
+    """(Pillow image or None, PhotoImage) for a picture in a w x h box. With Pillow, the picture is scaled to fill
+    the box as far as it goes either way (a small marquee comes up to size, not lost in the middle), with rounded
+    corners and a soft shadow, on the box's background: every picture is then exactly w x h."""
     if Image:
         with Image.open(path) as im:
-            im.thumbnail((w, h))
-            return ImageTk.PhotoImage(im.convert("RGBA"))
+            im = im.convert("RGBA")
+        out = framed(im, w, h, bg)
+        return out, ImageTk.PhotoImage(out)
+    return None, _tk_image(path, w, h)
+
+
+def _rgb(color):
+    color = color.lstrip("#")
+    if len(color) == 12:  # #rrrrggggbbbb from Tk
+        return tuple(int(color[i:i + 2], 16) for i in (0, 4, 8))
+    return tuple(int(color[i:i + 2], 16) for i in (0, 2, 4)) if len(color) == 6 else (32, 32, 32)
+
+
+def framed(im, w, h, bg):
+    """im fitted into w x h less a margin, rounded, over a soft shadow, on bg (an RGB image w x h)."""
+    aw, ah = w - 2 * MARGIN, h - 2 * MARGIN
+    scale = min(aw / im.width, ah / im.height)
+    size = (max(1, round(im.width * scale)), max(1, round(im.height * scale)))
+    # pixel art and tiny pictures stay crisp when blown up a lot; everything else is smoothed
+    im = im.resize(size, Image.NEAREST if scale >= 3 else Image.LANCZOS)
+    base = _rgb(bg) if isinstance(bg, str) and bg.startswith("#") else (32, 32, 32)
+    out = Image.new("RGB", (w, h), base)
+    x, y = (w - size[0]) // 2, (h - size[1]) // 2
+    r = min(RADIUS, size[0] // 4, size[1] // 4)
+    mask = Image.new("L", size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size[0] - 1, size[1] - 1), r, fill=255)
+    shadow = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(shadow).rounded_rectangle((x + 1, y + 3, x + size[0] + 1, y + size[1] + 3), r, fill=150)
+    shadow = shadow.filter(ImageFilter.GaussianBlur(4))
+    out.paste((0, 0, 0), (0, 0), shadow)
+    alpha = Image.composite(im.getchannel("A"), Image.new("L", size, 0), mask)
+    out.paste(im.convert("RGB"), (x, y), alpha)
+    return out
+
+
+def card(w, h, bg, fill):
+    """An empty rounded card the size of the artwork box: what stands in when there's no picture."""
+    out = Image.new("RGB", (w, h), _rgb(bg))
+    ImageDraw.Draw(out).rounded_rectangle((MARGIN, MARGIN, w - MARGIN - 1, h - MARGIN - 1), RADIUS,
+                                          fill=_rgb(fill))
+    return out
+
+
+def _tk_image(path, w, h):
     img = tk.PhotoImage(file=path)
     factor = max(1, math.ceil(max(img.width() / w, img.height() / h)))
     return img.subsample(factor) if factor > 1 else img
@@ -59,11 +108,12 @@ class DetailsPanel(ttk.Frame):
     """show(info) with info = {title, console, lb (LaunchBox game dict or None), det (LaunchBox details dict),
     media_dir, stems, file, size}; clear(text) for nothing / several selected."""
 
-    def __init__(self, parent, field_style=None, wide=False, padding=(10, 0, 0, 0)):
-        """wide: artwork on the left and text on the right, for a short band instead of a tall column."""
+    def __init__(self, parent, field_style=None, wide=False, padding=(10, 0, 0, 0), art=None):
+        """wide: artwork on the left and text on the right, for a short band instead of a tall column.
+        art: (width, height) of the artwork box, for a window with room for more than the usual."""
         super().__init__(parent, padding=padding)
         self.images, self.index, self.photo, self.info = [], 0, None, None
-        self.img_w, self.img_h = (200, 150) if wide else (IMG_W, IMG_H)
+        self.img_w, self.img_h = art or ((WIDE_W, WIDE_H) if wide else (IMG_W, IMG_H))
         left = ttk.Frame(self)
         left.pack(side="left", fill="y") if wide else left.pack(fill="x")
         right = ttk.Frame(self)
@@ -72,8 +122,10 @@ class DetailsPanel(ttk.Frame):
         box = ttk.Frame(left, width=self.img_w, height=self.img_h)  # fixed size: no jumping between games
         box.pack_propagate(False)
         box.pack()
-        self.pic = tk.Label(box, borderwidth=0, highlightthickness=0, wraplength=self.img_w - 20)
+        self.pic = tk.Label(box, borderwidth=0, highlightthickness=0, wraplength=self.img_w - 40, compound="center",
+                            font="SunValleyCaptionFont")
         self.pic.pack(fill="both", expand=True)
+        self.fader = motion.Fader(self.pic, (self.img_w, self.img_h)) if Image else None
         self.spot = video.Spot(box, self.img_w, self.img_h, "black", self._video_state, under=self.pic)
         self.spot.enabled = lambda: PLAY_VIDEOS
         nav = ttk.Frame(left)
@@ -83,7 +135,9 @@ class DetailsPanel(ttk.Frame):
         self.next_btn = ttk.Button(nav, text="›", width=3, command=lambda: self._step(1))
         self.next_btn.pack(side="right")
         self.sound_btn = ttk.Button(nav, text="🔇", width=3, command=self._toggle_sound)  # shown while a video plays
-        self.pic_lbl = ttk.Label(nav, style="Muted.TLabel", anchor="center")
+        # width=1: a long caption ("screenshots · 12 / 14", "finding a video…") is cut short, never widening the
+        # column and shifting everything beside it
+        self.pic_lbl = ttk.Label(nav, style="Muted.TLabel", anchor="center", width=1)
         self.pic_lbl.pack(side="left", fill="x", expand=True)
         self.video_btn = ttk.Button(right, text="Gameplay video ↗", command=self._video)
         self.video_btn.pack(side="bottom", fill="x", pady=(6 if wide else 8, 0))
@@ -105,26 +159,58 @@ class DetailsPanel(ttk.Frame):
             self.desc.configure(**{k: v for k, v in field_style.items() if k != "selectforeground"},
                                 insertbackground=field_style["fg"])
         muted = st.lookup("Muted.TLabel", "foreground")
-        if muted:
-            self.desc.tag_configure("meta", foreground=muted)
+        self.muted = muted or "gray"
+        motion.cancel(self.desc, "text")
+        self.desc.tag_configure("meta", foreground=self.muted)
+        for tag in ("title", "gap"):
+            self.desc.tag_configure(tag, foreground="")
+        if getattr(self, "info", None) and not self.spot.playing():  # artwork is drawn on the background: redraw
+            self._show_image()
+        elif getattr(self, "card_text", None) is not None:
+            self._card(self.card_text)
 
-    def _set_desc(self, *parts):
-        """parts: (text, tag) pairs."""
+    def _bg(self):
+        return "#%02x%02x%02x" % motion.rgb(self.pic, self.pic.cget("bg"))
+
+    def _card(self, text):
+        """The empty artwork box: a rounded card with text on it (plain text without Pillow)."""
+        self.card_text = text
+        if self.fader:
+            self.fader.forget()
+        if not Image:
+            self.pic.configure(image="", text=text)
+            return
+        bg = self._bg()
+        pil = card(self.img_w, self.img_h, bg, motion.mix(self.pic, bg, self.muted, 0.12))
+        self.card_photo = ImageTk.PhotoImage(pil)
+        self.pic.configure(image=self.card_photo, text=text)
+        self.fader.shown = pil  # the next picture fades in from the card
+
+    def _set_desc(self, *parts, fade=False):
+        """parts: (text, tag) pairs. fade: the text fades in from the background."""
         self.desc.configure(state="normal")
         self.desc.delete("1.0", "end")
         for text, tag in parts:
             self.desc.insert("end", text, tag)
         self.desc.configure(state="disabled")
         self.desc.yview_moveto(0)
+        if fade and motion.ENABLED:
+            fg = self.desc.cget("foreground")
+            motion.fade_text(self.desc, "text", {"title": fg, "meta": self.muted, "gap": fg}, done=lambda: [
+                self.desc.tag_configure(t, foreground="") for t in ("title", "gap")])  # follow the theme again
 
     def placeholder(self, title, body, image=None, action=None):
         """Friendly state when no single game is selected: an icon, a heading, some tips and an optional button
         (action = (label, command)) in place of the video link."""
+        calm = self._calm()
         self.clear()
         if image is not None:
+            self.card_text = None
+            if self.fader:
+                self.fader.forget()
             self.pic.configure(image=image, text="")
             self.photo = image
-        self._set_desc((title + "\n", "title"), (body, "meta"))
+        self._set_desc((title + "\n", "title"), (body, "meta"), fade=calm)
         if action:
             self.video_btn.configure(text=action[0], command=action[1], style="Accent.TButton")
             self.video_btn.state(["!disabled"])
@@ -147,10 +233,17 @@ class DetailsPanel(ttk.Frame):
     def _toggle_sound(self):
         self.sound_btn.configure(text="🔊" if self.spot.toggle_sound() else "🔇")
 
+    def _calm(self):
+        """Whether this change may animate: not while flicking quickly from game to game."""
+        return self.fader.calm() if self.fader else False
+
     def clear(self, text=""):
         self.spot.stop()
+        if self.fader:
+            self.fader.forget()
         self.info, self.images, self.photo = None, [], None
-        self.pic.configure(image="", text=text, fg=ttk.Style().lookup("Muted.TLabel", "foreground") or "gray")
+        self.pic.configure(fg=self.muted)
+        self._card(text)
         self.pic_lbl.config(text="")
         self.prev_btn.state(["disabled"])
         self.next_btn.state(["disabled"])
@@ -163,7 +256,8 @@ class DetailsPanel(ttk.Frame):
         self.video_btn.configure(text="Gameplay video ↗", command=self._video, style="TButton")
         self.images = media_for(info["media_dir"], info["stems"])
         self.index = 0
-        self._show_image()
+        calm = self._calm()
+        self._show_image(animate=calm)
         self.spot.schedule(video.video_for(info["media_dir"], info["stems"]),
                            video.youtube_query(info["title"], info["console"]) if STREAM_VIDEOS else None)
         g, det = info.get("lb"), info.get("det") or {}
@@ -180,14 +274,14 @@ class DetailsPanel(ttk.Frame):
             lines.append("Not matched in LaunchBox")
         lines.append(f"{info['file']}  ·  {info['size']}")
         self._set_desc((info["title"] + "\n", "title"), ("\n".join(lines) + "\n", "meta"),
-                       ((det.get("o") or "").strip() or "No description.", "gap"))
+                       ((det.get("o") or "").strip() or "No description.", "gap"), fade=calm)
         self.video_btn.state(["!disabled"])
 
-    def _show_image(self):
-        self.photo = None
+    def _show_image(self, animate=False):
+        self.photo = pil = None
         while self.images and self.photo is None:
             try:
-                self.photo = load_image(self.images[self.index][1], self.img_w, self.img_h)
+                pil, self.photo = load_picture(self.images[self.index][1], self.img_w, self.img_h, self._bg())
             except Exception:  # unreadable / unsupported file: drop it and try the next one
                 del self.images[self.index]
                 self.index = min(self.index, max(len(self.images) - 1, 0))
@@ -195,7 +289,11 @@ class DetailsPanel(ttk.Frame):
             note = "No artwork on disk — Scrape metadata… adds it"
             if not Image:
                 note += "\n(install Pillow to show JPEG art)"
-            self.pic.configure(image="", text=note)
+            self._card(note)
+        elif self.fader:
+            self.card_text = None
+            self.fader.show(pil, self.photo, self._bg(), animate)  # (sets the image first: the old one's gone)
+            self.pic.configure(text="")
         else:
             self.pic.configure(image=self.photo, text="")
         self._caption()
@@ -215,7 +313,7 @@ class DetailsPanel(ttk.Frame):
             return
         if self.images:
             self.index = (self.index + d) % len(self.images)
-            self._show_image()
+            self._show_image(animate=self._calm())
 
     def _video(self):
         if self.info:
