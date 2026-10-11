@@ -200,6 +200,7 @@ function rememberCursor() {
 
 // ---------- deciding (in the helper) ----------
 let decideTimer = null, decideSeq = 0, deciding = null;
+const wanted = new Map();  // games just flipped by dropping their old flip -> the list they should end up in
 function scheduleDecide(delay = 250) {
   clearTimeout(decideTimer);
   decideTimer = setTimeout(() => { decideTimer = null; runDecide(); }, delay);
@@ -207,7 +208,19 @@ function scheduleDecide(delay = 250) {
 function runDecide() {
   const seq = ++decideSeq;
   deciding = call("decide", { state: S.st, cursor_key: L().current?.key ?? null })
-    .then((dec) => { if (seq === decideSeq) applyDecision(dec); })
+    .then((dec) => {
+      if (seq !== decideSeq) return;
+      // Dropping a flip hands the game back to the filters, which may have come to agree with that flip since: then
+      // it has to be flipped the other way instead, or it would stay put.
+      const moving = new Set(dec.move);
+      let again = false;
+      for (const [k, want] of wanted) {
+        if (moving.has(k) !== want && !(k in S.st.flips) && S.byKey.has(k)) { S.st.flips[k] = want; S.byKey.get(k).why = "manual"; again = true; }
+      }
+      wanted.clear();
+      if (again) return runDecide();
+      applyDecision(dec);
+    })
     .catch(oops);
   return deciding;
 }
@@ -239,7 +252,7 @@ function flip(keys) {
   for (const k of keys) {
     const g = S.byKey.get(k);
     prev[k] = S.st.flips[k];
-    if (k in S.st.flips) { delete S.st.flips[k]; g.why = ""; } else { S.st.flips[k] = !g.move; g.why = "manual"; }
+    if (k in S.st.flips) { delete S.st.flips[k]; g.why = ""; wanted.set(k, !g.move); } else { S.st.flips[k] = !g.move; g.why = "manual"; }
     g.move = !g.move;
   }
   S.undo.push({ keys, prev });
