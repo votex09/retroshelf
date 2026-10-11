@@ -1084,6 +1084,15 @@ class AppTest(unittest.TestCase):
         with mock.patch.object(sys.modules["scraper"], "es_de_running", return_value=True):
             a.hide_games([sports[0]])
         self.assertNotIn(sports[0], a.hidden)
+        # a multi-disc game whose separate discs are hidden (so ES-DE lists only its .m3u) isn't a hidden game
+        ff7 = sandbox.PSX_GAMES[1][0]
+        hd.set_hidden(sys.modules["scraper"].gamelist_path(self.p["roms"], "psx"),
+                      [f"{ff7} (Disc 1).chd", f"{ff7} (Disc 2).chd"])
+        a.load_system("psx")
+        self.assertNotIn(ff7, a.hidden)
+        hd.set_hidden(a.gamelist_path(), [f"{ff7}.m3u"])
+        a.rescan()
+        self.assertIn(ff7, a.hidden)
 
     def test_pad_hints_for_any_window(self):
         """Windows that don't describe their buttons get hints by the kind of widget; every style draws."""

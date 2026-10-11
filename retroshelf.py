@@ -1655,7 +1655,8 @@ class App:
             except (OSError, ET.ParseError, ValueError):
                 pass
         self.played &= self.units.keys()
-        self.hidden = {self.file_to_unit.get(fn, unit_key(fn)) for fn in hiding.hidden(gl)} & self.units.keys()
+        names = hiding.hidden(gl)  # a game is hidden when the file ES-DE lists for it is (not just a disc of it)
+        self.hidden = {k for k, u in self.units.items() if os.path.basename(scraper.primary_file(u["paths"])) in names}
         self.played_cb.config(text=f"Protect played games ({len(self.played)})")
 
         self.ratings, self.lb_kind, self.lb_ids = {}, {}, {}

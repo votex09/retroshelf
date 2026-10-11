@@ -9,6 +9,8 @@ What it looks for, in every system folder (or the ones asked for):
   - playlist  an .m3u naming discs that aren't there (fixable when the disc is there by another name: other case,
               or compressed to .chd / .rvz / …)
   - lonebin   a raw CD image (.bin / .img) with no .cue, which the emulators can't open: one is written
+  - multidisc a game's discs side by side with no .m3u: ES-DE lists each disc, and changing discs mid-game needs
+              the playlist. One is written, and the separate discs are hidden in ES-DE so the game shows once
   - empty     an empty game file (a failed copy or download)
   - leftover  partial downloads and RetroShelf's own temporary files left behind
   - media     ES-DE artwork, videos and manuals for games that aren't there any more
@@ -23,6 +25,7 @@ KINDS = [  # (kind, heading) in the order they're shown
     ("sheet", "Disc sheets naming files that aren't there"),
     ("playlist", "Playlists naming discs that aren't there"),
     ("lonebin", "Disc images without the .cue they need"),
+    ("multidisc", "Games on several discs without a playlist"),
     ("empty", "Empty game files"),
     ("leftover", "Unfinished downloads and temporary files"),
     ("media", "Artwork and videos for games that aren't there"),
@@ -236,8 +239,40 @@ def scan_system(roms_root, system, now=None):
             if text and not re.search(r"\((?:Track|Disc) \d+\)", name, re.I):
                 problems.append(Problem("lonebin", system, [p], "a raw CD image: emulators open it through a .cue",
                                         "Make a .cue", data=text))
+    problems += _multidisc(system, folder, files, by_lower, exts)
     problems += _orphans(roms_root, system, folder, found, closed)
     return problems
+
+
+DISC = re.compile(r"\s*\((?:Disc|Disk|CD)\s*(\d+)(?:\s*of\s*\d+)?\)", re.I)
+DISC_ORDER = (".chd", ".cue", ".gdi", ".ccd", ".iso", ".pbp", ".cso", ".zso", ".rvz", ".cdi", ".mds")
+
+
+def _multidisc(system, folder, files, by_lower, exts):
+    """Discs named "Game (Disc 1)", "Game (Disc 2)" … at the top of the folder with no Game.m3u."""
+    if exts is not None and ".m3u" not in exts:
+        return []
+    sets = {}
+    for p, rel in files:
+        if "/" in rel:
+            continue
+        stem, ext = os.path.splitext(os.path.basename(p))
+        if ext.lower() not in DISC_ORDER:
+            continue
+        m = DISC.search(stem)
+        if not m:
+            continue
+        base = (stem[:m.start()] + stem[m.end():]).strip()
+        disc = int(m.group(1))
+        sets.setdefault(base, {}).setdefault(disc, []).append(p)
+    out = []
+    for base, discs in sorted(sets.items()):
+        if len(discs) < 2 or _key(os.path.join(folder, base + ".m3u")) in by_lower:
+            continue
+        chosen = [min(discs[d], key=lambda q: DISC_ORDER.index(os.path.splitext(q)[1].lower())) for d in sorted(discs)]
+        out.append(Problem("multidisc", system, chosen, f"{len(chosen)} discs, e.g. {os.path.basename(chosen[0])}",
+                           "Make an .m3u", title=base + ".m3u", data=base))
+    return out
 
 
 def _orphans(roms_root, system, folder, found, closed):
@@ -339,6 +374,22 @@ def fix(problem, roms_root, es_de_running=None):
             if d != mdir and not os.listdir(d) and os.path.relpath(d, mdir).count(os.sep) > 0:
                 os.rmdir(d)
         return f"deleted {n:,} files"
+    if k == "multidisc":
+        folder = os.path.dirname(p[0])
+        m3u = os.path.join(folder, problem.data + ".m3u")
+        if os.path.lexists(m3u):
+            raise RuntimeError(f"{os.path.basename(m3u)} is already there")
+        running = scraper.es_de_running() if es_de_running is None else es_de_running
+        if running:  # the discs are hidden in its gamelist, which it rewrites when it quits
+            raise RuntimeError("ES-DE is running: close it first")
+        import esde_collections, hiding  # (ES-DE's folder, and its hidden flag)
+        with open(m3u, "w", encoding="utf-8", newline="\n") as f:
+            f.writelines(os.path.basename(d) + "\n" for d in p)
+        hiding.set_hidden(scraper.gamelist_path(roms_root, problem.system), p)
+        es_home = esde_collections.home(roms_root)
+        if hiding.shows_hidden(es_home):
+            hiding.stop_showing_hidden(es_home)
+        return f"wrote {os.path.basename(m3u)} for {len(p)} discs, and hid the discs in ES-DE"
     if k == "gamelist":
         running = scraper.es_de_running() if es_de_running is None else es_de_running
         if running:
