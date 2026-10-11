@@ -34,6 +34,7 @@ import health  # noqa: E402
 import storage  # noqa: E402
 import dupes  # noqa: E402
 import esde_collections  # noqa: E402
+import hiding  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
 import discs  # noqa: E402
@@ -1768,6 +1769,43 @@ class EsdeCollections(unittest.TestCase):
             f.write('<?xml version="1.0"?>\n<bool name="ShowHiddenFiles" value="true" />\n')
         self.assertTrue(esde_collections.enable(es, "Best of 1994"))
         self.assertEqual(esde_collections.enabled(es), ["Best of 1994"])
+
+
+class Hiding(unittest.TestCase):
+    """lib/hiding.py: ES-DE's hidden flag, and its Show hidden games setting."""
+
+    def test_hide_and_show_again(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        gl = os.path.join(tmp, "gamelists", "snes", "gamelist.xml")
+        self.assertEqual(hiding.set_hidden(gl, ["x.sfc"], hide=False), 0)  # nothing to show again: no file made
+        self.assertFalse(os.path.exists(gl))
+        self.assertEqual(hiding.set_hidden(gl, ["/roms/snes/New (USA).sfc"]), 1)  # made, with an entry
+        self.assertEqual(hiding.hidden(gl), {"New (USA).sfc"})
+        with open(gl, "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0"?>\n<alternativeEmulator><label>Snes9x</label></alternativeEmulator>\n'
+                    "<gameList>\n<game><path>./Played (USA).sfc</path><name>Played</name><playcount>5</playcount>"
+                    "</game>\n</gameList>\n")
+        self.assertEqual(hiding.set_hidden(gl, ["Played (USA).sfc", "Other (USA).sfc"]), 2)
+        self.assertEqual(hiding.set_hidden(gl, ["Played (USA).sfc"]), 0)  # already hidden
+        self.assertEqual(hiding.hidden(gl), {"Played (USA).sfc", "Other (USA).sfc"})
+        with open(gl, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("<playcount>5</playcount>", text)  # the rest of the entry is left as it was
+        self.assertIn("alternativeEmulator", text)
+        self.assertEqual(hiding.set_hidden(gl, ["Played (USA).sfc"], hide=False), 1)
+        self.assertEqual(hiding.hidden(gl), {"Other (USA).sfc"})
+        # ES-DE shows hidden games until that's turned off
+        es = os.path.join(tmp, "ES-DE")
+        self.assertIsNone(hiding.shows_hidden(es))
+        self.assertFalse(hiding.stop_showing_hidden(es))
+        os.makedirs(os.path.join(es, "settings"))
+        with open(os.path.join(es, "settings", "es_settings.xml"), "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0"?>\n<string name="ROMDirectory" value="" />\n')
+        self.assertTrue(hiding.shows_hidden(es))  # ES-DE's default
+        self.assertTrue(hiding.stop_showing_hidden(es))
+        self.assertFalse(hiding.shows_hidden(es))
+        self.assertFalse(hiding.stop_showing_hidden(es))
 
 
 class SevenZip(unittest.TestCase):
