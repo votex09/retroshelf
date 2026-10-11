@@ -67,9 +67,11 @@ class Helper(unittest.TestCase):
 
 
 def session(data, script):
-    """Run script in a fresh helper process (its methods as h.name), with settings in data -> what it prints, as JSON.
+    """Run script in a fresh helper process (the window's methods as h.name), with settings in data -> what it
+    prints, as JSON.
     The window's requests can come back in any order, so steps that build on each other are tested this way."""
-    code = f"import json, sys; sys.path.insert(0, {os.path.dirname(HELPER)!r}); import helper as h\n{script}"
+    code = (f"import json, sys; sys.path.insert(0, {os.path.dirname(HELPER)!r}); import helper\n"
+            "h = type('H', (), {'__getattr__': lambda self, name: helper.METHODS[name]})()\n" + script)
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, encoding="utf-8",
                          env={**os.environ, "RETROSHELF_DATA": data})
     if out.returncode:
@@ -211,6 +213,37 @@ print(json.dumps({"first": first, "again": again, "list": h.collections()}))""")
         self.assertEqual((out["first"]["name"], out["first"]["new"], out["first"]["added"]), ("My Faves", True, 2))
         self.assertEqual((out["again"]["new"], out["again"]["added"], out["again"]["files"]), (False, 1, 2))
         self.assertEqual(out["list"], {"names": {"My Faves": 3}, "last": "My Faves"})
+
+    def test_rename_and_undo(self):
+        out = session(self.data, """
+h.startup(); s = h.open_system("snes")
+h.decide(dict(s["state"], flips={"Chrono Trigger (USA)": True}))
+info = h.rename_info()
+plan = h.rename_plan("{title}")
+done = h.rename_apply("{title}")
+runs = h.rename_runs()
+undo = h.rename_undo([runs[0]["id"]])
+print(json.dumps({"info": info, "plan": plan, "done": done, "runs": runs, "undo": undo, "left": h.rename_runs()}))""")
+        self.assertFalse(out["info"]["arcade"])
+        self.assertEqual((out["plan"]["rename"], out["plan"]["skip"]), (2, 1))  # the .part download is skipped
+        self.assertIn({"key": "Chrono Trigger (USA)", "old": "Chrono Trigger (USA).sfc", "new": "Chrono Trigger.sfc",
+                       "status": "rename"}, out["plan"]["rows"])
+        self.assertEqual(out["done"]["renamed"]["files"], 2)
+        self.assertEqual(out["done"]["state"]["flips"], {"Chrono Trigger": True})  # the flip follows the game
+        self.assertEqual(self.config()["rename_templates"], {"snes": "{title}"})
+        self.assertEqual((out["runs"][0]["files"], out["undo"]["back"], out["left"]), (2, 2, []))
+        self.assertIn("Chrono Trigger (USA).sfc", os.listdir(os.path.join(self.roms, "snes")))
+
+    def test_jobs_can_be_stopped(self):
+        out = session(self.data, """
+import rpc
+events = []
+rpc.event = lambda name, data=None: events.append((name, data))
+report, stop = rpc.progress("j1"), rpc.stopped("j1")
+before = stop()
+rpc.METHODS["cancel"]("j1")
+print(json.dumps({"before": before, "after": stop(), "other": rpc.stopped("j2")()}))""")
+        self.assertEqual(out, {"before": False, "after": True, "other": False})
 
     def test_needs_a_system(self):
         with self.assertRaisesRegex(AssertionError, "No system is open"):

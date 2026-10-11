@@ -31,26 +31,10 @@ import scraper  # noqa: E402
 import shelf  # noqa: E402
 from fsutil import write_json  # noqa: E402
 
+import rpc  # noqa: E402
+from rpc import METHODS, event, method, send  # noqa: E402
+
 PROTOCOL = 1
-_out = sys.stdout
-_lock = threading.Lock()
-METHODS = {}
-
-
-def method(fn):
-    METHODS[fn.__name__] = fn
-    return fn
-
-
-def send(obj):
-    line = json.dumps(obj, ensure_ascii=False)
-    with _lock:
-        _out.write(line + "\n")
-        _out.flush()
-
-
-def event(name, data=None):
-    send({"event": name, "data": data})
 
 
 # ---------- methods the window can call ----------
@@ -549,6 +533,13 @@ def restore_moves(ids):
         return {"back": back, "failed": failed}
 
 
+# ---------- the tool windows (app/helper/tool_*.py) ----------
+rpc.ctx.update(cfg=cfg, save_cfg=save_cfg, need_system=_need_system, open_system=open_system, current=current,
+               state_lock=_state_lock, data_dir=DATA_DIR, app_dir=APP_DIR)
+import tool_rename  # noqa: E402,F401
+import tool_scrape  # noqa: E402,F401
+
+
 # ---------- plumbing ----------
 def handle(msg):
     rid = msg.get("id")
@@ -564,8 +555,7 @@ def handle(msg):
 
 
 def main():
-    global _out
-    _out = sys.stdout
+    rpc.set_output(sys.stdout)
     sys.stdout = sys.stderr  # stray prints from lib/ code can't corrupt the protocol
     event("ready", hello())
     running = []

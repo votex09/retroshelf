@@ -394,3 +394,22 @@ select {
 body.pad .r-foot .glyph { display: inline-grid; margin-right: 6px; }
 body.pad .r-foot kbd { display: none; }
 .r-foot button { display: inline-flex; align-items: center; }
+
+/* ---------- tool windows ---------- */
+.menu { max-height: calc(100vh - 80px); overflow-y: auto; }
+.menu-label { padding: 6px 12px 2px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+.note { margin: 10px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 13px; }
+.note.warn { color: var(--move); border: 1px solid rgba(255, 138, 101, .35); }
+.progress-bar { height: 6px; border-radius: 6px; background: var(--surface-3); overflow: hidden; margin: 14px 0 6px; }
+.progress-bar div { height: 100%; width: 0; background: var(--accent); box-shadow: 0 0 12px var(--accent); transition: width .2s var(--ease); }
+.progress-text { color: var(--muted); font-size: 13px; min-height: 1.4em; overflow-wrap: anywhere; user-select: text; }
+.mono { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 13px; }
+.renames .trow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 190px; cursor: default; }
+.renames .bad { color: #e8a33d; }
+.fields { color: var(--muted); font-size: 12px; padding: 0 22px 8px; }
+.fields code { color: var(--accent); }
+.runs .trow { grid-template-columns: 22px 170px 90px 1fr 130px; }
+.sheet.wide { width: min(700px, calc(100vw - 48px)); }
+.form::-webkit-scrollbar { width: 10px; }
+.form::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 10px; border: 3px solid var(--surface); }
