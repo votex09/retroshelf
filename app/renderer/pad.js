@@ -672,7 +672,8 @@ function uiHints() {
   const layer = topLayer(), pad = S.pad, main = layer === document.body;
   const k = (key, text) => ["key", key, text];
   if (osk.shown()) {
-    return [["dpad", "Keys"], ["a", "Type"], ["x", "Space"], ["y", "Delete"], ["l1", "Shift"], ["b", "Done"]];
+    return osk.numbers() ? [["dpad", "Keys"], ["a", "Type"], ["y", "Delete"], ["b", "Done"]]
+      : [["dpad", "Keys"], ["a", "Type"], ["x", "Space"], ["y", "Delete"], ["l1", "Shift"], ["b", "Done"]];
   }
   if (typingIn()) {  // a text box with the keyboard in it
     return pad ? [["a", "On-screen keyboard"], ["dpad", "Leave the box"], ["b", "Done typing"]]
@@ -804,6 +805,10 @@ const osk = (() => {
   const K = { el: null, target: null, r: 1, c: 0, shift: false };
 
   function keys() {
+    if (K.target?.type === "number") {  // a number: just a keypad
+      return [..."789 456 123".split(" ").map((r) => [...r].map((ch) => ({ ch, label: ch }))),
+        [{ ch: ".", label: "." }, { ch: "0", label: "0" }, { act: "del", label: "⌫" }], [{ act: "done", label: "Done" }]];
+    }
     const rows = ROWS.map((r) => [...(K.shift ? r.toUpperCase() : r)].map((ch) => ({ ch, label: ch })));
     rows.push([{ act: "shift", label: "⇧ Shift" }, { ch: " ", label: "Space" }, { act: "del", label: "⌫" },
       ...(K.target?.tagName === "TEXTAREA" ? [{ ch: "\n", label: "↵" }] : []), { act: "done", label: "Done" }]);
@@ -854,6 +859,7 @@ const osk = (() => {
     draw();
     const low = target.getBoundingClientRect().bottom > innerHeight - K.el.offsetHeight - 90;  // (don't cover the box)
     K.el.classList.toggle("top", low);
+    K.el.classList.toggle("numbers", target.type === "number");
     hints();
   }
 
@@ -888,7 +894,7 @@ const osk = (() => {
     else if (b === 1 || b === 9) close();
   }
 
-  return { open, close, pad, shown: () => Boolean(K.el && !K.el.hidden) };
+  return { open, close, pad, shown: () => Boolean(K.el && !K.el.hidden), numbers: () => K.target?.type === "number" };
 })();
 
 requestAnimationFrame(pollPads);
