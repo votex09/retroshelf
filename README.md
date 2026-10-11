@@ -94,6 +94,10 @@ rename can be undone, and games only go for good when you delete them from the h
   you have one) and files the games into `roms/<system>`: a `.bin` without a `.cue` gets one, `.cue` / `.gdi` games
   keep their tracks together, full Xbox dumps are cut down to the part xemu reads, and arcade zips stay zipped under
   their set name. Readmes and tools inside archives are left out.
+- **Sources** (the second tab) lists games kept in another folder, like a home server's share mounted on this
+  computer: add the folder once with **Add source…**, browse its games by system with box art and a gameplay video,
+  queue them (A / Space) and **Copy to library**. They're unpacked and filed like imports; the source is only read.
+  Games you already have (same title, any region) say **In library**. **Look again** re-reads the folder.
 - Games unpack into a hidden staging folder first, so ES-DE never sees half a game, and the drive's free space is
   checked before a big archive is unpacked. Games from the import folder are moved out of it; games added from
   elsewhere are copied, unless you tick **Also delete the originals**.
@@ -158,7 +162,8 @@ rename can be undone, and games only go for good when you delete them from the h
 
 **NoPayStation (PS3, PS Vita, PSP)**
 - **☰ → Get games → NoPayStation…** searches the NoPayStation lists. Queue games, DLC, demos and PS3 updates, and download and install them.
-- The list fills the window; beside it are the picked game, the queue and **Start**. A / Space (or double-click)
+- The list fills the window; beside it are the picked game (with LaunchBox box art and a screenshot, then the top
+  YouTube gameplay video), the queue and **Start**. A / Space (or double-click)
   adds a game to the queue, Y / Backspace takes it off.
 - Shows which games you already have; can list available updates for installed PS3 games.
 - Parallel, resumable downloads. Right-click the queue to retry failed jobs.

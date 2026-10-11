@@ -23,6 +23,7 @@ import pdroms  # noqa: E402
 import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import scraper  # noqa: E402
+import sources  # noqa: E402
 import updater  # noqa: E402
 import dialogs  # noqa: E402
 import romimport as ri  # noqa: E402
@@ -2358,6 +2359,43 @@ class MediaFolder(unittest.TestCase):
                 with open(os.path.join(home, "ES-DE", "settings", "es_settings.xml"), "w", encoding="utf-8") as f:
                     f.write(f'<?xml version="1.0"?>\n<string name="MediaDirectory" value="{custom.replace("&", "&amp;")}" />\n')
                 self.assertEqual(scraper.media_root(roms), os.path.realpath(custom))
+
+
+class Sources(unittest.TestCase):
+    """Import → Sources: a folder's games listed with their systems, and copied into the ROMs folder untouched."""
+
+    def test_list_and_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src, roms = os.path.join(tmp, "server"), os.path.join(tmp, "roms")
+            for d in ("snes", "Misc", "Sony - PlayStation"):
+                os.makedirs(os.path.join(src, d))
+            os.makedirs(os.path.join(roms, "snes"))
+            for path, data in (("snes/Chrono Quest (USA).bin", b"S" * 64), ("snes/Bebe's Kids (Europe).sfc", b"B"),
+                               ("Misc/Tiny.gb", b"G"), ("Sony - PlayStation/Disc (USA).chd", b"C")):
+                with open(os.path.join(src, path), "wb") as f:
+                    f.write(data)
+            with zipfile.ZipFile(os.path.join(src, "Misc", "Pocket Hero (USA).zip"), "w") as z:
+                z.writestr("Pocket Hero (USA).gba", b"A" * 10)
+            open(os.path.join(roms, "snes", "Bebe's Kids (USA).sfc"), "w").close()
+            self.assertIn("can't be your ROMs folder", sources.problem(roms, roms))
+            self.assertIsNone(sources.problem(src, roms))
+            with mock.patch.object(sources, "CACHE", os.path.join(tmp, "cache")):
+                listing = sources.scan(src, roms)
+                self.assertEqual(sources.cached(src), listing)
+            got = {g["name"]: (g["system"], g["how"]) for g in listing["games"]}
+            self.assertEqual(got, {"Bebe's Kids (Europe)": ("snes", "folder"), "Chrono Quest (USA)": ("snes", "folder"),
+                                   "Disc (USA)": ("psx", "folder name"), "Pocket Hero (USA)": ("gba", "file type"),
+                                   "Tiny": ("gb", "file type")})
+            titles = sources.library_titles(roms, {"snes", "gba"})
+            self.assertEqual([g["name"] for g in listing["games"] if sources.have(g, titles)], ["Bebe's Kids (Europe)"])
+            row = sources.copy(src, "snes/Chrono Quest (USA).bin", roms, "snes")
+            self.assertTrue(row.status.startswith("Imported"), row.status)
+            self.assertTrue(os.path.exists(os.path.join(src, "snes", "Chrono Quest (USA).bin")))  # still in the source
+            self.assertTrue(any(n.startswith("Chrono Quest") for n in os.listdir(os.path.join(roms, "snes"))))
+            row = sources.copy(src, "Misc/Pocket Hero (USA).zip", roms, "gba")
+            self.assertTrue(row.status.startswith("Imported"), row.status)
+            self.assertTrue(os.path.exists(os.path.join(roms, "gba", "Pocket Hero (USA).gba")))
+            self.assertTrue(os.path.exists(os.path.join(src, "Misc", "Pocket Hero (USA).zip")))
 
 if __name__ == "__main__":
     unittest.main()
