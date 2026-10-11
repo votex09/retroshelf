@@ -5,7 +5,8 @@
 // the popover or sheet, then back to the lists. In the lists themselves the keys are app.js's handle(). Everywhere in
 // the main window LB / RB (F6) go round its parts (header, filter tabs, Keeping, Moving, details, footer), Select
 // (View) searches, Start opens ☰, and R3, the Menu key or Shift+F10 opens the game's menu. A in a text box opens an
-// on-screen keyboard (osk below). The hints along the bottom always list what the buttons do right there (uiHints).
+// on-screen keyboard (osk below). The hints along the bottom always list what the buttons do right there (uiHints),
+// and a ring flies to wherever the cursor lands (glide).
 "use strict";
 
 const NAV = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
@@ -79,6 +80,34 @@ function nearest(from, dir, els, loose = false) {
   return best;
 }
 
+// ---------- showing where the cursor went ----------
+// A ring flies from where the cursor was to where it lands, then pulses there, so a jump (LB / RB, a sheet opening,
+// back to the lists) is easy to follow. Not with ☰ → Settings → Animations off or the system's reduced motion.
+const glideOff = matchMedia("(prefers-reduced-motion: reduce)");
+let glideEl = null;
+function glide(from, to) {
+  if (!to || !(S.pad || document.body.classList.contains("kbd")) || !S.opts.animations || glideOff.matches) return;
+  if (!to.width || !to.height || to.bottom < 0 || to.top > innerHeight) return;
+  const same = from && Math.abs(from.left - to.left) < 2 && Math.abs(from.top - to.top) < 2 && Math.abs(from.width - to.width) < 2;
+  if (!glideEl) {
+    glideEl = document.createElement("div");
+    glideEl.className = "focus-glide";
+    document.body.appendChild(glideEl);
+  }
+  const at = (r, extra = {}) => ({ left: `${r.left - 4}px`, top: `${r.top - 4}px`, width: `${r.width + 8}px`,
+    height: `${r.height + 8}px`, ...extra });
+  const start = from && from.width && !same ? from : null;
+  glideEl.getAnimations().forEach((a) => a.cancel());
+  const travel = start ? Math.min(260, 120 + Math.hypot(to.left - start.left, to.top - start.top) / 6) : 0;
+  glideEl.animate([
+    ...(start ? [at(start, { opacity: 0.9, offset: 0 })] : [at(to, { opacity: 0, transform: "scale(1.15)", offset: 0 })]),
+    at(to, { opacity: 1, transform: "scale(1)", offset: (travel / (travel + 380)) || 0.3 }),
+    at(to, { opacity: 0.8, transform: "scale(1.04)", offset: Math.min(0.9, (travel + 140) / (travel + 380)) }),
+    at(to, { opacity: 0, transform: "scale(1)", offset: 1 }),
+  ], { duration: travel + 380, easing: "cubic-bezier(.2,.8,.2,1)" });
+}
+const cursorRect = () => (P.cur ? rectOf(P.cur) : topLayer() === document.body && S.sys ? rectOf($(S.active)) : null);
+
 // ---------- the cursor ----------
 function sig(el) {  // enough to find a control again after its sheet redraws
   const holder = el.closest("[id]");
@@ -88,6 +117,7 @@ function sig(el) {  // enough to find a control again after its sheet redraws
 }
 
 function setCursor(el, { focus = true } = {}) {
+  const from = el !== P.cur ? cursorRect() : null;
   if (P.cur && P.cur !== el) box(P.cur).classList.remove("pad-cur");
   P.cur = el;
   P.sig = el ? sig(el) : null;
@@ -108,15 +138,18 @@ function setCursor(el, { focus = true } = {}) {
     document.activeElement.blur();
   }
   box(el).scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (from) glide(from, rectOf(el));
   hints();
 }
 
 function enterList(name) {
+  const from = P.cur || name !== S.active ? cursorRect() : null;
   if (P.cur) box(P.cur).classList.remove("pad-cur");
   P.saved.delete(document.body);
   P.cur = null; P.sig = null;
   if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
   if (S.sys) setActive(name);
+  if (from && S.sys) glide(from, rectOf($(name)));
   hints();
 }
 
@@ -315,10 +348,11 @@ document.addEventListener("focusin", (e) => {  // Tab, a click, a sheet focusing
     if (inside) setCursor(inside);
     return;
   }
+  const from = cursorRect();
   if (P.cur) box(P.cur).classList.remove("pad-cur");
   P.cur = el; P.sig = sig(el);
   P.saved.set(layerOf(el), el);
-  if (document.body.classList.contains("kbd") || S.pad) box(el).classList.add("pad-cur");
+  if (document.body.classList.contains("kbd") || S.pad) { box(el).classList.add("pad-cur"); if (from) glide(from, rectOf(el)); }
 });
 
 document.addEventListener("keydown", (e) => {
