@@ -277,6 +277,64 @@ print(json.dumps({{"offered": start["setup_offered"], "name": info["name"], "res
         self.assertTrue(self.config()["setup_offered"])
         self.assertEqual(session(self.data, 'print(json.dumps(h.startup()["setup_offered"]))'), True)
 
+    def test_storage_overview(self):
+        with open(os.path.join(self.roms, "snes", "Chrono Trigger (USA).sfc"), "w") as f:
+            f.write("x" * 100)
+        out = session(self.data, """
+import rpc
+events = []
+rpc.event = lambda name, data=None: events.append(data)
+h.startup()
+print(json.dumps({"st": h.storage_scan("j1"), "events": events}))""")
+        (snes,) = out["st"]["systems"]
+        self.assertEqual((snes["code"], snes["label"]), ("snes", "snes — Nintendo SNES (Super Nintendo)"))
+        self.assertEqual((snes["games"], snes["size"], snes["media"], snes["more"]), (3, 100, 0, 0))
+        self.assertEqual(snes["biggest"][0], ["Chrono Trigger (USA)", 100])  # the main window's keys
+        self.assertGreater(out["st"]["drive"]["total"], 0)
+        self.assertEqual(out["events"][0]["job"], "j1")
+
+    def test_health_check(self):
+        out = session(self.data, """
+h.startup(); h.open_system("snes")
+found = h.health_scan("j1", system="snes")
+ids = [p["id"] for p in found["problems"] if p["fix"]]
+plan = h.health_fix_plan(ids)
+print(json.dumps({"found": found, "plan": plan, "fixed": h.health_fix(ids), "again": h.health_scan("j2")}))""")
+        self.assertEqual([(p["kind"], p["name"]) for p in out["found"]["problems"]],
+                         [("empty", "Chrono Trigger (USA).sfc"), ("empty", "Super Metroid (USA).zip")])
+        self.assertEqual(out["plan"], {"lines": ["Empty game files: 2 (delete it)"], "deletes": 2})
+        self.assertEqual(out["fixed"]["done"], {"0": "Deleted Chrono Trigger (USA).sfc",
+                                                "1": "Deleted Super Metroid (USA).zip"})
+        self.assertEqual((out["fixed"]["failed"], out["fixed"]["systems"]), ({}, ["snes"]))
+        self.assertEqual(out["again"]["problems"], [])
+        self.assertNotIn("Chrono Trigger (USA).sfc", os.listdir(os.path.join(self.roms, "snes")))
+
+    def test_find_duplicates(self):
+        game = os.path.join(self.roms, "snes", "Chrono Trigger (USA).sfc")
+        with open(game, "w") as f:
+            f.write("x" * 100)
+        os.makedirs(os.path.join(self.roms, "sfc"))
+        with open(os.path.join(self.roms, "sfc", "Chrono Trigger (USA).sfc"), "w") as f:
+            f.write("x" * 100)
+        out = session(self.data, """
+h.startup()
+found = h.dupes_scan("j1")
+s = found["sets"][0]
+keep = [i for i, c in enumerate(s["copies"]) if c["system"] == "sfc"][0]  # keep the sfc one instead
+done = h.dupes_resolve({str(s["id"]): keep})
+print(json.dumps({"found": found, "done": done, "twice": h.dupes_resolve({str(s["id"]): keep}),
+                  "runs": h.moves()}))""")
+        (s,) = out["found"]["sets"]
+        self.assertEqual((s["kind"], s["title"], s["extra"]), ("copies", "Chrono Trigger (USA)", 100))
+        self.assertEqual(s["copies"][s["keep"]]["system"], "snes")  # the fuller folder keeps its copy
+        self.assertEqual(out["found"]["holding"], os.path.join(self.tmp.name, "pruned", "to_delete"))
+        self.assertEqual(out["done"], {"moved": 1, "sets": [0], "systems": ["snes"], "problems": []})
+        self.assertEqual(out["twice"]["moved"], 0)  # a set is only moved once
+        self.assertFalse(os.path.exists(game))
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, "pruned", "to_delete", "snes",
+                                                    "Chrono Trigger (USA).sfc")))
+        self.assertEqual((out["runs"][0]["system"], out["runs"][0]["files"]), ("snes", 1))
+
     def test_needs_a_system(self):
         with self.assertRaisesRegex(AssertionError, "No system is open"):
             session(self.data, 'h.startup(); h.decide({})')
