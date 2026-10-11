@@ -45,7 +45,10 @@ const LAYERS = "#picker, #overlay-box, #sheet, #ctx, #menu, #systems-pop, #filte
 const layerOf = (el) => el.closest(LAYERS) || document.body;
 
 // Where a control is, for the purposes of moving: a tick box is its whole label.
-const box = (el) => (el.matches("input[type=checkbox], input[type=radio]") && el.closest("label") || el);
+const box = (el) => {
+  const label = el.matches("input[type=checkbox], input[type=radio]") && el.closest("label");
+  return label && !label.querySelector("input:not([type=checkbox]):not([type=radio]), select, button") ? label : el;  // (the label
+};  // holds more boxes, the rating filter's numbers: just the tick box, so those can be reached)
 
 function rectOf(el) {
   if (el?.classList?.contains("list")) {  // a game list: its selected row
@@ -706,7 +709,7 @@ function uiHints() {
     if (P.cur?.closest("#details")) h.push(pad ? ["rs-ud", "Scroll"] : k("PgUp PgDn", "Scroll"));
   }
   if (inBox(layer) && !ownsAll() && sheetAreas(layer).length > 1) h.push(pad ? ["l1/r1", "Next area"] : k("F6", "Next area"));
-  if (ownsAll()) h.push(pad ? ["l2/r2", "Scroll details"] : k("PgUp PgDn", "Scroll details"));
+  if (ownsAll()) { if (scrollsIn(layer)) h.push(pad ? ["l2/r2", "Scroll details"] : k("PgUp PgDn", "Scroll details")); }
   else if (onRow()) h.push(pad ? ["l2/r2", "Page"] : k("PgUp PgDn", "Page"));
   else if (layer === $("sheet") && scrollsIn(layer)) h.push(pad ? ["l2/r2", "Scroll"] : k("PgUp PgDn", "Scroll"));
   return h;
