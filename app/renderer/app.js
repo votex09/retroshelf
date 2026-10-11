@@ -885,15 +885,7 @@ async function setMatch(key, gid, clear = false) {
 // ---------- hints, keyboard and gamepads ----------
 function hints() {
   document.body.classList.toggle("pad", S.pad);
-  const ui = typeof uiHints === "function" ? uiHints() : null;
-  const marked = S.sys ? L().items.filter((g) => S.marked.has(g.key)).length : 0;
-  const verb = S.active === "keep" ? "Move" : "Keep";
-  const act = marked ? `${verb} ${marked} marked` : verb;
-  const h = ui || (S.pad
-    ? [["a", "A", "Mark"], ["x", "X", act], ["y", "Y", "Undo"], ["bumper", "LB/RB", "Switch list"], ["start", "☰", "Menu"],
-      ["view", "⧉", "Toolbar"]]
-    : [["key", S.active === "keep" ? "→" : "←", act], ["key", "Space", "Mark"], ["key", "Tab", "Switch list"],
-      ["key", "Ctrl+Z", "Undo"], ["key", "/", "Search"], ["key", "F6", "Toolbar"]]);
+  const h = typeof uiHints === "function" ? uiHints() : [];  // (pad.js)
   const html = h.map(([c, g, t]) => `<span class="hint"><span class="glyph ${c}">${esc(g)}</span>${esc(t)}</span>`).join("");
   if ($("hints").innerHTML !== html) $("hints").innerHTML = html;
 }
@@ -949,6 +941,7 @@ async function start() {
   $("search").oninput = (e) => {
     S.query = e.target.value;
     rebuild({ slide: false });
+    hints();
     const other = S.active === "keep" ? "move" : "keep";
     if (!L().items.length && lists[other].items.length) setActive(other);  // go where the matches are
   };

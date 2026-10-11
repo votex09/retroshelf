@@ -380,6 +380,8 @@ function openReview() {
       </div>
     </div>`, "review-sheet", null, keys);
 
+  keys.hints = { pad: [["a", "A", "Keep"], ["x", "X", "Move"], ["dpad", "◀ ▶", "Back / Skip"], ["y", "Y", "Undo"]],
+    keys: [["key", "K", "Keep"], ["key", "M", "Move"], ["key", "← →", "Back / Skip"], ["key", "⌫", "Undo"]] };
   function keys(key, e = {}) {
     const k = key.length === 1 ? key.toLowerCase() : key;
     if (k === "k" || k === " ") decide(false);
