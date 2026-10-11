@@ -229,6 +229,8 @@ async function openNps(system) {
     if (row) enqueue([row.dataset.key]).catch(oops);
   });
   $("n-queue").addEventListener("click", (e) => { if (tableClick("n-queue", N.qsel, "qanchor", e)) fillQueue(); });
+  npsKeys.hints = { pad: [["dpad", "✥", "Choose"], ["x", "X", "Add to queue"], ["a", "A", "Select"]],
+    keys: [["key", "↑ ↓", "Choose"], ["key", "Enter", "Add to queue"], ["key", "Delete", "Take off the queue"]] };
   function npsKeys(key) {
     if (key === "Enter") { enqueue([...N.sel]).catch(oops); return true; }
     if (key === "Delete") { dequeue(); return true; }
@@ -467,6 +469,8 @@ async function openStore(store) {
     if (W.game?.key === W.sel && W.game.can_install) install().catch(oops);
     else openPage().catch(oops);
   }
+  storeKeys.hints = { pad: [["dpad", "✥", "Choose"], ["x", "X", "Install / open"], ["a", "A", "Select"]],
+    keys: [["key", "↑ ↓", "Choose"], ["key", "Enter", "Install / open"]] };
   function storeKeys(key) {
     if (key === "Enter") { if (W.sel) activate(); return true; }
     if (key === "ArrowDown" || key === "ArrowUp") {

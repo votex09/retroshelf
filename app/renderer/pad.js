@@ -2,9 +2,10 @@
 // the footer, the details panel, the ☰ menu, popovers, sheets and boxes. (Uses app.js, sheets.js and settings.js.)
 //   A cursor (an accent ring, .pad-cur) sits on one control; the d-pad or the arrow keys move it to the nearest
 // control that way, A / Enter / Space presses it and B / Esc goes back: out of a text box, out of a submenu, closes
-// the popover or sheet, then back to the lists. In the lists themselves the keys are app.js's handle(); from there
-// View (Select) or F6 goes to the header, Up on the first game goes to the filter tabs, Start opens ☰, and R3, the
-// Menu key or Shift+F10 opens the game's menu. A in a text box opens an on-screen keyboard (osk below).
+// the popover or sheet, then back to the lists. In the lists themselves the keys are app.js's handle(). Everywhere in
+// the main window LB / RB (F6) go round its parts (header, filter tabs, Keeping, Moving, details, footer), Select
+// (View) searches, Start opens ☰, and R3, the Menu key or Shift+F10 opens the game's menu. A in a text box opens an
+// on-screen keyboard (osk below). The hints along the bottom always list what the buttons do right there (uiHints).
 "use strict";
 
 const NAV = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
@@ -247,25 +248,37 @@ function startMenu() {
   openMenu();
 }
 
-// F6, or LB / RB with the cursor in the main window: the next part of it (the lists, header, filter tabs, details,
-// footer).
-const ZONES = [".columns", ".topbar", "#filterbar", "#details", "footer"];
+// LB / RB (F6 / Shift+F6): the next or previous part of the main window, round and round: the header, the filter
+// tabs, the Keeping list, the Moving list, the details panel and the footer. Each part remembers where the cursor
+// was in it; parts with nothing to press right now (a footer whose buttons are off) are skipped.
+const AREAS = [".topbar", "#filterbar", "keep", "move", "#details", "footer"];
+const areaSaved = new Map();
+const isList = (area) => area === "keep" || area === "move";
+const areaOf = (el) => (el ? AREAS.findIndex((a) => !isList(a) && el.closest(a)) : AREAS.indexOf(S.active));
 function nextZone(step) {
   closePopovers();
   const els = focusables(document.body);
-  const at = P.cur ? ZONES.findIndex((z) => P.cur.closest(z)) : ZONES.indexOf(".columns");
-  for (let i = 1; i <= ZONES.length; i++) {
-    const zone = ZONES[(at + step * i + ZONES.length * 2) % ZONES.length];
-    if (zone === ".columns") { enterList(S.active); return; }
-    const el = els.find((x) => x.closest(zone));
-    if (el) { setCursor(el); return; }
+  const at = areaOf(P.cur);
+  if (at >= 0 && P.cur) areaSaved.set(AREAS[at], P.cur);
+  for (let i = 1; i <= AREAS.length; i++) {
+    const area = AREAS[((at < 0 ? 0 : at) + step * i + AREAS.length * 2) % AREAS.length];
+    if (isList(area)) {
+      if (S.sys) { enterList(area); return; }
+      continue;
+    }
+    const inside = els.filter((x) => x.closest(area));
+    if (!inside.length) continue;
+    const saved = areaSaved.get(area);
+    setCursor(inside.includes(saved) ? saved : inside.find((x) => x.matches(".primary")) || inside[0]);
+    return;
   }
 }
 
-function toHeader() {
+// Select (View): search, with the on-screen keyboard.
+function openSearch() {
   closePopovers();
-  setCursor(P.cur ? null : $("system-btn"));
-  if (!P.cur) enterList(S.active);
+  setCursor($("search"), { focus: false });
+  press($("search"));
 }
 
 // ---------- the keyboard ----------
@@ -366,8 +379,9 @@ function padButton(b, repeat) {
   if (b === 9) { startMenu(); return; }
   if (layer === document.body && !P.cur) {  // the lists
     if (b === 1) { back(); return; }
-    if (b === 8) { toHeader(); return; }
+    if (b === 8) { openSearch(); return; }
     if (b === 11) { gameMenu(); return; }
+    if (b === 4 || b === 5) { nextZone(b === 5 ? 1 : -1); return; }
     const last = S.sys && L().sel >= L().items.length - 1;
     const leave = (b === 12 && S.sys && L().sel === 0) || (b === 13 && last) || (b === 15 && S.active === "move") || (!S.sys && dir);
     if (!repeat && leave) {
@@ -385,7 +399,7 @@ function padButton(b, repeat) {
   if (dir) { move(dir); return; }
   if (b === 0) { if (P.cur) press(); else move("down"); return; }
   if (b === 1) { back(); return; }
-  if (b === 8 && layer === document.body) { toHeader(); return; }
+  if (b === 8 && layer === document.body) { openSearch(); return; }
   if ((b === 4 || b === 5) && layer === document.body) { nextZone(b === 5 ? 1 : -1); return; }
   if (b === 6 || b === 7) padScroll(b === 7 ? 1 : -1, true);
 }
@@ -426,24 +440,44 @@ function pollPads(now) {
   syncCursor();
 }
 
-// What the keys or buttons do right now, for the hints along the bottom (app.js's hints()). null: the lists' own.
+// Everything the keys or buttons do right now, for the hints along the bottom (app.js's hints()): [class, glyph, text].
+// A sheet can add its own (its keys handler's .hints = { pad: [...], keys: [...] }), shown while its table or its
+// own keys have the cursor.
 function uiHints() {
-  const layer = topLayer(), pad = S.pad;
+  const layer = topLayer(), pad = S.pad, main = layer === document.body;
+  const k = (key, text) => ["key", key, text];
   if (osk.shown()) {
     return [["dpad", "✥", "Keys"], ["a", "A", "Type"], ["x", "X", "Space"], ["y", "Y", "Delete"], ["bumper", "LB", "Shift"],
       ["b", "B", "Done"]];
   }
-  if (layer === document.body && !P.cur) return null;
+  const around = pad ? [["bumper", "LB/RB", "Next area"], ["select", "SELECT", "Search"], ["start", "START", "Menu"]]
+    : [k("F6", "Next area"), k("/", "Search")];
+  if (main && !P.cur) {  // the lists
+    if (!S.sys) return [pad ? ["dpad", "✥", "Move"] : k("↑ ↓ ← →", "Move"), ...around];
+    const marked = L().items.filter((g) => S.marked.has(g.key)).length;
+    const verb = S.active === "keep" ? "Move" : "Keep", act = marked ? `${verb} ${marked} marked` : verb;
+    return pad
+      ? [["dpad", "✥", "Choose"], ["a", "A", "Mark"], ["x", "X", act], ["y", "Y", "Undo"], ["stick", "R3", "Game options"],
+        ...(S.query ? [["b", "B", "Clear search"]] : []), ...around, ["stick", "RS", "Scroll details"]]
+      : [k(S.active === "keep" ? "→" : "←", act), k("Space", "Mark"), k("Ctrl+Z", "Undo"), k("Tab", "Other list"),
+        k("Shift+F10", "Game options"), ...around];
+  }
   const what = layer === $("picker") ? "Pick" : P.cur?.tagName === "SELECT" ? "Change"
     : P.cur?.matches(`${TEXTY}, input[type=number]`) ? "Type" : "Select";
   const lone = layer === $("overlay-box") && layer.querySelectorAll(".btns button").length === 1;
-  const backText = layer === $("picker") ? "Cancel" : layer === document.body ? "Back to the lists" : layer === $("sheet") ? "Close"
-    : layer === $("overlay-box") ? (overlayCancel ? "Cancel" : lone ? "OK" : "") : "Back";
-  const h = pad
-    ? [["dpad", "✥", "Move"], ["a", "A", what], ...(backText ? [["b", "B", backText]] : [])]
-    : [["key", "↑ ↓ ← →", "Move"], ["key", "Enter", what], ...(backText ? [["key", "Esc", backText]] : [])];
-  if (layer === document.body) h.push(pad ? ["bumper", "LB/RB", "Next area"] : ["key", "F6", "Next area"]);
-  if (layer === document.body && pad) h.push(["start", "☰", "Menu"]);
+  const backText = layer === $("picker") ? "Cancel" : main ? "Back to the lists" : layer === $("sheet") ? "Close"
+    : layer === $("overlay-box") ? (overlayCancel ? "Cancel" : lone ? "OK" : "") : layer.id === "menu" && layer.dataset.group
+      ? "Back" : "Close";
+  const backHint = backText ? [pad ? ["b", "B", backText] : k("Esc", backText)] : [];
+  const own = layer === $("sheet") && sheetKeys?.hints && (!P.cur || P.cur.matches(".trow"))
+    ? sheetKeys.hints[pad ? "pad" : "keys"] : null;
+  const h = own ? [...own, ...backHint]
+    : [pad ? ["dpad", "✥", "Move"] : k("↑ ↓ ← →", "Move"), pad ? ["a", "A", what] : k("Enter", what), ...backHint];
+  if (main) {
+    h.push(...around);
+    if (pad && P.cur?.closest("#details")) h.push(["stick", "RS", "Scroll"]);
+  }
+  if (layer === $("sheet") && pad) h.push(["bumper", "LT/RT", "Scroll"]);
   return h;
 }
 

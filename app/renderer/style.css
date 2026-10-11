@@ -249,9 +249,9 @@ h1 { font-size: 21px; margin: 0 0 4px; line-height: 1.2; }
 
 /* ---------- footer ---------- */
 footer { display: flex; align-items: center; gap: 16px; padding: 12px 18px; }
-.hints { display: flex; gap: 18px; color: var(--muted); font-size: 13px; animation: rise .4s var(--ease); flex-wrap: wrap; }
+.hints { display: flex; gap: 6px 14px; color: var(--muted); font-size: 13px; animation: rise .4s var(--ease); flex-wrap: wrap; min-width: 0; }
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
-.hint { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+.hint { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .glyph {
   min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; display: grid; place-items: center;
   font-size: 11px; font-weight: 800; color: #0b0d12;
@@ -259,7 +259,8 @@ footer { display: flex; align-items: center; gap: 16px; padding: 12px 18px; }
 .glyph.a { background: #5ad25a; } .glyph.b { background: #ff5f5f; } .glyph.x { background: #4aa3ff; } .glyph.y { background: #ffd23f; }
 .glyph.bumper { background: #c9cedb; border-radius: 6px; }
 .glyph.key { background: var(--surface-3); color: var(--text); border-radius: 6px; font-weight: 600; }
-.glyph.dpad, .glyph.start, .glyph.view { background: #c9cedb; border-radius: 6px; }
+.glyph.dpad { background: #c9cedb; border-radius: 6px; }
+.glyph.select, .glyph.start, .glyph.stick { background: #c9cedb; border-radius: 6px; font-size: 9.5px; letter-spacing: .04em; }
 
 /* the on-screen keyboard (pad.js) */
 .osk {
@@ -280,7 +281,7 @@ footer { display: flex; align-items: center; gap: 16px; padding: 12px 18px; }
 .osk-key.on { background: var(--accent); color: #04263a; border-color: var(--accent); }
 .osk-key.lit { color: var(--accent); }
 body.light .osk { background: rgba(255, 255, 255, .98); box-shadow: 0 24px 60px rgba(20, 30, 50, .2); }
-.actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.actions { margin-left: auto; display: flex; align-items: center; gap: 12px; flex-shrink: 0; white-space: nowrap; }
 .dest { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
 select {
   height: 34px; padding: 0 30px 0 10px; border-radius: 8px; border: 1px solid var(--border); outline: 0; appearance: none; cursor: pointer;

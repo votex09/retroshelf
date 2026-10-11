@@ -31,13 +31,14 @@ rename can be undone, and games only go for good when you delete them from the h
   - Type a few letters to jump to a game, Shift+↑/↓ selects a range, Ctrl+A everything shown, and Tab switches
     between Keeping and Moving, back where you were.
 - Any standard gamepad works, with no Steam Input or extra software: D-pad or stick to move, A marks (Space), X flips
-  (Enter), Y undoes, LB / RB switch lists, LT / RT page, B goes back. **Start** opens the ☰ menu, **View** goes to the
-  header and buttons, **R3** opens the game's menu (hide in ES-DE, LaunchBox match, collections) and the right stick
+  (Enter), Y undoes, LT / RT page, B goes back. **LB / RB** go round the parts of the window (header, filter tabs,
+  Keeping, Moving, details, the buttons at the bottom), **Start** opens the ☰ menu, **Select** (View) searches with
+  the on-screen keyboard, **R3** opens the game's menu (hide in ES-DE, LaunchBox match, collections) and the right stick
   scrolls the details. **☰ → Settings → Use a gamepad** turns it off. On a Steam Deck, Steam keeps the built-in
   controls while it's running; other pads work.
   Everything else in the window works from the pad too: outside the lists the D-pad moves an accent ring from control
-  to control (menus, filter tabs, settings, every tool window), A presses what it's on, B steps back, and LB / RB
-  jump between the header, filter tabs, lists, details and buttons. ↑ on the first game and ↓ on the last leave the
+  to control (menus, filter tabs, settings, every tool window), A presses what it's on and B steps back; each part
+  of the window remembers where you were in it. ↑ on the first game and ↓ on the last leave the
   list. A on a drop-down opens its choices as a list, and A in a text box opens an on-screen keyboard (A types,
   X adds a space, Y deletes, LB for capitals, B when done). A bar along the bottom says what each button does right
   now; it goes away when you type or move the mouse.
