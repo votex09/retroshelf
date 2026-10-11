@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk
 
 import details
+import motion
 
 TITLE = "Review"
 
@@ -44,7 +45,9 @@ class ReviewWindow:
         self.title = ttk.Label(top, style="Title.TLabel", wraplength=760, justify="left")
         self.title.pack(side="left", anchor="w")
         self.state = ttk.Label(body, style="Section.TLabel")
-        self.state.pack(anchor="w", pady=(4, 10))
+        self.state.pack(anchor="w", pady=(4, 6))
+        self.bar = ttk.Progressbar(body, mode="determinate", maximum=1000)  # glides along as you go
+        self.bar.pack(fill="x", pady=(0, 10))
 
         foot = ttk.Frame(body)
         foot.pack(side="bottom", fill="x", pady=(12, 0))
@@ -103,6 +106,7 @@ class ReviewWindow:
         u = self.app.units[key]
         self.title.config(text=self.app._label(key))
         self.count.config(text=f"{self.i + 1:,} of {len(self.keys):,}")
+        motion.progress(self.bar, "step", 1000 * (self.i + 1) / len(self.keys), ms=260)
         state, why = self.where(key)
         c = self.app.colors
         self.state.config(text=("●  Moving" if state == "moving" else "●  Keeping") + (f"  ·  {why}" if why else ""),
@@ -146,6 +150,7 @@ class ReviewWindow:
         kept = len(self.decided) - moved
         self.title.config(text="That's the whole list")
         self.count.config(text=f"{len(self.keys):,} of {len(self.keys):,}")
+        motion.progress(self.bar, "step", 1000, ms=260)
         self.state.config(text=f"You marked {moved:,} to move and {kept:,} to keep. Nothing has moved yet: press "
                                "Move in the main window when you're ready.", foreground=self.app.colors["fg"])
         self.panel.clear("")

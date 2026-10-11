@@ -49,6 +49,7 @@ import sv_ttk  # noqa: E402  (vendored Sun Valley theme, MIT)
 
 import launchbox as lb  # noqa: E402
 import listkeys  # noqa: E402
+import motion  # noqa: E402
 import review  # noqa: E402
 import nps  # noqa: E402
 import nps_gui  # noqa: E402
@@ -553,7 +554,7 @@ class App:
                     "region_priority": DEFAULT_PRIORITY, "rename_templates": {}, "check_updates": True,
                     "system_state": {}, "show_details": True, "emulator_dirs": {}, "esde_bases": [],
                     "setup_offered": False, "import_dir": "", "import_delete_originals": False,
-                    "play_videos": True, "stream_videos": False, "gamepad": True}
+                    "play_videos": True, "stream_videos": False, "gamepad": True, "animations": True}
         try:
             with open(CONFIG, encoding="utf-8") as f:
                 self.cfg.update(json.load(f))
@@ -569,6 +570,7 @@ class App:
         nps.emulator_dirs.update(self.cfg["emulator_dirs"])  # Windows: RPCS3 / Vita3K folders picked by hand
         details.PLAY_VIDEOS = bool(self.cfg["play_videos"])
         details.STREAM_VIDEOS = bool(self.cfg["stream_videos"])
+        motion.ENABLED = bool(self.cfg["animations"])
 
         self.units = {}          # key -> {"paths": [abs path], "size": int}
         self.file_to_unit = {}
@@ -585,6 +587,7 @@ class App:
         self.sort_by = ("#0", False)
         self.to_move, self.kept, self.why = [], [], {}
         self.dupes_key = None
+        self.listed = {}  # list label -> (games, (count, size)) as last shown: for glowing arrivals, rolling counts
 
         sv_ttk.set_theme(self.cfg["theme"])
         self._fonts()
@@ -656,10 +659,14 @@ class App:
         self.keys.style(c)
         self.region_lb.configure(activestyle="none", **field)
         for tv in (self.keep_tv, self.move_tv):
+            # a row's tags compete by when they were first configured, earliest winning: hover, then glow, then stripe
+            tv.tag_configure("hover", background=c["hover"])
+            # games that just arrived in a list glow green / red for a moment, fading into the row (lib/motion.py)
+            base = st.lookup("Treeview", "background") or c["field"]
+            tv.glow.style({k: motion.mix(tv, base, c[k], 0.45) for k in ("keep", "move")}, base, c["stripe"])
             tv.tag_configure("odd", background=c["stripe"])
             tv.tag_configure("manual", foreground=c["manual"])
             tv.tag_configure("hidden", foreground=c["muted"])
-            tv.tag_configure("hover", background=c["hover"])  # configured last, so it wins over "odd"
         menu_colors = dict(background=c["field"], foreground=c["fg"], activebackground=c["sel"],
                            activeforeground="#ffffff", disabledforeground=c["muted"], selectcolor=c["fg"])
         for k, v in menu_colors.items():
@@ -1079,6 +1086,8 @@ class App:
                              command=self.toggle_streams)
         self.gamepad_var = tk.BooleanVar(value=self.cfg["gamepad"])
         view.add_checkbutton(label="Use a gamepad", variable=self.gamepad_var, command=self.toggle_gamepad)
+        self.motion_var = tk.BooleanVar(value=self.cfg["animations"])
+        view.add_checkbutton(label="Animations", variable=self.motion_var, command=self.toggle_motion)
         view.add_separator()
         view.add_command(label="Review one at a time…", accelerator="Ctrl+R", command=self.review)
         mb.add_cascade(label="View", menu=view)
@@ -1123,6 +1132,7 @@ class App:
         sb.pack(side="right", fill="y")
         tv.empty = ttk.Label(inner, style="Muted.TLabel", justify="center", anchor="center")  # shown when no rows
         tv.hover = None
+        tv.glow = motion.RowGlow(tv)
         tv.bind("<Motion>", lambda e: self._hover(tv, tv.identify_row(e.y)))
         tv.bind("<Leave>", lambda e: self._hover(tv, None))
         panes.add(f, weight=1)
@@ -1588,8 +1598,8 @@ class App:
         used = 100 * (du.total - du.free) / du.total if du.total else 0
         self.disk_lbl.config(text=f"{human(du.free)} free",
                              style="Move.TLabel" if used > 90 else "Muted.TLabel")
-        self.disk_bar.config(value=used)
         self.disk_bar.grid()
+        motion.progress(self.disk_bar, "disk", used)
 
     def show_holding(self):
         """Footer shows the last two folders only, so a long path can't push the status text under the buttons."""
@@ -1941,10 +1951,12 @@ class App:
 
     def render(self):
         q = self.view_filter.get().lower()
+        before = dict(self.listed)
         for tv, keys, lbl, title in (
             (self.keep_tv, self.kept, self.keep_lbl, "●  Keeping"),
             (self.move_tv, self.to_move, self.move_lbl, "●  Moving"),
         ):
+            other = before.get(self.move_lbl if lbl is self.keep_lbl else self.keep_lbl, ((),))[0]
             shown = [k for k in keys if q in k.lower()] if q else keys
             col, desc = self.sort_by
             if col != "#0":
@@ -1970,9 +1982,16 @@ class App:
             if keep_cursor and tv.exists(keep_cursor):
                 tv.focus(keep_cursor)
             self.keys.after_render()
+            arrived = set(keys).intersection(other)  # flipped, or moved over by a filter
+            if 0 < len(arrived) <= 60:  # not a whole system's worth: that would be noise, and slow
+                tv.glow.start([k for k in shown if k in arrived], "move" if tv is self.move_tv else "keep")
             size = sum(self.units[k]["size"] for k in keys)
             extra = f"  ·  {len(shown)} shown" if q else ""
-            lbl.config(text=f"{title}   {len(keys):,} games  ·  {human(size)}{extra}")
+            old = self.listed.get(lbl, (None, None))[1]
+            self.listed[lbl] = (set(keys), (len(keys), size))
+            motion.count(lbl, "count", old, (len(keys), size),
+                         lambda v, title=title, extra=extra: f"{title}   {round(v[0]):,} games  ·  {human(round(v[1]))}"
+                                                             f"{extra}")
             if shown:
                 tv.empty.place_forget()
             else:
@@ -2236,6 +2255,10 @@ class App:
 
     def toggle_gamepad(self):
         self.cfg["gamepad"] = self.gamepads.enabled = self.gamepad_var.get()
+        self.save_cfg()
+
+    def toggle_motion(self):
+        self.cfg["animations"] = motion.ENABLED = self.motion_var.get()
         self.save_cfg()
 
     def toggle_details(self):

@@ -2,6 +2,8 @@
 import tkinter as tk
 from tkinter import ttk
 
+import motion
+
 
 def stars(rating):
     """3.7 -> '★★★★☆' (rounded to whole stars; LaunchBox ratings are out of 5)."""
@@ -80,28 +82,30 @@ class Toaster:
         self.root.after(ms, lambda: self._close(box))
 
     def _layout(self, animate=None):
-        """Stack toasts upwards from the bottom-right corner; a new one slides up into place."""
+        """Stack toasts upwards from the bottom-right corner: a new one rises into place and the others glide to
+        make room (or close the gap one leaves)."""
         self.root.update_idletasks()
         bottom = -64
         for box in reversed(self.shown):
             h = box.winfo_reqheight()
-            target = bottom
-            if box is animate:
-                self._slide(box, target + 40, target)
-            else:
-                box.place(relx=1.0, rely=1.0, x=-20, y=target, anchor="se")
-            bottom = target - h - 10
+            start = bottom + 40 if box is animate else getattr(box, "y", bottom)
+            self._glide(box, start, bottom)
+            bottom = bottom - h - 10
 
-    def _slide(self, box, y, target, step=0):
-        if not box.winfo_exists():
-            return
-        box.place(relx=1.0, rely=1.0, x=-20, y=y, anchor="se")
-        box.lift()
-        if y > target:
-            self.root.after(12, lambda: self._slide(box, max(target, y - 8), target, step + 1))
+    def _glide(self, box, y0, y1, x0=-20, x1=-20, ms=240, done=None):
+        box.y = y1
+
+        def step(p):
+            box.place(relx=1.0, rely=1.0, x=round(x0 + (x1 - x0) * p), y=round(y0 + (y1 - y0) * p), anchor="se")
+            box.lift()
+        motion.tween(box, "slide", ms if (y0, x0) != (y1, x1) else 0, step, done=done)
 
     def _close(self, box):
+        """Slides out to the right, then the rest close up."""
         if box in self.shown:
             self.shown.remove(box)
-            box.destroy()
-            self._layout()
+
+            def gone():
+                box.destroy()
+                self._layout()
+            self._glide(box, box.y, box.y, x1=box.winfo_width() + 40, ms=200, done=gone)

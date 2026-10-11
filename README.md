@@ -57,6 +57,10 @@ rename can be undone, and games only go for good when you delete them from the h
   or delete them for good (with their ES-DE artwork and gamelist entries) to free the space.
 - A details panel shows the selected game's artwork, LaunchBox description, year, developer,
   rating and genres, plus a button that searches YouTube for gameplay videos.
+- Short, quick animations show what just happened: a flipped game glows in the list it lands in, the list counts roll
+  to their new numbers, artwork and details fade in (not while you're flicking down a list, so browsing stays
+  instant), notifications slide in and out, and the Review window's progress bar glides along.
+  **View → Animations** turns them off.
 
 **Storage overview**
 - **Library → Storage overview…** (or click the free-space figure at the top) shows how much each system takes:

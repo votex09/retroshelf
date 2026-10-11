@@ -4,6 +4,7 @@ import math, os, urllib.parse, webbrowser
 import tkinter as tk
 from tkinter import ttk
 
+import motion
 import video
 from ui import stars
 
@@ -41,11 +42,17 @@ def media_for(media_dir, stems):
     return out
 
 
-def load_image(path, w=IMG_W, h=IMG_H):
+def load_picture(path, w=IMG_W, h=IMG_H):
+    """(Pillow image or None, PhotoImage) for a picture scaled to fit w x h."""
     if Image:
         with Image.open(path) as im:
             im.thumbnail((w, h))
-            return ImageTk.PhotoImage(im.convert("RGBA"))
+            im = im.convert("RGBA")
+        return im, ImageTk.PhotoImage(im)
+    return None, _tk_image(path, w, h)
+
+
+def _tk_image(path, w, h):
     img = tk.PhotoImage(file=path)
     factor = max(1, math.ceil(max(img.width() / w, img.height() / h)))
     return img.subsample(factor) if factor > 1 else img
@@ -74,6 +81,7 @@ class DetailsPanel(ttk.Frame):
         box.pack()
         self.pic = tk.Label(box, borderwidth=0, highlightthickness=0, wraplength=self.img_w - 20)
         self.pic.pack(fill="both", expand=True)
+        self.fader = motion.Fader(self.pic, (self.img_w, self.img_h)) if Image else None
         self.spot = video.Spot(box, self.img_w, self.img_h, "black", self._video_state, under=self.pic)
         self.spot.enabled = lambda: PLAY_VIDEOS
         nav = ttk.Frame(left)
@@ -105,26 +113,34 @@ class DetailsPanel(ttk.Frame):
             self.desc.configure(**{k: v for k, v in field_style.items() if k != "selectforeground"},
                                 insertbackground=field_style["fg"])
         muted = st.lookup("Muted.TLabel", "foreground")
-        if muted:
-            self.desc.tag_configure("meta", foreground=muted)
+        self.muted = muted or "gray"
+        motion.cancel(self.desc, "text")
+        self.desc.tag_configure("meta", foreground=self.muted)
+        for tag in ("title", "gap"):
+            self.desc.tag_configure(tag, foreground="")
 
-    def _set_desc(self, *parts):
-        """parts: (text, tag) pairs."""
+    def _set_desc(self, *parts, fade=False):
+        """parts: (text, tag) pairs. fade: the text fades in from the background."""
         self.desc.configure(state="normal")
         self.desc.delete("1.0", "end")
         for text, tag in parts:
             self.desc.insert("end", text, tag)
         self.desc.configure(state="disabled")
         self.desc.yview_moveto(0)
+        if fade and motion.ENABLED:
+            fg = self.desc.cget("foreground")
+            motion.fade_text(self.desc, "text", {"title": fg, "meta": self.muted, "gap": fg}, done=lambda: [
+                self.desc.tag_configure(t, foreground="") for t in ("title", "gap")])  # follow the theme again
 
     def placeholder(self, title, body, image=None, action=None):
         """Friendly state when no single game is selected: an icon, a heading, some tips and an optional button
         (action = (label, command)) in place of the video link."""
+        calm = self._calm()
         self.clear()
         if image is not None:
             self.pic.configure(image=image, text="")
             self.photo = image
-        self._set_desc((title + "\n", "title"), (body, "meta"))
+        self._set_desc((title + "\n", "title"), (body, "meta"), fade=calm)
         if action:
             self.video_btn.configure(text=action[0], command=action[1], style="Accent.TButton")
             self.video_btn.state(["!disabled"])
@@ -147,8 +163,14 @@ class DetailsPanel(ttk.Frame):
     def _toggle_sound(self):
         self.sound_btn.configure(text="🔊" if self.spot.toggle_sound() else "🔇")
 
+    def _calm(self):
+        """Whether this change may animate: not while flicking quickly from game to game."""
+        return self.fader.calm() if self.fader else False
+
     def clear(self, text=""):
         self.spot.stop()
+        if self.fader:
+            self.fader.forget()
         self.info, self.images, self.photo = None, [], None
         self.pic.configure(image="", text=text, fg=ttk.Style().lookup("Muted.TLabel", "foreground") or "gray")
         self.pic_lbl.config(text="")
@@ -163,7 +185,8 @@ class DetailsPanel(ttk.Frame):
         self.video_btn.configure(text="Gameplay video ↗", command=self._video, style="TButton")
         self.images = media_for(info["media_dir"], info["stems"])
         self.index = 0
-        self._show_image()
+        calm = self._calm()
+        self._show_image(animate=calm)
         self.spot.schedule(video.video_for(info["media_dir"], info["stems"]),
                            video.youtube_query(info["title"], info["console"]) if STREAM_VIDEOS else None)
         g, det = info.get("lb"), info.get("det") or {}
@@ -180,14 +203,14 @@ class DetailsPanel(ttk.Frame):
             lines.append("Not matched in LaunchBox")
         lines.append(f"{info['file']}  ·  {info['size']}")
         self._set_desc((info["title"] + "\n", "title"), ("\n".join(lines) + "\n", "meta"),
-                       ((det.get("o") or "").strip() or "No description.", "gap"))
+                       ((det.get("o") or "").strip() or "No description.", "gap"), fade=calm)
         self.video_btn.state(["!disabled"])
 
-    def _show_image(self):
-        self.photo = None
+    def _show_image(self, animate=False):
+        self.photo = pil = None
         while self.images and self.photo is None:
             try:
-                self.photo = load_image(self.images[self.index][1], self.img_w, self.img_h)
+                pil, self.photo = load_picture(self.images[self.index][1], self.img_w, self.img_h)
             except Exception:  # unreadable / unsupported file: drop it and try the next one
                 del self.images[self.index]
                 self.index = min(self.index, max(len(self.images) - 1, 0))
@@ -195,7 +218,12 @@ class DetailsPanel(ttk.Frame):
             note = "No artwork on disk — Scrape metadata… adds it"
             if not Image:
                 note += "\n(install Pillow to show JPEG art)"
+            if self.fader:
+                self.fader.forget()
             self.pic.configure(image="", text=note)
+        elif self.fader:
+            self.fader.show(pil, self.photo, self.pic.cget("bg"), animate)  # (sets the image first: the old one's gone)
+            self.pic.configure(text="")
         else:
             self.pic.configure(image=self.photo, text="")
         self._caption()
@@ -215,7 +243,7 @@ class DetailsPanel(ttk.Frame):
             return
         if self.images:
             self.index = (self.index + d) % len(self.images)
-            self._show_image()
+            self._show_image(animate=self._calm())
 
     def _video(self):
         if self.info:

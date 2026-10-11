@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui", "esde_collections", "collections_gui", "hiding", "osk"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui", "esde_collections", "collections_gui", "hiding", "osk", "motion"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -1210,6 +1210,32 @@ class AppTest(unittest.TestCase):
                 self.fail("timed out waiting for the window")
             self.root.update()
             time.sleep(0.02)
+
+    def test_animations(self):
+        """A flipped game glows in its new list and the counts roll to the new numbers; then everything settles where
+        it would have been without the motion. View → Animations off: straight there."""
+        a, motion = self.app, sys.modules["motion"]
+        keep, move = a.keep_tv, a.move_tv
+        game = keep.get_children()[0]
+        a.keys.flip(keep, True, [game])
+        self.root.update()
+        self.assertTrue(any(t.startswith("glow") for t in move.item(game, "tags")))
+        final = f"●  Moving   1 games  ·  {self.rs.human(a.units[game]['size'])}"
+        self.pump(lambda: not motion._running)
+        self.assertFalse([t for t in move.item(game, "tags") if t.startswith("glow")])
+        self.assertEqual(a.move_lbl.cget("text"), final)
+        self.assertEqual([tuple(keep.item(k, "tags")) for k in keep.get_children()[:2]], [(), ("odd",)])
+
+        a.motion_var.set(False)
+        a.toggle_motion()
+        self.assertFalse(self.cfg()["animations"])
+        a.keys.flip(move, False, [game])
+        self.assertEqual(a.move_lbl.cget("text"), "●  Moving   0 games  ·  0 KB")
+        self.assertFalse(move.get_children())
+        self.assertFalse([t for t in keep.item(game, "tags") if t.startswith("glow")])
+        self.assertFalse(motion._running)
+        a.motion_var.set(True)
+        a.toggle_motion()
 
     def test_rename_dialog_and_undo(self):
         a = self.app
