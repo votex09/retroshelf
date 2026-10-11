@@ -94,6 +94,8 @@ rename can be undone, and games only go for good when you delete them from the h
   you have one) and files the games into `roms/<system>`: a `.bin` without a `.cue` gets one, `.cue` / `.gdi` games
   keep their tracks together, full Xbox dumps are cut down to the part xemu reads, and arcade zips stay zipped under
   their set name. Readmes and tools inside archives are left out.
+  An archive holding one game names it after the archive (`Tekken 3 (USA).7z` → `Tekken 3 (USA).iso`, a `.cue`'s
+  tracks and the `.cue` itself too), since the name inside is often a scene name; packs of several games keep theirs.
 - **Sources** (the second tab) lists games kept in another folder, like a home server's share mounted on this
   computer: add the folder once with **Add source…**, browse its games by system with box art and a gameplay video,
   queue them (A / Space) and **Copy to library**. They're unpacked and filed like imports; the source is only read.
