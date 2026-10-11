@@ -1218,8 +1218,7 @@ class AppTest(unittest.TestCase):
         keep, move = a.keep_tv, a.move_tv
         game = keep.get_children()[0]
         a.keys.flip(keep, True, [game])
-        self.root.update()
-        self.assertTrue(any(t.startswith("glow") for t in move.item(game, "tags")))
+        self.assertEqual(move.glow.rows, {game: "move"})  # (not its colour on screen: a slow machine may be done)
         final = f"●  Moving   1 games  ·  {self.rs.human(a.units[game]['size'])}"
         self.pump(lambda: not motion._running)
         self.assertFalse([t for t in move.item(game, "tags") if t.startswith("glow")])
@@ -1232,7 +1231,7 @@ class AppTest(unittest.TestCase):
         a.keys.flip(move, False, [game])
         self.assertEqual(a.move_lbl.cget("text"), "●  Moving   0 games  ·  0 KB")
         self.assertFalse(move.get_children())
-        self.assertFalse([t for t in keep.item(game, "tags") if t.startswith("glow")])
+        self.assertFalse(keep.glow.rows)
         self.assertFalse(motion._running)
         a.motion_var.set(True)
         a.toggle_motion()
