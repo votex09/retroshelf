@@ -886,7 +886,8 @@ async function setMatch(key, gid, clear = false) {
 function hints() {
   document.body.classList.toggle("pad", S.pad);
   const h = typeof uiHints === "function" ? uiHints() : [];  // (pad.js)
-  const html = h.map(([c, g, t]) => `<span class="hint"><span class="glyph ${c}">${esc(g)}</span>${esc(t)}</span>`).join("");
+  const html = h.map((x) => `<span class="hint">${x[0] === "key" ? `<span class="glyph key">${esc(x[1])}</span>${esc(x[2])}`
+    : `${padGlyph(x[0])}${esc(x[1])}`}</span>`).join("");
   if ($("hints").innerHTML !== html) $("hints").innerHTML = html;
 }
 
