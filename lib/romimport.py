@@ -1001,6 +1001,12 @@ def import_row(row, roms_root, report=lambda text=None, fraction=None: None, can
         units, _ = group(names, lambda n: _text_file(os.path.join(stage, *n.split("/"))))
         fallback = hint(row.path)
         preview = {u.main: u.system for u in row.units}
+        playable = [u for u in units if ext_of(u.main) != ".md"]
+        if len(playable) == 1:  # one game: it takes the archive's name (a pack of several keeps theirs)
+            u = playable[0]
+            was = u.main
+            name_after_archive(u, stage, archive_title(row.path))
+            preview[u.main] = preview.get(was)
         for u in units:
             def opener(n):
                 try:
@@ -1034,6 +1040,66 @@ def import_row(row, roms_root, report=lambda text=None, fraction=None: None, can
         except OSError:
             pass
     return results
+
+
+def archive_title(path):
+    """The game's name as the archive has it: 'Foo (USA).7z', 'Foo (USA).7z.001' and 'Foo (USA).part1.rar' give
+    'Foo (USA)'."""
+    name = os.path.basename(path)
+    for pattern in (SPLIT_RE, RAR_PART_RE):
+        m = pattern.search(name)
+        if m:
+            return name[:m.start()]
+    return os.path.splitext(name)[0]
+
+
+def _cue_files(text, renames):
+    """The .cue text with its FILE lines pointing at the renamed track files ({old base name: new})."""
+    lower = {k.lower(): v for k, v in renames.items()}
+
+    def fix(m):
+        old = m.group(2) or m.group(3)
+        new = lower.get(old.replace("\\", "/").rsplit("/", 1)[-1].lower())
+        return f'{m.group(1)}"{new}"' if new else m.group(0)
+    return re.sub(r'(?im)^(\s*FILE\s+)(?:"([^"]+)"|(\S+))', fix, text)
+
+
+def name_after_archive(unit, stage, title):
+    """Rename a unit unpacked into stage after its archive: the name inside an archive is often a scene name or
+    plain wrong, while the archive's is the one the user saw (and the list showed). A .cue's track files are renamed
+    with it ('Foo (Track 2).bin') and the .cue rewritten to match; .gdi tracks and multi-disc sets (.m3u) keep their
+    names, since the sheet lists them and disc names matter. Nothing happens when the archive's name has no letters
+    in it or the names already agree."""
+    main = unit.main
+    folder, base = os.path.dirname(main), main.rsplit("/", 1)[-1]
+    stem, ext = os.path.splitext(base)
+    if not re.search(r"[^\W\d_]", title) or stem.lower() == title.lower() or any(ext_of(f) == ".m3u" for f in unit.files):
+        return
+    join = lambda n: f"{folder}/{n}" if folder else n
+    renames = {base: title + ext}  # base names in folder
+    if ext.lower() == ".cue":
+        tracks = [f.rsplit("/", 1)[-1] for f in unit.files[1:] if os.path.dirname(f) == folder]
+        for i, t in enumerate(tracks, 1):
+            tstem, tx = os.path.splitext(t)
+            if len(tracks) == 1:
+                renames[t] = title + tx
+            elif tstem.lower().startswith(stem.lower()):
+                renames[t] = title + tstem[len(stem):] + tx
+            else:
+                renames[t] = f"{title} (Track {i}){tx}"
+    taken = {n.lower() for n in os.listdir(os.path.join(stage, *folder.split("/")) if folder else stage)}
+    if any(new.lower() in taken and new.lower() != old.lower() for old, new in renames.items()):
+        return  # another file already has the name
+    if ext.lower() == ".cue":
+        path = os.path.join(stage, *main.split("/"))
+        with open(path, encoding="utf-8", errors="surrogateescape") as f:
+            text = f.read()
+        with open(path, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+            f.write(_cue_files(text, {k: v for k, v in renames.items() if k != base}))
+    for old, new in renames.items():
+        os.replace(os.path.join(stage, *join(old).split("/")), os.path.join(stage, *join(new).split("/")))
+    unit.files = [join(renames.get(f.rsplit("/", 1)[-1], f.rsplit("/", 1)[-1])) if os.path.dirname(f) == folder else f
+                  for f in unit.files]
 
 
 def prune(folder, stop):

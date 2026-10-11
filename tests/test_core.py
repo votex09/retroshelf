@@ -2049,6 +2049,27 @@ class RomImport(unittest.TestCase):
             ri.import_row(row, self.roms)
         self.assertTrue(os.path.exists(again))
 
+    def test_unpacked_games_take_the_archives_name(self):
+        """The name inside an archive is often wrong: a lone game is named after the archive, a .cue's tracks too
+        (and the .cue rewritten), while a pack of several games keeps the names inside."""
+        self.put("Ridge Racer V (USA).7z", discs.seven_zip({"rrv-scene.iso": discs.ps2(), "Readme.txt": b"hi"}))
+        cue = 'FILE "tk3 (Track 1).bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n' \
+              'FILE "tk3 (Track 2).bin" BINARY\n  TRACK 02 AUDIO\n    INDEX 01 00:00:00\n'
+        self.put("Tekken 3 (USA).zip", zip_bytes({"tk3.cue": cue, "tk3 (Track 1).bin": discs.raw(discs.ps1()),
+                                                  "tk3 (Track 2).bin": b"\0" * 2352}))
+        self.put("Pack.zip", zip_bytes({"a.gba": b"A" * 64, "b.gba": b"B" * 64}))
+        for r in ri.collect([self.inbox], self.inbox):
+            ri.scan(r)
+            for _, res in ri.import_row(r, self.roms):
+                self.assertNotIsInstance(res, Exception, r.name)
+        listing = {d: sorted(os.listdir(os.path.join(self.roms, d))) for d in os.listdir(self.roms)}
+        self.assertEqual(listing, {"ps2": ["Ridge Racer V (USA).iso"], "gba": ["a.gba", "b.gba"],
+                                   "psx": ["Tekken 3 (USA) (Track 1).bin", "Tekken 3 (USA) (Track 2).bin",
+                                           "Tekken 3 (USA).cue"]})
+        with open(os.path.join(self.roms, "psx", "Tekken 3 (USA).cue")) as f:
+            self.assertEqual(ri.parse_cue(f.read())[1][0], "Tekken 3 (USA) (Track 2).bin")
+        self.assertEqual(ri.archive_title("x/Game (USA).7z.001"), "Game (USA)")
+
     def test_split_archives_and_no_space(self):
         data = discs.seven_zip({"Game.iso": discs.ps2() + os.urandom(3000)})
         self.put("Game.7z.001", data[:1000])
