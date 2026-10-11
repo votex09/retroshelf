@@ -822,6 +822,13 @@ class AppTest(unittest.TestCase):
         self.assertEqual(hints.shown(), [])  # no bar before the pad is used
         press("down")
         self.assertEqual(keep.focus(), rows[1])
+        # a focus ring outlines the cursor row (lib/padfocus.py), and follows it
+        ring = a.pad_ring.rings[str(self.root)]
+        y = keep.winfo_rooty() - self.root.winfo_rooty() + keep.bbox(rows[1])[1]
+        self.assertEqual(ring.target[1], y)
+        press("down")
+        self.assertEqual(ring.target[1], y + keep.bbox(rows[2])[1] - keep.bbox(rows[1])[1])
+        press("up")
         # the pad was used last: the main window shows what its buttons do in the Keeping list
         shown = dict(hints.shown(self.root))
         self.assertEqual(shown["a"], "Mark")
@@ -906,6 +913,7 @@ class AppTest(unittest.TestCase):
         self.assertEqual(press("down"), [])
         self.assertFalse(self.cfg()["gamepad"])
         self.assertEqual(hints.shown(), [])
+        self.assertIsNone(ring.target)  # and the ring goes with it
 
     def test_gamepad_reaches_search_and_filters_and_types(self):
         a = self.app

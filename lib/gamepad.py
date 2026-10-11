@@ -296,7 +296,7 @@ class Gamepads:
 
     .active is True from a pad's press until a real key press or a mouse move; each function in .watchers is
     called with (active, path of the widget with the keyboard or '', glyph style) when that changes, after a press,
-    and every HINT_TICKS polls while active (the on-screen hints, lib/padhints.py)."""
+    and every HINT_TICKS polls while active (the on-screen hints, lib/padhints.py; the focus ring, lib/padfocus.py)."""
 
     def __init__(self, root, on_connect=lambda name: None, source=None, clock=time.monotonic):
         self.root, self.on_connect, self.clock = root, on_connect, clock
@@ -304,6 +304,7 @@ class Gamepads:
         self.repeater = Repeater()
         self.enabled = True
         self.active, self.watchers, self.ticks = False, [], 0
+        self.presses = []  # functions called with (button, widget it went to) for each press sent
         self.pointer, self.sending = None, False
         self.on_type = None  # A in a text box calls this with the box (an on-screen keyboard), instead of Space
         self.keys = dict(KEYS, lb=shift_tab())
@@ -348,12 +349,14 @@ class Gamepads:
             seq = self.keys.get(b)
             if b == "a" and self.on_type and is_text_box(target):
                 self.on_type(target)
-                sent.append(b)
-                target = self.focus() or target
             elif seq:
                 self.press(target, seq)
-                sent.append(b)
-                target = self.focus() or target  # Tab, or a window opening, moves the keyboard
+            else:
+                continue
+            sent.append(b)
+            for fn in list(self.presses):
+                fn(b, target)
+            target = self.focus() or target  # Tab, or a window opening, moves the keyboard
         if sent and not self.active:
             self.set_active(True)
         elif self.active and self._pointer_moved():

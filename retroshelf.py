@@ -66,6 +66,7 @@ import dialogs  # noqa: E402
 import frontend  # noqa: E402
 import gamepad  # noqa: E402
 import padhints  # noqa: E402
+import padfocus  # noqa: E402
 import compress  # noqa: E402
 import compress_gui  # noqa: E402
 import health_gui  # noqa: E402
@@ -605,6 +606,10 @@ class App:
         # while the pad is what's in use, the window with the keyboard shows its buttons (lib/padhints.py)
         self.pad_hints = padhints.Hints(root, lambda: self.colors)
         self.gamepads.watchers.append(self.pad_hints.update)
+        # … and an outline glides to whatever the pad moves to, pulsing on A / X (lib/padfocus.py)
+        self.pad_ring = padfocus.FocusRing(root, lambda: self.colors)
+        self.gamepads.watchers.append(self.pad_ring.update)
+        self.gamepads.presses.append(self.pad_ring.pressed)
         if not self.cfg["roms_root"] and not self.cfg["setup_offered"]:  # no library anywhere: offer to set one up
             root.after(600, lambda: setup_gui.open_window(self))
         if self.cfg["roms_root"] and import_gui.waiting(self):

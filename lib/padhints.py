@@ -14,6 +14,8 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
+import motion
+
 TAG = "pad"
 
 # button -> what the pad has printed on it: (text or shape, colour); shoulders and triggers are just text
@@ -244,7 +246,7 @@ class Bar:
             self.font = tkfont.nametofont("SunValleyBodyFont")
         except tk.TclError:
             self.font = tkfont.nametofont("TkDefaultFont")
-        self.shown, self.drawn = [], None
+        self.shown, self.drawn, self.labels = [], None, {}  # labels: button -> text drawn last time
 
     def show(self, hints, style):
         c = self.colors()
@@ -254,6 +256,7 @@ class Bar:
         key = (tuple(hints), style, bg, c["fg"], c["border"])
         if not self.canvas.winfo_manager():
             self._attach()
+            self.labels = {}
         self.shown = list(hints)
         if key == self.drawn:
             return
@@ -264,16 +267,27 @@ class Bar:
         cy = round(36 * s) / 2 + 1
         cv.create_line(0, 0, 10000, 0, fill=c["border"], tags=TAG)
         x = round(16 * s)
+        fresh = []  # labels that changed ("Mark" → "Move 3 marked"): they fade in
         for button, label in hints:
             x += self.glyphs.draw(button, x, cy, style, chip, ink) + round(7 * s)
-            cv.create_text(x, cy, text=label, anchor="w", fill=c["fg"], font=self.font, tags=TAG)
+            item = cv.create_text(x, cy, text=label, anchor="w", fill=c["fg"], font=self.font, tags=TAG)
+            if self.labels and self.labels.get(button) != label:
+                fresh.append(item)
             x += self.font.measure(label) + round(20 * s)
+        self.labels = dict(hints)
+        if fresh:
+            motion.tween(cv, "labels", 220, lambda p: [cv.itemconfigure(i, fill=motion.mix(cv, bg, c["fg"], p))
+                                                       for i in fresh])
 
     def _attach(self):
         """Below everything else in the window, without disturbing how the window lays itself out."""
         top, cv = self.top, self.canvas
-        if top.grid_slaves():  # can't pack next to grid: lie over the bottom edge instead
-            cv.place(relx=0, rely=1, relwidth=1, anchor="sw")
+        h = round(36 * self.scale)
+        if top.grid_slaves():  # can't pack next to grid: lie over the bottom edge instead, rising into place
+            cv.configure(height=h)
+            cv.place(relx=0, rely=1, relwidth=1, anchor="nw", y=0)
+            motion.tween(cv, "rise", 200, lambda p: cv.place(relx=0, rely=1, relwidth=1, anchor="nw",
+                                                             y=-round(h * p)))
             tk.Misc.lift(cv)  # (Canvas.lift raises items)
             return
         slaves = [w for w in top.pack_slaves() if w is not cv]
@@ -281,8 +295,11 @@ class Bar:
             cv.pack(side="bottom", fill="x", before=slaves[0])
         else:
             cv.pack(side="bottom", fill="x")
+        cv.configure(height=1)  # it opens up from the bottom edge
+        motion.tween(cv, "rise", 200, lambda p: cv.configure(height=max(1, round(h * p))))
 
     def hide(self):
+        motion.cancel(self.canvas, "rise")
         manager = self.canvas.winfo_manager()
         if manager == "pack":
             self.canvas.pack_forget()

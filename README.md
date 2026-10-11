@@ -37,6 +37,9 @@ rename can be undone, and games only go for good when you delete them from the h
   While the pad is what you're using, a bar along the bottom of the window shows the buttons that do something
   there, drawn the way your pad labels them (Xbox letters, PlayStation shapes or Nintendo letters), and what each
   does right now ("Mark", "Move 3 marked", "Keep", …). It goes away when you type or move the mouse.
+  A highlight sits on whatever the pad has reached (the row under the cursor, a button, a filter tab, a key of
+  the on-screen keyboard) and glides to the next thing as you move, the way a console menu does; A and X make it
+  flash.
   The View / Select button (F6 on a keyboard) goes from the lists to the search box to the filter tabs and back,
   and A in a text box opens an on-screen keyboard (D-pad to move, A types, Y deletes, LB for capitals, X when done).
 - Each system goes back to the game you were on when you left it, after a restart too.
@@ -59,7 +62,8 @@ rename can be undone, and games only go for good when you delete them from the h
   rating and genres, plus a button that searches YouTube for gameplay videos.
 - Short, quick animations show what just happened: a flipped game glows in the list it lands in, the list counts roll
   to their new numbers, artwork and details fade in (not while you're flicking down a list, so browsing stays
-  instant), notifications slide in and out, and the Review window's progress bar glides along.
+  instant), notifications slide in and out, the gamepad's button bar rises into view, and Review slides each game's
+  name in as its progress bar glides along.
   **View → Animations** turns them off.
 
 **Storage overview**

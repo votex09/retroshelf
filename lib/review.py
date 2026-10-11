@@ -105,6 +105,8 @@ class ReviewWindow:
             return
         u = self.app.units[key]
         self.title.config(text=self.app._label(key))
+        # the next game's name slides in from the right
+        motion.tween(self.title, "slide", 200, lambda p: self.title.pack_configure(padx=(round(28 * (1 - p)), 0)))
         self.count.config(text=f"{self.i + 1:,} of {len(self.keys):,}")
         motion.progress(self.bar, "step", 1000 * (self.i + 1) / len(self.keys), ms=260)
         state, why = self.where(key)
