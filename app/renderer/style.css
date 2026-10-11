@@ -547,31 +547,30 @@ body.pad .r-foot kbd { display: none; }
 .trow .st-have { color: #e8a33d; }
 .trow .st-bad { color: var(--danger); }
 /* NoPayStation: the list takes the height; beside it the picked game, the queue and Start */
-.nps-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 330px; }
+.nps-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 440px; }
 .nps-main { display: flex; flex-direction: column; min-height: 0; }
 .nps-main .table { margin-right: 8px; }
 .nps-rows .trow { grid-template-columns: minmax(0, 1fr) 96px 64px 76px 150px; cursor: default; }
-.nps-side { display: flex; flex-direction: column; gap: 8px; min-height: 0; padding: 0 22px 0 8px; }
-.nps-pick { flex-shrink: 0; min-height: 92px; padding: 8px 12px; border-radius: 10px; background: var(--surface-2); font-size: 13px; }
+.nps-side { display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 0 22px 0 8px; }
+.nps-pick { flex-shrink: 0; min-height: 92px; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); font-size: 13px; }
 .nps-pick h3 { margin: 0 0 4px; font-size: 15px; overflow-wrap: anywhere; }
 .nps-pick p { margin: 0 0 4px; }
-.nps-media { margin: -2px -4px 8px; }
-.nps-shot { display: grid; place-items: center; aspect-ratio: 16 / 9; max-height: 100px; margin: 0 auto; border-radius: 8px; background: rgba(0, 0, 0, .25); overflow: hidden; font-size: 12px; text-align: center; padding: 0; }
+.nps-media { margin: 0 0 6px; }
+.nps-shot { display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; background: rgba(0, 0, 0, .25); overflow: hidden; font-size: 12px; text-align: center; padding: 0; }
 .nps-shot img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .nps-shot iframe { width: 100%; height: 100%; border: 0; background: #000; animation: fade .4s; }
 .nps-thumbs { display: flex; gap: 6px; margin-top: 6px; }
 .nps-thumbs button.on { border-color: var(--accent); }
 .nps-pick .st-ok { color: var(--keep); } .nps-pick .st-have { color: #e8a33d; } .nps-pick .st-bad { color: var(--danger); }
-.nps-qhead { display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px; font-size: 13px; }
+.nps-qhead { display: flex; gap: 8px; align-items: center; margin-top: 2px; font-size: 13px; }
+.nps-qhead .grow { flex: 1; }
 .nps-side > * { flex-shrink: 0; }
 .nps-side { overflow-y: auto; }
-.nps-side .nps-queue { margin: 0; flex: 1 1 0; min-height: 52px; }
+.nps-side .nps-queue { margin: 0; flex: 1 1 0; min-height: 40px; }
 .nps-queue .trow { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 0 8px; cursor: default; }
 .nps-queue .trow [data-state] { grid-column: 1 / -1; }
 .nps-queue .none { padding: 24px 10px; }
-.nps-qbtns { display: flex; gap: 8px; justify-content: flex-end; }
 .nps-side .progress-text { min-height: 18px; font-size: 12px; }
-.nps-side #n-start { height: 40px; }
 .nps-side .progress-bar { margin: 4px 0 0; }
 .path-text { max-width: 320px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .store-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }

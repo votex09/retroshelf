@@ -98,11 +98,9 @@ async function openNps(system) {
       <aside class="nps-side">
         <div class="nps-pick"><div class="nps-media" id="n-media" hidden></div><div id="n-pick"></div></div>
         <button class="ghost" id="n-add">Add to queue</button>
-        <div class="nps-qhead"><b id="n-qhead">Queue</b><span class="muted" id="n-qsize"></span></div>
+        <div class="nps-qhead"><b id="n-qhead">Queue</b><span class="muted" id="n-qsize"></span><span class="grow"></span><button class="ghost small" id="n-remove">Remove</button><button class="ghost small" id="n-retry">Retry failed</button></div>
         <div class="table nps-queue" id="n-queue"></div>
-        <div class="nps-qbtns"><button class="ghost small" id="n-remove">Remove</button><button class="ghost small" id="n-retry">Retry failed</button></div>
         <div class="progress-bar"><div id="n-bar"></div></div><div class="progress-text" id="n-status"></div>
-        <button class="primary" id="n-start">Start</button>
       </aside>
     </div>
     <div class="sheet-foot">
@@ -111,7 +109,7 @@ async function openNps(system) {
       ${info.emulator ? `<button class="ghost small" id="n-emu" title="${esc(`${info.emulator.label}: ${info.emulator.path}`)}">Emulators…</button>` : ""}
       <label class="check"><input type="checkbox" id="n-keep"${info.keep_pkg ? " checked" : ""}> Keep .pkg after install</label>
       <label class="check"><input type="checkbox" id="n-scrape"${info.scrape ? " checked" : ""}> Scrape new games (LaunchBox)</label>
-      <span class="grow"></span><button class="ghost" id="n-close">Close</button>
+      <span class="grow"></span><button class="ghost" id="n-close">Close</button><button class="primary" id="n-start">Start</button>
     </div>`,
   "stores-sheet nps", () => {
     N.job?.stop();
