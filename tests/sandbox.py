@@ -126,9 +126,9 @@ def build_metadata_zip(path):
 
 
 def copy_app(dest):
-    """This checkout minus git, caches and anything personal (config, logs, matches)."""
+    """This checkout minus git, caches, anything personal (config, logs, matches) and the Electron app."""
     skip = {".git", "cache", "__pycache__", "config.json", "config.json.bad", "moves.json", "renames.json",
-            "matches.json", "tests"}
+            "matches.json", "tests", "app", "mockups"}
     shutil.copytree(REPO, dest, ignore=lambda d, names: [n for n in names if n in skip or n.endswith(".tmp")])
     return dest
 

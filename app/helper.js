@@ -29,7 +29,8 @@ class Helper extends EventEmitter {
   start() {
     const [cmd, args] = helperCommand(this.app);
     this.proc = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
-      env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" } });
+      env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8",
+        RETROSHELF_DATA: process.env.RETROSHELF_DATA || this.app.getPath("userData") } });
     this.ready = new Promise((resolve, reject) => {
       this.once("event:ready", resolve);
       this.once("exit", (info) => reject(new Error(`The helper stopped before it was ready: ${info.stderr}`)));

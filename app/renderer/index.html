@@ -2,34 +2,97 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data: rsmedia:; media-src rsmedia:; style-src 'self' 'unsafe-inline'">
   <title>RetroShelf</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><img src="icon-64.png" alt=""><span>RetroShelf</span><small id="version"></small></div>
-    <div class="space" id="space" hidden>
+    <div class="picker">
+      <button class="system" id="system-btn" title="Pick a system (S)">
+        <span class="system-tag" id="system-tag">—</span><span id="system-name">Pick a system</span><span class="chev">▾</span>
+      </button>
+      <div class="popover systems-pop" id="systems-pop" hidden>
+        <div class="systems-list" id="systems-list"></div>
+        <div class="pop-foot"><span class="path" id="roms-path"></span><button class="ghost small" id="change-roms">Change ROMs folder…</button></div>
+      </div>
+    </div>
+    <label class="search"><span>⌕</span><input id="search" placeholder="Search games  ( / )" spellcheck="false"></label>
+    <div class="space" id="space" hidden title="Free space on the drive your ROMs are on">
       <svg viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="15"/><circle class="fill" id="space-ring" cx="18" cy="18" r="15"/></svg>
-      <div><b id="free"></b><small>free on this drive</small></div>
+      <div><b id="free"></b><small>free</small></div>
     </div>
   </header>
 
-  <main>
-    <section class="folder">
-      <div>
-        <h2>ROMs folder</h2>
-        <p id="roms" class="path">Looking for your ROMs…</p>
+  <main id="main">
+    <section class="lists">
+      <div class="filterbar" id="filterbar">
+        <button class="tab" data-tab="presets">Presets &amp; ratings<span class="n"></span></button>
+        <button class="tab" data-tab="genres">Genres<span class="n"></span></button>
+        <button class="tab" data-tab="regions">Regions<span class="n"></span></button>
+        <button class="tab" data-tab="patterns">Patterns<span class="n"></span></button>
+        <span class="filter-info" id="filter-info"></span>
       </div>
-      <button id="change" class="ghost">Change…</button>
+      <div class="popover filters" id="filters" hidden>
+        <div class="panel" data-panel="presets">
+          <div class="col" id="preset-list"></div>
+          <div class="col">
+            <label class="check"><input type="checkbox" id="use-rating"> Rating below
+              <input type="number" id="rating-max" min="0" max="5" step="0.1"> / 5 if votes ≥
+              <input type="number" id="min-votes" min="0" step="1"></label>
+            <label class="check"><input type="checkbox" id="use-unrated"> Unrated or not in LaunchBox</label>
+            <label class="check"><input type="checkbox" id="protect-played"> Protect played games <span id="played-n"></span></label>
+            <p class="muted" id="match-info"></p>
+          </div>
+        </div>
+        <div class="panel" data-panel="genres"><p class="muted">Games in any picked genre move.</p><div class="chips" id="genre-chips"></div></div>
+        <div class="panel" data-panel="regions">
+          <div class="modes" id="region-modes"></div>
+          <p class="muted" id="region-help"></p>
+          <div class="chips" id="region-chips"></div>
+        </div>
+        <div class="panel" data-panel="patterns">
+          <textarea id="patterns" spellcheck="false" placeholder="One per line:
+mario       contains “mario”
+*(Beta)*    * and ? are wildcards
+!kart       always keep
+# note      ignored"></textarea>
+          <label class="check"><input type="checkbox" id="icase"> Ignore case</label>
+        </div>
+      </div>
+      <div class="columns">
+        <div class="column" data-list="keep">
+          <div class="col-head"><span class="dot keep"></span>Keeping <b class="count" id="keep-count">0</b><span class="size" id="keep-size"></span></div>
+          <div class="list" id="keep"><div class="spacer"></div><div class="ring"></div><div class="empty" hidden></div></div>
+        </div>
+        <div class="column" data-list="move">
+          <div class="col-head"><span class="dot move"></span>Moving <b class="count" id="move-count">0</b><span class="size" id="move-size"></span></div>
+          <div class="list" id="move"><div class="spacer"></div><div class="ring"></div><div class="empty" hidden></div></div>
+        </div>
+      </div>
     </section>
 
-    <p class="note">This is the new RetroShelf, still being built. It can find your library so far; the game lists
-      and everything else come over from the current app next.</p>
-
-    <section class="systems" id="systems"></section>
-    <p class="message" id="message" hidden></p>
+    <aside class="details" id="details">
+      <div class="backdrop" id="backdrop"></div>
+      <div class="details-body" id="details-body"></div>
+    </aside>
   </main>
+
+  <footer>
+    <div class="hints" id="hints"></div>
+    <div class="actions">
+      <label class="dest">Move to
+        <select id="dest"><option value="to_delete">to_delete</option><option value="review_low_value">review_low_value</option></select>
+      </label>
+      <button class="primary" id="move-btn" disabled>Move files</button>
+    </div>
+  </footer>
+  <div class="toast" id="toast"></div>
+  <div class="overlay" id="overlay" hidden><div class="overlay-box" id="overlay-box"></div></div>
+  <script src="art.js"></script>
+  <script src="list.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

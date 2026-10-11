@@ -66,6 +66,83 @@ class Helper(unittest.TestCase):
         self.assertIn("result", answers[4])  # the helper keeps going after errors
 
 
+def session(data, script):
+    """Run script in a fresh helper process (its methods as h.name), with settings in data -> what it prints, as JSON.
+    The window's requests can come back in any order, so steps that build on each other are tested this way."""
+    code = f"import json, sys; sys.path.insert(0, {os.path.dirname(HELPER)!r}); import helper as h\n{script}"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, encoding="utf-8",
+                         env={**os.environ, "RETROSHELF_DATA": data})
+    if out.returncode:
+        raise AssertionError(out.stderr)
+    return json.loads(out.stdout.splitlines()[-1])
+
+
+class MainWindow(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.roms = os.path.join(self.tmp.name, "roms")
+        self.data = os.path.join(self.tmp.name, "data")
+        make_roms(self.roms)
+        os.makedirs(self.data)
+        with open(os.path.join(self.data, "config.json"), "w", encoding="utf-8") as f:
+            json.dump({"roms_root": self.roms}, f)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def config(self):
+        with open(os.path.join(self.data, "config.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_open_decide_and_remember(self):
+        out = session(self.data, """
+ov = h.startup()
+sys_ = h.open_system("snes")
+st = dict(sys_["state"], presets=["Partial downloads (.part)"], flips={"Chrono Trigger (USA)": True})
+d = h.decide(st, cursor_key="Super Metroid (USA)")
+print(json.dumps({"ov": ov, "sys": sys_, "d": d, "det": h.details("Chrono Trigger (USA)")}))""")
+        self.assertEqual(out["ov"]["roms"], self.roms)
+        self.assertIn("snes", [s["code"] for s in out["ov"]["systems"]])
+        self.assertEqual(out["sys"]["fullname"], "Nintendo SNES (Super Nintendo)")
+        self.assertEqual([g["key"] for g in out["sys"]["games"]],
+                         ["Chrono Trigger (USA)", "EarthBound (USA).sfc.part", "Super Metroid (USA)"])
+        self.assertEqual(out["sys"]["decision"]["move"], [])  # no filters yet
+        self.assertEqual(sorted(out["d"]["move"]), ["Chrono Trigger (USA)", "EarthBound (USA).sfc.part"])
+        self.assertEqual(out["d"]["why"]["Chrono Trigger (USA)"], "manual")
+        self.assertEqual(out["d"]["tabs"], [1, 0, 0, 0])
+        self.assertEqual(out["det"]["file"], "Chrono Trigger (USA).sfc")
+        self.assertEqual(out["det"]["images"], [])
+        saved = self.config()
+        self.assertEqual(saved["system"], "snes")
+        self.assertEqual(saved["system_state"]["snes"]["presets"], ["Partial downloads (.part)"])
+        self.assertEqual(saved["system_state"]["snes"]["cursor_key"], "Super Metroid (USA)")
+        # opened again, the system comes back with its filters and flips
+        again = session(self.data, 'h.startup(); print(json.dumps(h.open_system("snes")))')
+        self.assertEqual(sorted(again["decision"]["move"]), ["Chrono Trigger (USA)", "EarthBound (USA).sfc.part"])
+        self.assertEqual(again["cursor"], "Super Metroid (USA)")
+
+    def test_move(self):
+        out = session(self.data, """
+h.startup(); s = h.open_system("snes")
+h.decide(dict(s["state"], flips={"Chrono Trigger (USA)": True, "Super Metroid (USA)": True}))
+plan = h.move_plan("to_delete")
+print(json.dumps({"plan": plan, "moved": h.move("to_delete")}))""")
+        holding = os.path.join(self.tmp.name, "pruned", "to_delete", "snes")
+        self.assertEqual(out["plan"]["games"], 2)
+        self.assertEqual(out["plan"]["dest_dir"], holding)
+        self.assertTrue(out["plan"]["same_drive"])
+        self.assertEqual(out["moved"]["moved"], {"files": 2, "failed": [], "dest": "to_delete"})
+        self.assertEqual([g["key"] for g in out["moved"]["games"]], ["EarthBound (USA).sfc.part"])
+        self.assertEqual(sorted(os.listdir(holding)), ["Chrono Trigger (USA).sfc", "Super Metroid (USA).zip"])
+        with open(os.path.join(self.data, "moves.json"), encoding="utf-8") as f:
+            log = json.load(f)
+        self.assertEqual((log[0]["system"], log[0]["games"], len(log[0]["moves"])), ("snes", 2, 2))
+
+    def test_needs_a_system(self):
+        with self.assertRaisesRegex(AssertionError, "No system is open"):
+            session(self.data, 'h.startup(); h.decide({})')
+
+
 class Library(unittest.TestCase):
     def test_systems_and_games(self):
         with tempfile.TemporaryDirectory() as tmp:

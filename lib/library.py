@@ -80,3 +80,52 @@ def systems(roms_root):
         name, fullname, _ = read_systeminfo(full)
         out.append((d, fullname if name == d and fullname else nps.FULL_NAMES.get(d, "?"), n))
     return out
+
+
+# ---------- a game's artwork and video (ES-DE's downloaded_media/<system>/<type>/<rom name>.*) ----------
+MEDIA_ORDER = ["covers", "3dboxes", "miximages", "screenshots", "titlescreens", "physicalmedia", "marquees"]
+VIDEO_EXTS = (".mp4", ".mkv", ".webm", ".avi", ".mov")
+_listings = {}  # folder -> (mtime, {stem: [file names]})
+
+
+def _by_stem(folder):
+    try:
+        mtime = os.stat(folder).st_mtime
+    except OSError:
+        return None
+    cached = _listings.get(folder)
+    if not cached or cached[0] != mtime:
+        by_stem = {}
+        for f in sorted(os.listdir(folder)):
+            by_stem.setdefault(os.path.splitext(f)[0], []).append(f)
+        cached = _listings[folder] = (mtime, by_stem)
+    return cached[1]
+
+
+def media_for(media_dir, stems, types=MEDIA_ORDER):
+    """[(media type, image path)] for a game, in MEDIA_ORDER. stems: the names its files go by, without extension."""
+    out = []
+    for mtype in types:
+        folder = os.path.join(media_dir, mtype)
+        by_stem = _by_stem(folder)
+        for stem in stems if by_stem else ():
+            out += [(mtype, os.path.join(folder, f)) for f in by_stem.get(stem, [])
+                    if not f.lower().endswith(VIDEO_EXTS)]
+    return out
+
+
+def video_for(media_dir, stems):
+    """The game's clip in <media_dir>/videos, or None."""
+    folder = os.path.join(media_dir or "", "videos")
+    by_stem = _by_stem(folder)
+    for stem in stems if by_stem else ():
+        for f in by_stem.get(stem, []):
+            if f.lower().endswith(VIDEO_EXTS):
+                return os.path.join(folder, f)
+    return None
+
+
+def stems_of(paths):
+    """The names ES-DE files a game's media under: each file's name with and without its extension."""
+    names = [os.path.basename(p.rstrip("/\\")) for p in paths]
+    return list(dict.fromkeys([os.path.splitext(n)[0] for n in names] + names))

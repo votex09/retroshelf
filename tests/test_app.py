@@ -16,9 +16,9 @@ except ImportError as e:
 if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
     raise unittest.SkipTest("no display (run tests/run.sh, which uses xvfb-run)")
 
-LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
-               "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui", "esde_collections", "collections_gui", "hiding", "osk", "motion"]
+# every lib/ module (and the vendored theme), so the sandbox copy imports its own
+LIB_MODULES = ["sv_ttk"] + sorted(os.path.splitext(f)[0] for f in os.listdir(os.path.join(os.path.dirname(TESTS), "lib"))
+                                  if f.endswith(".py"))
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
