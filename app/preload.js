@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("retroshelf", {
   pickFolder: (start, title) => ipcRenderer.invoke("pick-folder", start, title),
   saveFile: (opts) => ipcRenderer.invoke("save-file", opts),
   openFolder: (folder) => ipcRenderer.invoke("open-folder", folder),
+  openUrl: (url) => ipcRenderer.invoke("open-url", url),
   confirm: (opts) => ipcRenderer.invoke("confirm", opts),
   version: () => ipcRenderer.invoke("app:version"),
   onHelperEvent: (fn) => ipcRenderer.on("helper:event", (_e, name, data) => fn(name, data)),

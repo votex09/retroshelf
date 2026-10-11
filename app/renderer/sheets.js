@@ -3,6 +3,7 @@
 "use strict";
 
 let onSheetClose = null, sheetKeys = null;  // sheetKeys(key, event) -> true when it used the key (and gamepad)
+let sheetBusy = null;  // set while a sheet mustn't just close: closing calls it instead (it asks, then closes)
 
 function sheet(html, cls = "", onClose = null, keys = null) {
   $("sheet").className = `sheet ${cls}`;
@@ -10,10 +11,12 @@ function sheet(html, cls = "", onClose = null, keys = null) {
   $("sheet-wrap").hidden = false;
   onSheetClose = onClose;
   sheetKeys = keys;
+  sheetBusy = null;
 }
 
 function closeSheet() {
   if ($("sheet-wrap").hidden) return;
+  if (sheetBusy) { sheetBusy(); return; }
   $("sheet-wrap").hidden = true;
   $("sheet").innerHTML = "";
   const fn = onSheetClose;

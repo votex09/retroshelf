@@ -569,11 +569,13 @@ async function pickRoms() {
 function welcome() {
   overlay(`<h2>Where are your ROMs?</h2>
     <p>RetroShelf couldn't find RetroDECK's or ES-DE's ROMs folder. Pick the folder that has one folder per system
-    in it (snes, psx, …).</p>`, [["Pick folder…", async () => {
-    try {
-      if (await pickRoms()) { closeOverlay(); toggleSystems(); }
-    } catch (e) { oops(e); }
-  }, true]]);
+    in it (snes, psx, …). Don't have RetroDECK or ES-DE yet? RetroShelf can set it up.</p>`, [
+    [`Set up ${SETUP_NAME}…`, () => { closeOverlay(); openSetup(); }],
+    ["Pick folder…", async () => {
+      try {
+        if (await pickRoms()) { closeOverlay(); toggleSystems(); }
+      } catch (e) { oops(e); }
+    }, true]]);
 }
 
 async function openSystem(code) {
@@ -656,7 +658,8 @@ function runJob(method, params, onProgress) {
 }
 
 // ---------- the ☰ menu ----------
-// Tool windows add themselves: registerTool({ cmd, label, sub, system: needs an open system, open })
+// Tool windows add themselves: registerTool({ cmd, label, sub, system: needs an open system, anywhere: needs no ROMs
+// folder either, open })
 const TOOLS = [];
 function registerTool(t) { TOOLS.push(t); }
 
@@ -667,7 +670,7 @@ function openMenu() {
     b.disabled = ["priority", "export", "rescan", "review", "collection"].includes(b.dataset.cmd) && !S.sys ||
       b.dataset.cmd === "export" && !S.games.some((g) => g.move) || ["holding", "moves", "change-holding"].includes(b.dataset.cmd) && !S.overview?.roms;
   }
-  for (const t of TOOLS) m.querySelector(`[data-cmd="${t.cmd}"]`).disabled = t.system && !S.sys || !S.overview?.roms;
+  for (const t of TOOLS) m.querySelector(`[data-cmd="${t.cmd}"]`).disabled = !t.anywhere && (t.system && !S.sys || !S.overview?.roms);
   m.querySelector('[data-cmd="launchbox"]').firstChild.textContent = S.overview?.launchbox ? "Update LaunchBox data" : "Download LaunchBox data";
   m.hidden = false;
 }
@@ -908,7 +911,7 @@ async function start() {
     summary.roms = S.overview.roms;
     summary.systems = S.overview.systems.filter((s) => s.games > 0).length;
     const last = S.overview.systems.find((s) => s.code === S.overview.system && s.games > 0);
-    if (!S.overview.roms) welcome();
+    if (!S.overview.roms) S.overview.setup_offered ? welcome() : openSetup();
     else if (last) await openSystem(last.code);
     else toggleSystems();
     summary.system = S.sys?.system || "";
@@ -921,4 +924,4 @@ async function start() {
   rs.ready(summary);
 }
 
-start();
+document.addEventListener("DOMContentLoaded", start);  // once sheets.js, tools.js … have loaded too

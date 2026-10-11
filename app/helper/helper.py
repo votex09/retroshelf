@@ -74,7 +74,8 @@ DATA_DIR = os.environ.get("RETROSHELF_DATA") or APP_DIR
 CONFIG = os.path.join(DATA_DIR, "config.json")
 MOVES = os.path.join(DATA_DIR, "moves.json")
 CFG_DEFAULTS = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {},
-                "region_priority": rules.DEFAULT_PRIORITY, "system_state": {}}
+                "region_priority": rules.DEFAULT_PRIORITY, "system_state": {}, "esde_bases": [],
+                "setup_offered": False}
 _state_lock = threading.Lock()  # one system-changing request at a time
 cfg = {}
 current = {"sc": None, "decision": None, "fullname": None}
@@ -124,8 +125,8 @@ def startup():
     with _state_lock:
         load_cfg()
         if not cfg["roms_root"] or not os.path.isdir(cfg["roms_root"]):
-            cfg["roms_root"] = library.guess_roms_root(APP_DIR)
-        return _overview()
+            cfg["roms_root"] = library.guess_roms_root(APP_DIR, cfg["esde_bases"])
+        return {**_overview(), "setup_offered": cfg["setup_offered"]}
 
 
 @method
@@ -535,9 +536,10 @@ def restore_moves(ids):
 
 # ---------- the tool windows (app/helper/tool_*.py) ----------
 rpc.ctx.update(cfg=cfg, save_cfg=save_cfg, need_system=_need_system, open_system=open_system, current=current,
-               state_lock=_state_lock, data_dir=DATA_DIR, app_dir=APP_DIR)
+               state_lock=_state_lock, data_dir=DATA_DIR, app_dir=APP_DIR, overview=_overview)
 import tool_rename  # noqa: E402,F401
 import tool_scrape  # noqa: E402,F401
+import tool_setup  # noqa: E402,F401
 
 
 # ---------- plumbing ----------

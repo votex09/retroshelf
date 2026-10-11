@@ -245,6 +245,38 @@ rpc.METHODS["cancel"]("j1")
 print(json.dumps({"before": before, "after": stop(), "other": rpc.stopped("j2")()}))""")
         self.assertEqual(out, {"before": False, "after": True, "other": False})
 
+    def test_first_run_setup(self):
+        place = os.path.join(self.tmp.name, "sd")
+        os.makedirs(place)
+        out = session(self.data, f"""
+import rpc, frontend, tool_setup
+events = []
+rpc.event = lambda name, data=None: events.append(data["message"])
+tool_setup.is_windows = lambda: False
+frontend.retrodeck_installed = lambda: False
+frontend.install_retrodeck = lambda log, cancelled: [log("$ install"), log("done")]
+start = h.startup()
+info = h.setup_info()
+res = h.setup_install("j1", "custom", {place!r})
+try:
+    h.setup_install("j2", "custom", {os.path.join(place, "nope")!r})
+    bad = ""
+except PermissionError as e:
+    bad = str(e)
+done = h.setup_done({self.roms!r})
+print(json.dumps({{"offered": start["setup_offered"], "name": info["name"], "res": res, "events": events, "bad": bad,
+                  "roms": done["roms"], "tips": len(done["tips"])}}))""")
+        self.assertFalse(out["offered"])
+        self.assertEqual(out["name"], "RetroDECK")
+        self.assertEqual(out["events"], ["$ install", "done"])
+        self.assertEqual(out["res"]["expected"], os.path.join(place, "retrodeck", "roms"))
+        self.assertIn(place, out["res"]["steps"][1])
+        self.assertIn("can't write", out["bad"])
+        self.assertEqual(out["roms"], os.path.realpath(self.roms))
+        self.assertEqual(out["tips"], 2)
+        self.assertTrue(self.config()["setup_offered"])
+        self.assertEqual(session(self.data, 'print(json.dumps(h.startup()["setup_offered"]))'), True)
+
     def test_needs_a_system(self):
         with self.assertRaisesRegex(AssertionError, "No system is open"):
             session(self.data, 'h.startup(); h.decide({})')
