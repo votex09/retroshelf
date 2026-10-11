@@ -23,7 +23,7 @@ rename can be undone, and games only go for good when you delete them from the h
 - Name patterns with `*` / `?` wildcards and `!` keep rules.
 - Filter by LaunchBox rating, vote count, genre and region.
 - Played games are protected by default (play counts from ES-DE's `gamelist.xml`).
-- Double-click any game to flip it by hand, or use the keyboard or a gamepad (**Help → Keyboard and gamepad**):
+- Double-click any game to flip it by hand, or use the keyboard or a gamepad (**☰ → Keyboard and gamepad**):
   - → or Delete moves the selected games and ← keeps them; the cursor stays where you were, so you can work
     down a list key by key. Ctrl+Z (or Backspace) undoes.
   - Space marks games without moving them yet, and steps to the next one. Marked games flip together on Enter or
@@ -72,7 +72,7 @@ rename can be undone, and games only go for good when you delete them from the h
 **Storage overview**
 - **Library → Storage overview…** (or click the free-space figure at the top) shows how much each system takes:
   its games, its ES-DE media (artwork, videos, manuals), and how much of it is disc images that
-  **Tools → Compress games** could shrink. Pick a system to see its biggest games. Double-click a system or a
+  **☰ → Compress games** could shrink. Pick a system to see its biggest games. Double-click a system or a
   game to go to it in the main window.
 
 **Import ROMs**
@@ -96,7 +96,7 @@ rename can be undone, and games only go for good when you delete them from the h
 **LaunchBox metadata**
 - Downloads the free LaunchBox Games Database once and matches your games to it automatically.
 - Right-click a game to pick its LaunchBox entry by hand when the match is missing or wrong.
-- **Tools → Scrape metadata…** fills ES-DE text (description, developer, release date, genre, rating …) and images (covers,
+- **☰ → Scrape metadata…** fills ES-DE text (description, developer, release date, genre, rating …) and images (covers,
   screenshots, title screens, marquees, 3D boxes …). It only fills gaps and never overwrites what's already there.
 
 **Gameplay videos**
@@ -112,7 +112,7 @@ rename can be undone, and games only go for good when you delete them from the h
   turns videos off.
 
 **Rename files**
-- **Tools → Rename files…** renames ROMs to a pattern, by default the No-Intro order:
+- **☰ → Rename files…** renames ROMs to a pattern, by default the No-Intro order:
   `{title} ({region}) ({lang}) ({rev}) {tags}`. This also strips set numbers like `0012 - `.
 - Live preview, conflict detection, and undo.
 - Games you matched by hand, and scene-style names like `Final_Fantasy_IV_Complete_Collection_US.chd`, take
@@ -124,7 +124,7 @@ rename can be undone, and games only go for good when you delete them from the h
   ROM set file name, so renaming them would stop them starting.
 
 **Compress games**
-- **Tools → Compress games…** turns disc images into the compressed formats the emulators read, usually a third
+- **☰ → Compress games…** turns disc images into the compressed formats the emulators read, usually a third
   to a half smaller: CD games (PlayStation, Saturn, Sega CD, Dreamcast, PC Engine CD, Neo Geo CD, 3DO, PC-FX) and
   PS2 discs become `.chd`, GameCube and Wii discs become `.rvz`. Select games to do only those.
 - Each new file is written next to the game and checked before anything is replaced. `.m3u` playlists, ES-DE's
@@ -133,7 +133,7 @@ rename can be undone, and games only go for good when you delete them from the h
 - Uses chdman (from RetroDECK or MAME) and dolphin-tool (from RetroDECK or Dolphin), found by themselves.
 
 **Library health check**
-- **Tools → Library health check…** looks through every system folder (or just the current one) for what stops
+- **☰ → Library health check…** looks through every system folder (or just the current one) for what stops
   games starting: `.cue` / `.gdi` sheets and `.m3u` playlists naming files that aren't there, and raw `.bin`
   images with no `.cue`, and games on several discs with no `.m3u` playlist (one is written, and the separate
   discs are hidden in ES-DE so the game shows once). It also finds what takes space for nothing: empty game files, unfinished downloads,
@@ -143,7 +143,7 @@ rename can be undone, and games only go for good when you delete them from the h
   Problems it can't fix are listed with what's missing.
 
 **Find duplicates**
-- **Tools → Find duplicates…** finds games kept twice in one folder in different forms (a `.cue` / `.bin` and a
+- **☰ → Find duplicates…** finds games kept twice in one folder in different forms (a `.cue` / `.bin` and a
   `.chd`, a `.zip` and the ROM it holds), and identical files anywhere in the library, compared by content: the
   same game in two folders (`snes` and `sfc`, `genesis` and `megadrive`) or under two names.
 - One copy of each stays, chosen for you: the one ES-DE's gamelist knows, then the better form (`.chd` over
@@ -152,13 +152,13 @@ rename can be undone, and games only go for good when you delete them from the h
   gamelist entry (play count, favorite) is moved over to it.
 
 **NoPayStation (PS3, PS Vita, PSP)**
-- **Tools → NoPayStation…** searches the NoPayStation lists. Queue games, DLC, demos and PS3 updates, and download and install them.
+- **☰ → NoPayStation…** searches the NoPayStation lists. Queue games, DLC, demos and PS3 updates, and download and install them.
 - Shows which games you already have; can list available updates for installed PS3 games.
 - Parallel, resumable downloads. Right-click the queue to retry failed jobs.
 - PS3 packages are installed into RPCS3, PS Vita packages through Vita3K, PSP packages into your `roms` folder.
 
 **Homebrew Hub (Game Boy, Game Boy Color, Game Boy Advance, NES)**
-- **Tools → Homebrew Hub…** browses the free homebrew on [Homebrew Hub](https://hh.gbdev.io): search by name or
+- **☰ → Homebrew Hub…** browses the free homebrew on [Homebrew Hub](https://hh.gbdev.io): search by name or
   developer, filter by system and type (games, demos, tools, music), with screenshots and descriptions.
 - Open-source games install with one click. Homebrew Hub lets each author decide which apps may download their game,
   so for the others **Open on Homebrew Hub** opens the game's page in your browser; download it there and RetroShelf
@@ -167,7 +167,7 @@ rename can be undone, and games only go for good when you delete them from the h
   ES-DE.
 
 **itch.io homebrew (Game Boy, GBA, NES, SNES, Mega Drive, Master System, PC Engine, Atari 2600, PICO-8)**
-- **Tools → itch.io homebrew…** lists free games itch.io tags for the system, from itch.io's official browse feeds.
+- **☰ → itch.io homebrew…** lists free games itch.io tags for the system, from itch.io's official browse feeds.
 - Games download on itch.io in your browser, where their authors can ask for an optional donation: **Open on
   itch.io** for a listed game, or **Browse on itch.io** to look around. Every ROM for the system that lands in your
   Downloads folder is put in the right `roms` folder (zips are unpacked; other downloads are left alone).
@@ -175,14 +175,14 @@ rename can be undone, and games only go for good when you delete them from the h
   itch.io still works.
 
 **PDRoms homebrew (19 systems, from Game Boy, NES and Mega Drive to Lynx, Neo Geo Pocket and WonderSwan)**
-- **Tools → PDRoms homebrew…** lists the games on [PDRoms](https://pdroms.de), a homebrew archive running since
+- **☰ → PDRoms homebrew…** lists the games on [PDRoms](https://pdroms.de), a homebrew archive running since
   1998 that only carries freeware, open-source and legally cleared software. Fan games it marks as
   copyright-restricted aren't listed.
 - Pick a game to see its author, description and screenshot. Games download on PDRoms in your browser (**Open on
   PDRoms** or **Browse on PDRoms**) and land in the right `roms` folder, as with itch.io.
 
 **Free arcade games (MAMEDEV)**
-- **Tools → Free arcade games (MAMEDEV)…** lists the [arcade games their owners released for free,
+- **☰ → Free arcade games (MAMEDEV)…** lists the [arcade games their owners released for free,
   non-commercial use](https://www.mamedev.org/roms/) through the MAME team: Gridlee, Robby Roto, Alien Arena, the
   Exidy classics and more.
 - **Install** asks you to confirm non-commercial use, as mamedev.org does, then downloads the game from mamedev.org
@@ -207,6 +207,8 @@ rename can be undone, and games only go for good when you delete them from the h
 
 ## Requirements
 
+The app needs nothing else installed. The rest of this section is for the older Tk version.
+
 - **Linux:** Python 3.9 or newer and Tk (`tkinter`). Most desktop distros ship both; on Debian / Ubuntu run
   `sudo apt install python3-tk`.
 - **Windows:** Python 3.9 or newer from [python.org](https://www.python.org/downloads/windows/) (it includes Tk).
@@ -227,16 +229,23 @@ rename can be undone, and games only go for good when you delete them from the h
 
 ## Install
 
-Either clone the repository:
+Download the app from the [latest release](https://github.com/votex09/retroshelf/releases/latest). Python and
+everything else it needs are inside.
 
-```sh
-git clone https://github.com/votex09/retroshelf.git
-```
+- **Linux / Steam Deck:** `RetroShelf-<version>-linux-x86_64.AppImage`. Make it executable (right-click →
+  Properties, or `chmod +x`) and run it. **☰ → Settings → Add to app menu** adds it to your application menu; on a
+  Steam Deck, add it to Steam as a non-Steam game.
+- **Windows:** `RetroShelf-<version>-win-x64.exe` installs it (no administrator needed), or run
+  `RetroShelf-<version>-portable.exe` from anywhere.
 
-or download `retroshelf-<version>.zip` from the [latest release](https://github.com/votex09/retroshelf/releases/latest)
-and unpack it anywhere.
+Coming from the older version (the zip with `retroshelf.py`)? Its last update offers the app and brings your
+settings, move and rename logs, hand-picked matches and downloaded data over. You can also do that from the app:
+**☰ → Settings → Bring settings over from the old RetroShelf…**, then pick its folder.
 
-## Run
+### The older version
+
+The Tk version (`retroshelf.py`) still runs from a clone or the release's `retroshelf-<version>.zip`, but gets no
+new features. It needs the requirements above.
 
 ```sh
 ./retroshelf.sh            # Linux, or: python3 retroshelf.py
@@ -245,7 +254,7 @@ retroshelf.bat             # Windows: double-click it, or: py retroshelf.py
 
 ### No RetroDECK or ES-DE yet?
 
-On first start without a games library, RetroShelf offers to set one up (later: **Tools → Set up RetroDECK…**,
+On first start without a games library, RetroShelf offers to set one up (later: **☰ → Set up RetroDECK…**,
 or **Set up ES-DE…** on Windows). Pick where your games should go (your home folder, an SD card or drive, or any
 folder, each with its free space), and RetroShelf does the rest:
 
@@ -261,17 +270,17 @@ folder, each with its free space), and RetroShelf does the rest:
 RetroShelf also finds an existing RetroDECK wherever its data folder is (from RetroDECK's own settings), and an
 existing ES-DE from its settings.
 
-- **App menu:** use **Help → Add to app menu** (Windows: **Add to Start menu**), or run the launcher with
-  `--install-desktop`, to add RetroShelf to your application menu with its icon. If you move the folder, add it again.
-- **Steam / Steam Deck:** add `retroshelf.sh` (Windows: `retroshelf.bat`) to Steam as a non-Steam game.
+- **App menu:** the Windows installer adds RetroShelf to the Start menu; the AppImage adds itself to your
+  application menu from **☰ → Settings → Add to app menu**. (The Tk version: **Help → Add to app menu**.)
+- **Steam / Steam Deck:** add the AppImage to Steam as a non-Steam game.
 
-On first start, run **Tools → Download LaunchBox data** (about 110 MB) to enable ratings, genres, matching and scraping.
+On first start, run **☰ → Download LaunchBox data** (about 110 MB) to enable ratings, genres, matching and scraping.
 
 ## Updating
 
-RetroShelf checks GitHub for updates when it starts (you can turn this off) and has **Help → Check for updates**.
-Updating keeps your settings, logs and downloaded data and restarts the app. Git clones update with `git pull`; zip
-copies download the latest [release](https://github.com/votex09/retroshelf/releases) and swap it in.
+The app checks GitHub for updates when it starts (you can turn this off in **☰ → Settings**, which also has **Check
+for updates**). The installed Windows app and the AppImage download a new version by themselves, and it goes in when
+you restart RetroShelf (or press **⬆ Restart to update**). The portable .exe says when a new version is out.
 
 Every change to the app that lands on `main` passes the tests and is then published as a release automatically
 (`.github/workflows/release.yml`), versioned by date: `v2026.10.09`, then `v2026.10.09.2` for a second one that
@@ -279,7 +288,8 @@ day. Changes to docs, tests or CI alone don't make a release; **Run workflow** o
 
 ## Your data
 
-These files live next to `retroshelf.py` and are never part of the repository:
+The app keeps these files in `~/.config/RetroShelf` on Linux and `%APPDATA%\RetroShelf` on Windows (the older Tk
+version keeps them next to `retroshelf.py`):
 
 | File / folder | What it holds |
 | --- | --- |

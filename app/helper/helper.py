@@ -76,7 +76,8 @@ MOVES = os.path.join(DATA_DIR, "moves.json")
 CFG_DEFAULTS = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {},
                 "region_priority": rules.DEFAULT_PRIORITY, "system_state": {}, "esde_bases": [],
                 "setup_offered": False, "play_videos": True, "gamepad": True, "animations": True,
-                "show_details": True}
+                "show_details": True, "check_updates": True, "theme": "dark",
+                "stream_videos": False}
 _state_lock = threading.Lock()  # one system-changing request at a time
 cfg = {}
 current = {"sc": None, "decision": None, "fullname": None}
@@ -537,7 +538,8 @@ def restore_moves(ids):
 
 # ---------- the tool windows (app/helper/tool_*.py) ----------
 rpc.ctx.update(cfg=cfg, save_cfg=save_cfg, need_system=_need_system, open_system=open_system, current=current,
-               state_lock=_state_lock, data_dir=DATA_DIR, app_dir=APP_DIR, overview=_overview)
+               state_lock=_state_lock, data_dir=DATA_DIR, app_dir=APP_DIR, overview=_overview,
+               reload_cfg=load_cfg)
 import tool_files  # noqa: E402,F401
 import tool_library  # noqa: E402,F401
 import tool_rename  # noqa: E402,F401
@@ -545,6 +547,7 @@ import tool_scrape  # noqa: E402,F401
 import tool_settings  # noqa: E402,F401
 import tool_setup  # noqa: E402,F401
 import tool_stores  # noqa: E402,F401
+import tool_video  # noqa: E402,F401
 
 
 # ---------- plumbing ----------

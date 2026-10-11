@@ -2,11 +2,11 @@
 //   npm install && npm start        run from a checkout (uses python3 for the helper)
 //   npm run dist                    build an AppImage (Linux) or installer + portable .exe (Windows) into dist/
 //   electron . --smoke              start, check the window and the helper work together, print SMOKE OK, quit
-const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { Helper } = require("./helper");
-const { checkForUpdates } = require("./updates");
+const { Updates } = require("./updates");
 
 const smoke = process.argv.includes("--smoke");
 
@@ -60,7 +60,10 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.js"), sandbox: true, contextIsolation: true },
   });
   win.once("ready-to-show", () => { if (!smoke) win.show(); });
-  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.setWindowOpenHandler(({ url }) => {  // YouTube's player links to the video on YouTube
+    if (/^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
 }
@@ -112,6 +115,35 @@ ipcMain.handle("open-url", (_e, url) => {  // web pages only, in the user's brow
 });
 ipcMain.handle("app:version", () => app.getVersion());
 
+// ---------- updates (updates.js) ----------
+const updates = new Updates(app, (state) => win?.webContents.send("update", state));
+ipcMain.handle("update:check", (_e, auto) => updates.check(Boolean(auto)));
+ipcMain.handle("update:install", () => updates.install());
+
+// ---------- the app menu entry (Linux AppImage: it has no installer to add one) ----------
+const DESKTOP = path.join(process.env.XDG_DATA_HOME || path.join(app.getPath("home"), ".local", "share"));
+const desktopFile = path.join(DESKTOP, "applications", "retroshelf.desktop");
+ipcMain.handle("desktop:status", () => {
+  if (process.platform !== "linux" || !process.env.APPIMAGE) return { can: false };
+  let text = "";
+  try { text = fs.readFileSync(desktopFile, "utf8"); } catch {}
+  return { can: true, installed: text.includes(process.env.APPIMAGE) };
+});
+ipcMain.handle("desktop:install", () => {
+  const exe = process.env.APPIMAGE;
+  if (process.platform !== "linux" || !exe) return "only the AppImage can add itself";
+  const icon = path.join(DESKTOP, "icons", "hicolor", "256x256", "apps", "retroshelf.png");
+  fs.mkdirSync(path.dirname(icon), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, "renderer", "icon-256.png"), icon);
+  fs.mkdirSync(path.dirname(desktopFile), { recursive: true });
+  const quote = (a) => `"${a.replace(/["`$\\]/g, (c) => "\\" + c)}"`;
+  fs.writeFileSync(desktopFile, ["[Desktop Entry]", "Type=Application", "Name=RetroShelf", "GenericName=ROM library manager",
+    "Comment=Prune, scrape, rename and install games for ES-DE / RetroDECK", `Exec=${quote(exe)} %U`, `Icon=${icon}`,
+    "Terminal=false", "Categories=Game;", "Keywords=ROM;ES-DE;RetroDECK;emulation;LaunchBox;NoPayStation;",
+    "StartupWMClass=RetroShelf", ""].join("\n"));
+  return "";
+});
+
 // ---------- --smoke: used by CI on the built app ----------
 function fail(why) {
   console.error(`SMOKE FAILED: ${why}`);
@@ -137,9 +169,12 @@ if (!app.requestSingleInstanceLock()) {
   Menu.setApplicationMenu(null);
   app.whenReady().then(() => {
     protocol.handle("rsmedia", serveMedia);
+    // YouTube's embedded player refuses to play for a page without a web address (error 153), and this window is a
+    // file: page, so its requests say where they come from: the project's page.
+    session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["https://www.youtube-nocookie.com/*"] }, (d, done) =>
+      done({ requestHeaders: { ...d.requestHeaders, Referer: "https://github.com/votex09/retroshelf" } }));
     startHelper();
     createWindow();
-    checkForUpdates(app);
   });
   app.on("before-quit", () => { app.isQuitting = true; if (helper) helper.stop(); });
   app.on("window-all-closed", () => app.quit());

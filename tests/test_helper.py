@@ -368,6 +368,17 @@ print(json.dumps({"before": before, "picked": picked["platform"], "with": with_s
         self.assertFalse(cfg["play_videos"])
         self.assertNotIn("snes", cfg["platform_overrides"])
 
+    def test_youtube_video(self):
+        out = session(self.data, """
+import youtube
+youtube._fetch = lambda url: '{"videoRenderer":{"videoId":"dQw4w9WgXcQ"}}' if "Mario" in url else ""
+print(json.dumps([h.youtube_video("Super Mario World", "SNES"), h.youtube_video("Zzz")]))""")
+        self.assertEqual(out[0]["id"], "dQw4w9WgXcQ")
+        self.assertIn("youtube-nocookie.com/embed/dQw4w9WgXcQ", out[0]["embed"])
+        self.assertEqual(out[1], {"id": None, "embed": None,
+                                  "page": "https://www.youtube.com/results?search_query=Zzz+gameplay"})
+        self.assertTrue(os.path.exists(os.path.join(self.data, "cache", "youtube.json")))
+
     def test_needs_a_system(self):
         with self.assertRaisesRegex(AssertionError, "No system is open"):
             session(self.data, 'h.startup(); h.decide({})')
