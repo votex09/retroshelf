@@ -37,7 +37,7 @@ Add to app menu (or --install-desktop) installs a .desktop entry (Windows: a Sta
 """
 import datetime, json, os, queue, re, shutil, sys, threading
 import xml.etree.ElementTree as ET
-from collections import Counter, defaultdict
+from collections import Counter
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk, messagebox
@@ -49,7 +49,12 @@ import sv_ttk  # noqa: E402  (vendored Sun Valley theme, MIT)
 
 import launchbox as lb  # noqa: E402
 import library  # noqa: E402
-from library import NON_GAME_EXT, PARTIAL_EXT, list_entries, read_systeminfo, valid_exts  # noqa: E402,F401
+import rules  # noqa: E402
+import shelf  # noqa: E402
+from rules import (  # noqa: E402,F401  (lib/rules.py; the tests use some of these from here)
+    DEFAULT_PRIORITY, DUPES, KNOWN_REGIONS, PART_RE, PREFIX_RE, PRESETS, PRESET_LABELS, REGION_MODES, TAG_RE,
+    dir_size, human, junk, parse_priority, region_dupes, regions_of, title_of, unit_key, wildcard_re)
+from library import PARTIAL_EXT, read_systeminfo  # noqa: E402
 import listkeys  # noqa: E402
 import motion  # noqa: E402
 import review  # noqa: E402
@@ -65,7 +70,7 @@ import setup_gui  # noqa: E402
 import scraper  # noqa: E402
 import desktop  # noqa: E402
 import dialogs  # noqa: E402
-import frontend  # noqa: E402
+import frontend  # noqa: E402,F401  (the tests reach it through here)
 import gamepad  # noqa: E402
 import padhints  # noqa: E402
 import padfocus  # noqa: E402
@@ -79,7 +84,7 @@ import esde_collections  # noqa: E402
 import hiding  # noqa: E402
 import osk  # noqa: E402
 import details  # noqa: E402
-from fsutil import held_rel, is_windows, write_json  # noqa: E402
+from fsutil import held_rel, is_windows, write_json  # noqa: E402,F401  (held_rel: the tests use it from here)
 import ui  # noqa: E402
 import updater  # noqa: E402
 import video  # noqa: E402
@@ -124,179 +129,6 @@ PATTERN_NOTES = (
 CONFIG = os.path.join(APP_DIR, "config.json")
 DESTS = ["to_delete", "review_low_value"]
 HEAD_PAD = 4  # px left/right inside column headings, matching the theme's cell text inset
-JUNK_TAGS = r"Proto|Beta|Demo|Sample|Kiosk|Unl|Promo|Not for Resale|Test Program|Alpha|Pirate|Aftermarket"
-
-SPORTS_WORDS = (
-    "Madden|FIFA|NBA|NFL|NHL|MLB|PGA|NASCAR|UFC|WWE|WWF|Tennis|Soccer|Football|Golf|Bowling|Cricket|"
-    "Snowboard|Skate|Skateboarding|Surf|Rugby|Formula One|F1|MotoGP|Basketball|Baseball|Hockey|Boxing|"
-    "Wrestling|Olympic|Volleyball|Dodgeball|Fishing|Hunting|Sports"
-)
-SPORTS_EXCEPT = ["Scotland Yard"]
-
-KIDS_WORDS = (
-    # kids' and casual brands (mostly DS / Wii era)
-    "Dora|Barbie|Bratz|Hannah Montana|High School Musical|SpongeBob|Winx|Littlest Pet Shop|Monster High|"
-    "Scooby-?Doo|Sesame Street|Shrek|Tinker ?Bell|Hello Kitty|My Little Pony|Strawberry Shortcake|Bakugan|"
-    "Build-?A-?Bear|Imagine[: ]|Petz|Chihuahua|Cooking Mama|Diner Dash|Dress ?Up|Fashion|Horsez|Pony Friends|"
-    "Care Bears|Go, ?Diego|Nickelodeon|Nicktoons|Nick Jr|Disney|Pixar|Fairly Odd ?Parents|Phineas|Hannah|iCarly|"
-    "Trollz|Dreamworks|Cartoon Network|Garfield|Marmaduke|Alvin and the Chipmunks|Chipmunks|Cheetah Girls|"
-    "WordWorld|Clifford|Curious George|Elmo|Thomas (?:and|&) Friends|Polly Pocket|Lalaloopsy|Moshi Monsters|"
-    "Club Penguin|Webkinz|Zhu Zhu|Fisher-Price|LeapFrog|Jump ?Start|Reader Rabbit|Smurfs|Rainbow Magic|"
-    # animated films (their games are named after the film, without the studio)
-    "Finding (?:Nemo|Dory)|Toy Story|Incredibles|Monsters,? Inc|Monsters University|Ratatouille|WALL-?E|"
-    "Lilo (?:&|and) Stitch|Ice Age|Kung Fu Panda|Madagascar|Bee Movie|Chicken Little|Chicken Run|Shark Tale|"
-    "Over the Hedge|Monster House|Happy Feet|Flushed Away|Meet the Robinsons|Brother Bear|Treasure Planet|"
-    "Open Season|Surf's Up|Ant Bully|Polar Express|Monsters vs\\.? Aliens|How to Train Your Dragon|Puss in Boots|"
-    "Despicable Me|Minions|Hotel Transylvania|Cloudy with a Chance|Megamind|Rango|Wreck-It Ralph|Big Hero 6|"
-    "Wallace (?:&|and) Gromit|Shaun the Sheep|Lion King|Little Mermaid|Jungle Book|Beauty and the Beast|"
-    "Aladdin|Pocahontas|Mulan|Tarzan|Peter Pan|Pinocchio|Winnie the Pooh|Pooh|Mickey|Minnie|Donald Duck|"
-    "Goofy|Cars (?:Race-O-Rama|Mater-National)|Atlantis - The Lost Empire|Cat in the Hat|Grinch|Horton|"
-    "Charlie and the Chocolate Factory|Willy Wonka|Spy Kids|Agent Cody Banks|"
-    # children's TV
-    "Rugrats|Jimmy Neutron|Danny Phantom|Avatar - The Last Airbender|Teenage Mutant Ninja Turtles|TMNT|"
-    "Power Rangers|Kim Possible|Lizzie McGuire|That's So Raven|Suite Life|Wizards of Waverly|Camp Rock|"
-    "Zoey 101|Drake (?:&|and) Josh|Hey Arnold|Wild Thornberrys|CatDog|Powerpuff|Dexter's Laboratory|"
-    "Kids Next Door|Ben 10|Wiggles|Teletubbies|Barney|Blue's Clues|Bob the Builder|Arthur's|Caillou|"
-    "Little Einsteins|Handy Manny|Backyardigans|Paw Patrol|Peppa Pig|PJ Masks|Octonauts|Bubble Guppies|"
-    "Wonder Pets|Tom (?:and|&) Jerry|Looney Tunes|Bugs Bunny|Tweety|Flintstones|Jetsons|Yogi Bear|"
-    "American Dragon|Proud Family|Lazy ?Town|Rocket Power|Dragon Tales|Arthur!|Doug's|"
-    # 80s / 90s cartoons and family films (NES, SNES, Mega Drive, Game Boy era)
-    "DuckTales|Darkwing Duck|TaleSpin|Chip ?['’]?n['’]? ?Dale|Rescue Rangers|Goof Troop|Bonkers|Gargoyles|"
-    "Tiny Toon|Animaniacs|Pinky and the Brain|Taz-?Mania|Road Runner|Wile E|Daffy Duck|Porky Pig|"
-    "Speedy Gonzales|Simpsons|Bart (?:vs|Simpson)|Bart's|Itchy (?:&|and) Scratchy|Krusty|Rocko's Modern Life|"
-    "Ren (?:&|and) Stimpy|Real Monsters|Captain Planet|Muppets?|Fraggle|Fievel|Land Before Time|Casper|"
-    "Pagemaster|Home Alone|Addams Family|Bobby's World|We're Back|Stuart Little|Dalmatians|Bug's Life|"
-    "Emperor's New Groove|Pink Panther|Popeye|Woody Woodpecker|Felix the Cat|Snoopy|Peanuts|Charlie Brown|"
-    "Richie Rich|Dennis the Menace|Inspector Gadget|Huckleberry Hound|Top Cat|Wacky Races|Hanna-Barbera|"
-    "Bucky O'Hare|Fido Dido|Tiny Toons|Baby Looney|Pocket Dragons"
-)
-# films whose name is an everyday word: only when it's the whole title ("Cars 2", "Up (USA)", not "Crazy Cars")
-KIDS_TITLES = ("Cars|Up|Bolt|Brave|Planes|Rio|Turbo|Barnyard|Robots|Dinosaur|Frozen|Tangled|Zootopia|Coco|Moana|"
-               "Inside Out|Arthur|Franklin|Recess|Hercules|Bambi|Valiant|Epic|Home on the Range|Hook|Doug|Widget")
-KIDS_EXCEPT = ["Nintendogs"]
-
-DEFAULT_PRIORITY = "USA, World, Europe, Australia, Japan, Korea"
-KNOWN_REGIONS = {
-    "World", "USA", "Europe", "Japan", "Korea", "China", "Taiwan", "Hong Kong", "Asia", "Australia", "New Zealand",
-    "Canada", "Brazil", "Mexico", "Argentina", "Latin America", "France", "Germany", "Spain", "Italy", "Netherlands",
-    "Belgium", "Austria", "Switzerland", "Sweden", "Denmark", "Norway", "Finland", "Scandinavia", "UK",
-    "United Kingdom", "Ireland", "Portugal", "Greece", "Poland", "Russia", "Czech", "Hungary", "Croatia", "Turkey",
-    "Israel", "India", "South Africa", "Export", "Unknown",
-}
-REGION_MODES = ["Move selected", "Keep only selected"]
-
-JUNK_RE = re.compile(rf"\((?:{JUNK_TAGS})\b", re.I)
-# whole words; "_" and "." count as spaces (scene names: Spongebob_Squarepants_USA)
-SPORTS_RE = re.compile(rf"(?<![^\W_])(?:{SPORTS_WORDS})(?![^\W_])", re.I)
-KIDS_RE = re.compile(rf"(?<![^\W_])(?:{KIDS_WORDS})(?![^\W_])", re.I)
-KIDS_TITLE_RE = re.compile(rf"^(?:{KIDS_TITLES})(?:$|\s*[-:(]|\s+\d)", re.I)
-PREFIX_RE = re.compile(r"^[a-z]?\d{3,4} - ", re.I)  # numbered sets like "0123 - " / "x045 - "
-TAG_RE = re.compile(r"\s*[\(\[][^\)\]]*[\)\]]")
-PART_RE = re.compile(r"\s*\((?:Track|Disc|Disk|CD)\s*\d+[^)]*\)", re.I)
-
-
-def unit_key(name):
-    return PART_RE.sub("", os.path.splitext(name)[0]).strip()
-
-
-def title_of(key):
-    return TAG_RE.sub("", PREFIX_RE.sub("", key)).strip()
-
-
-def regions_of(key):
-    """No-Intro/Redump region tag, e.g. '(USA, Europe)' -> ('USA', 'Europe'); () if none found."""
-    for group in re.findall(r"\(([^)]*)\)", key):
-        parts = tuple(p.strip() for p in group.split(","))
-        if all(p in KNOWN_REGIONS for p in parts):
-            return parts
-    return ()
-
-
-def keyword_preset(rx, exceptions, title_rx=None):
-    """Games whose name has one of the words (or, with title_rx, whose whole title is one), minus exceptions."""
-    def hit(k):
-        text = " ".join(re.sub(r"[_.]+", " ", k).split())
-        return bool(rx.search(text) or title_rx and title_rx.match(title_of(text)))
-
-    def run(keys):
-        return {k for k in keys if hit(k) and not any(x.lower() in k.lower() for x in exceptions)}
-    return run
-
-
-def junk(keys):
-    return {k for k in keys if JUNK_RE.search(k)}
-
-
-def parse_priority(text):
-    return [p.strip().lower() for p in text.split(",") if p.strip()]
-
-
-def keeper_rank(key, priority):
-    """Lower sorts first = the copy to keep. A copy ranks by its best-priority region; unlisted regions go last."""
-    regions = [r.lower() for r in regions_of(key)]
-    region_rank = min((priority.index(r) for r in regions if r in priority), default=len(priority))
-    rev = re.search(r"\(Rev (\d+)\)", key)
-    langs = re.search(r"\(((?:[A-Z][a-z],)+[A-Z][a-z])\)", key)
-    return (
-        bool(JUNK_RE.search(key)),
-        region_rank,
-        "[b]" in key,
-        -int(rev.group(1)) if rev else 0,
-        -(langs.group(1).count(",") + 1 if langs else 1),
-        key,
-    )
-
-
-def dupe_groups(keys, links=None):
-    """Group copies of the same game: same title once tags are stripped, or same LaunchBox game (links: key -> id).
-    Links chain, so 'Catch! Touch! Yoshi! (Japan)' joins 'Yoshi Touch & Go (USA)' and '(Europe)' via LaunchBox."""
-    parent = {k: k for k in keys}
-
-    def find(k):
-        while parent[k] != k:
-            parent[k] = parent[parent[k]]
-            k = parent[k]
-        return k
-
-    first = {}
-    for k in keys:
-        for tag in (("t", title_of(k).lower()), ("lb", (links or {}).get(k))):
-            if tag[1] is None:
-                continue
-            if tag in first:
-                parent[find(k)] = find(first[tag])
-            else:
-                first[tag] = k
-    groups = defaultdict(list)
-    for k in keys:
-        groups[find(k)].append(k)
-    return groups
-
-
-def region_dupes(keys, priority=None, links=None):
-    """-> {extra copy: the copy kept instead}"""
-    priority = priority or parse_priority(DEFAULT_PRIORITY)
-    out = {}
-    for ks in dupe_groups(keys, links).values():
-        if len(ks) > 1:
-            ranked = sorted(ks, key=lambda k: keeper_rank(k, priority))
-            out.update({k: ranked[0] for k in ranked[1:]})
-    return out
-
-
-PRESETS = {
-    "Junk (demo/kiosk/beta/proto/unl)": junk,
-    "Sports": keyword_preset(SPORTS_RE, SPORTS_EXCEPT),
-    "Kids / licensed tie-ins": keyword_preset(KIDS_RE, KIDS_EXCEPT, KIDS_TITLE_RE),
-    "Region dupes (keep 1 per title)": region_dupes,
-}
-DUPES = "Region dupes (keep 1 per title)"
-PRESET_LABELS = {  # shorter text for the checkboxes; the full names stay the keys (saved per system)
-    "Junk (demo/kiosk/beta/proto/unl)": "Junk (demos, betas, protos …)",
-    DUPES: "Region dupes (keep one)",
-}
-
-
 # ---------- renaming ----------
 DEFAULT_TEMPLATE = "{title} ({region}) ({lang}) ({rev}) {tags}"  # No-Intro order
 RENAME_FIELDS = {
@@ -448,32 +280,6 @@ def apply_renames(pairs):
 
 
 fix_refs = compress.fix_refs  # swaps old file names for new ones inside a .cue / .m3u / .gdi
-
-
-def wildcard_re(pat, icase):
-    if "*" not in pat and "?" not in pat:
-        pat = f"*{pat}*"  # plain text means "name contains this"
-    rx = re.escape(pat).replace(r"\*", ".*").replace(r"\?", ".")
-    return re.compile(rf"^{rx}$", re.IGNORECASE if icase else 0)
-
-
-def human(n):
-    if n >= 1 << 40:
-        return f"{n / (1 << 40):.2f} TB"
-    if n >= 1073741824:
-        return f"{n / 1073741824:.2f} GB"
-    return f"{n / 1048576:.1f} MB" if n >= 1048576 else f"{max(1, round(n / 1024)) if n else 0} KB"
-
-
-def dir_size(path):
-    total = 0
-    for dp, _, fs in os.walk(path):
-        for f in fs:
-            try:
-                total += os.path.getsize(os.path.join(dp, f))
-            except OSError:
-                pass
-    return total
 
 
 find_gamelist = scraper.find_gamelist
@@ -820,8 +626,7 @@ class App:
             pass
 
     def holding_root(self):
-        return self.cfg["holding_root"] or os.path.join(os.path.dirname(os.path.normpath(self.cfg["roms_root"])),
-                                                        "pruned")
+        return shelf.holding_root(self.cfg)
 
     # ---------- UI ----------
     def _build(self):
@@ -1218,15 +1023,7 @@ class App:
         self.refresh()
 
     def dupes_priority(self, sel_regions, keep_only):
-        """Priority for picking the copy to keep, adjusted so it never picks a copy the Regions filter will move."""
-        base = [p.lower() for p in self.priority]
-        if not sel_regions:
-            return base
-        sel = [r.lower() for r in sel_regions]
-        present = [r.lower() for r in self.region_names]
-        rest = [r for r in base if r not in sel] + [r for r in present if r not in base and r not in sel]
-        chosen = [r for r in base if r in sel] + [r for r in sel if r not in base]
-        return chosen + rest if keep_only else rest + chosen
+        return rules.dupes_priority(self.priority, sel_regions, keep_only, self.region_names)
 
     def edit_priority(self):
         present = [r for r in self.region_names if r != "(none)"]
@@ -1623,65 +1420,16 @@ class App:
         return False
 
     def holding_on_same_drive(self):
-        """True when the holding folder (or where it will be created) shares a filesystem with roms."""
-        p = self.holding_root()
-        while not os.path.exists(p) and os.path.dirname(p) != p:
-            p = os.path.dirname(p)
-        try:
-            return os.stat(p).st_dev == os.stat(self.cfg["roms_root"]).st_dev
-        except OSError:
-            return False
+        return shelf.on_same_drive(self.holding_root(), self.cfg["roms_root"])
 
     def _scan(self):
-        self.units, self.file_to_unit = {}, {}
-        for e in list_entries(self.folder, self.exts):
-            key = e.name if e.name.lower().endswith(PARTIAL_EXT) else unit_key(e.name)
-            u = self.units.setdefault(key, {"paths": [], "size": 0, "extra": []})
-            u["paths"].append(e.path)
-            u["size"] += dir_size(e.path) if e.is_dir() else e.stat().st_size
-            for x in nps.linked_data(self.system, e.path, self.cfg["roms_root"]):  # installed PS3 / Vita data
-                u["extra"].append(x)
-                u["size"] += dir_size(x) if os.path.isdir(x) else os.path.getsize(x)
-            self.file_to_unit[e.name] = key
-        keys = list(self.units)
+        sc = self.sc = shelf.scan(self.cfg["roms_root"], self.system, self.folder, self.exts, self.platform)
+        self.units, self.file_to_unit, self.preset_hits = sc.units, sc.file_to_unit, sc.preset_hits
+        self.played, self.hidden, self.regions = sc.played, sc.hidden, sc.regions
+        self.ratings, self.lb_kind, self.lb_ids, self.lb_links = sc.ratings, sc.lb_kind, sc.lb_ids, sc.lb_links
         self.manual = {k: v for k, v in self.manual.items() if k in self.units}
-        self.preset_hits = {p: fn(keys) for p, fn in PRESETS.items() if p != DUPES}
-        self.dupes_key = None  # region dupes are computed in refresh(), since they depend on the region filter
-        self.preset_hits["Partial downloads (.part)"] = {k for k in keys if k.lower().endswith(PARTIAL_EXT)}
-
-        self.played, self.hidden = set(), set()
-        gl = find_gamelist(self.cfg["roms_root"], self.system)
-        if gl:
-            try:
-                for g in scraper.read_gamelist(gl)[1].iter("game"):
-                    if int(g.findtext("playcount") or 0) > 0:
-                        fn = os.path.basename((g.findtext("path") or "").rstrip("/"))
-                        self.played.add(self.file_to_unit.get(fn, unit_key(fn)))
-            except (OSError, ET.ParseError, ValueError):
-                pass
-        self.played &= self.units.keys()
-        names = hiding.hidden(gl)  # a game is hidden when the file ES-DE lists for it is (not just a disc of it)
-        self.hidden = {k for k, u in self.units.items() if os.path.basename(scraper.primary_file(u["paths"])) in names}
         self.played_cb.config(text=f"Protect played games ({len(self.played)})")
-
-        self.ratings, self.lb_kind, self.lb_ids = {}, {}, {}
-        self.lb_links = {}  # key -> LaunchBox id, exact or hand-picked only (groups region dupes, drives scraping)
-        matched = rated = 0
-        if self.platform:
-            m = lb.Matcher(self.platform)
-            if m.ok:
-                for k in keys:
-                    gid, g, kind = m.match(title_of(k))
-                    if kind:
-                        self.lb_kind[k] = kind
-                    if g:
-                        self.ratings[k] = g
-                        self.lb_ids[k] = gid
-                        if kind in ("exact", "manual"):
-                            self.lb_links[k] = gid
-                        matched += 1
-                        rated += g["r"] is not None
-                m.save()
+        keys, matched, rated = list(self.units), sc.matched, sc.rated
         if not lb.platforms():
             self.rat_info.config(text="No LaunchBox data — Tools → Download")
         elif not self.platform:
@@ -1698,17 +1446,16 @@ class App:
             [self.genre_names[i] for i in self.genre_lb.curselection()] if hasattr(self, "genre_names") else [],
             [self.region_names[i] for i in self.region_lb.curselection()] if hasattr(self, "region_names") else [])
 
-        gcount = Counter(x for g in self.ratings.values() for x in g["g"])
-        self.genre_names = [g for g, _ in gcount.most_common()]
+        gcount = self.sc.genre_counts
+        self.genre_names = self.sc.genre_names
         self.genre_lb.delete(0, "end")
         for i, g in enumerate(self.genre_names):
             self.genre_lb.insert("end", f"{g} ({gcount[g]})")
             if g in keep_genres:
                 self.genre_lb.selection_set(i)
 
-        self.regions = {k: regions_of(k) or ("(none)",) for k in keys}
-        rcount = Counter(r for rs in self.regions.values() for r in rs)
-        self.region_names = [r for r, _ in rcount.most_common()]
+        rcount = self.sc.region_counts
+        self.region_names = self.sc.region_names
         self.region_lb.delete(0, "end")
         for i, r in enumerate(self.region_names):
             self.region_lb.insert("end", f"{r} ({rcount[r]})")
@@ -1716,13 +1463,15 @@ class App:
                 self.region_lb.selection_set(i)
 
     # ---------- per-system state ----------
-    def _state(self):
+    def _state(self, numbers=True):
+        """The filters as they stand (lib/shelf.py's state). numbers=False leaves out the rating spinboxes, which
+        raise while they hold a half-typed value."""
         return {
             "patterns": self.pat_text.get("1.0", "end").rstrip("\n"), "icase": self.icase.get(),
             "presets": [p for p, v in self.preset_vars.items() if v.get()],
             "protect_played": self.protect_played.get(),
-            "use_rating": self.use_rating.get(), "rating_max": self.rating_max.get(),
-            "min_votes": self.min_votes.get(), "use_unrated": self.use_unrated.get(),
+            "use_rating": self.use_rating.get(), "use_unrated": self.use_unrated.get(),
+            **({"rating_max": self.rating_max.get(), "min_votes": self.min_votes.get()} if numbers else {}),
             "genres": [self.genre_names[i] for i in self.genre_lb.curselection()],
             "regions": [self.region_names[i] for i in self.region_lb.curselection()],
             "region_mode": self.region_mode.get(),
@@ -1850,66 +1599,17 @@ class App:
     # ---------- decide ----------
     def refresh(self):
         self.after_id = None
-        icase = self.icase.get()
-        moves, keeps = [], []
-        for raw in self.pat_text.get("1.0", "end").splitlines():
-            p = raw.strip()
-            if not p or p.startswith("#"):
-                continue
-            if p.startswith("!"):
-                keeps.append((p, wildcard_re(p[1:], icase)))
-            else:
-                moves.append((p, wildcard_re(p, icase)))
-        active = [p for p, v in self.preset_vars.items() if v.get()]
         try:
-            rating_max, min_votes = float(self.rating_max.get()), int(self.min_votes.get())
-        except (tk.TclError, ValueError):
-            rating_max, min_votes = -1.0, 1 << 30
-        use_rating, use_unrated = self.use_rating.get(), self.use_unrated.get()
-        genres = {self.genre_names[i] for i in self.genre_lb.curselection()}
-        sel_regions = {self.region_names[i] for i in self.region_lb.curselection()}
-        keep_only = self.region_mode.get() == REGION_MODES[1]
-        prio = self.dupes_priority(sel_regions, keep_only)
-        if prio != self.dupes_key:
-            self.preset_hits[DUPES] = region_dupes(list(self.units), prio, self.lb_links)
-            self.dupes_key = prio
-        protect = self.protect_played.get()
-
-        self.to_move, self.kept, self.why = [], [], {}
-        for key in sorted(self.units):
-            if key in self.manual:
-                hit, why = self.manual[key], "manual"
-            else:
-                names = [key] + [os.path.basename(p) for p in self.units[key]["paths"]]
-                reasons = [
-                    f"dupe of {PREFIX_RE.sub('', self.preset_hits[p][key])}" if p == DUPES else p.split(" (")[0]
-                    for p in active if key in self.preset_hits[p]
-                ]
-                reasons += [p for p, rx in moves if any(rx.match(n) for n in names)]
-                g = self.ratings.get(key)
-                if use_rating and g and g["r"] is not None and g["v"] >= min_votes and g["r"] < rating_max:
-                    reasons.append(f"rating < {rating_max:g}")
-                if use_unrated and (not g or g["r"] is None):
-                    reasons.append("unrated")
-                if genres and g and genres.intersection(g["g"]):
-                    reasons.append("genre")
-                if sel_regions:
-                    rs = set(self.regions[key])
-                    if (keep_only and not rs & sel_regions) or (not keep_only and rs <= sel_regions):
-                        reasons.append("region")
-                keeper = "played" if protect and key in self.played else None
-                keeper = keeper or ("hidden in ES-DE" if key in self.hidden else None)
-                keeper = keeper or next((p for p, rx in keeps if any(rx.match(n) for n in names)), None)
-                hit = bool(reasons) and keeper is None
-                why = keeper if (reasons and keeper) else ", ".join(reasons)
-            self.why[key] = why
-            (self.to_move if hit else self.kept).append(key)
+            state = self._state()
+        except (tk.TclError, ValueError, IndexError):  # a half-typed spinbox value: no game passes the rating
+            state = {**self._state(numbers=False), "rating_max": "", "min_votes": ""}
+        d = shelf.decide(self.sc, state, self.priority)
+        self.to_move, self.kept, self.why = d.to_move, d.kept, d.why
         self.render()
-        self._tab_counts(active, moves, keeps, use_rating, use_unrated, genres, sel_regions)
+        self._tab_counts(d.tab_counts())
         self.save_state()
 
-    def _tab_counts(self, active, moves, keeps, use_rating, use_unrated, genres, regions):
-        counts = [len(active) + use_rating + use_unrated, len(genres), len(regions), len(moves) + len(keeps)]
+    def _tab_counts(self, counts):
         for page, base, n in zip(self.filter_pages, ("Presets & ratings", "Genres", "Regions", "Patterns"), counts):
             self.filter_tabs.tab(page, text=f"{base} ({n})" if n else base)
 
@@ -2078,27 +1778,9 @@ class App:
         if not messagebox.askyesno("Confirm move", f"Move {len(self.to_move)} games ({nfiles} files, {human(size)}) "
                                                    f"into\n{dest_dir}/ ?{extra_note}{space_note}"):
             return
-        os.makedirs(dest_dir, exist_ok=True)
-        base = os.path.dirname(os.path.realpath(self.cfg["roms_root"]))
-        moved, failed, done = 0, [], []
-        for k in self.to_move:
-            for p in self.units[k]["paths"] + self.units[k]["extra"]:
-                if p in self.units[k]["extra"]:  # keep the path under retrodeck/ so it can be moved back by hand
-                    target = os.path.join(dest_dir, "installed", held_rel(os.path.realpath(p), base))
-                    os.makedirs(os.path.dirname(target), exist_ok=True)
-                else:
-                    target = os.path.join(dest_dir, os.path.basename(p))
-                try:
-                    if os.path.exists(target):
-                        raise OSError("already exists in holding folder")
-                    shutil.move(p, target)
-                    done.append([p, target])
-                    moved += 1
-                except OSError as e:
-                    failed.append(f"{os.path.basename(p)}: {e}")
+        moved, failed, done = shelf.move_games(self.sc, self.to_move, dest_dir)
         if done:
-            self._log_moves({"time": datetime.datetime.now().isoformat(timespec="seconds"), "system": self.system,
-                             "dest": self.dest.get(), "games": len(self.to_move), "size": size, "moves": done})
+            self._log_moves(shelf.move_batch(self.system, self.dest.get(), len(self.to_move), size, done))
         self.rescan()  # drops the moved games' flips; "keep" flips on games that stayed are kept
         if failed:
             messagebox.showerror(f"Moved {moved} files, {len(failed)} failed", "\n".join(failed[:30]))
@@ -2112,14 +1794,10 @@ class App:
         return os.path.join(APP_DIR, "moves.json")
 
     def _read_moves(self):
-        try:
-            with open(self.moves_log(), encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return []
+        return shelf.read_moves(self.moves_log())
 
     def _write_moves(self, batches):
-        write_json(self.moves_log(), batches, indent=1)
+        shelf.write_moves(self.moves_log(), batches)
 
     def _merge_old_log(self):
         """Older versions logged moves in <holding>/moves.json; fold that into the current log once, so Restore and

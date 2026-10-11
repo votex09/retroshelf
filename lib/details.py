@@ -1,10 +1,11 @@
 """Game details panel: artwork already on disk (ES-DE downloaded_media), LaunchBox text, and a gameplay-video link.
 Pillow, when installed, shows JPEG art and draws every picture to fill one fixed box (rounded, with a shadow), so
 nothing moves between games; without it only PNG / GIF art can be shown, as it comes."""
-import math, os, urllib.parse, webbrowser
+import math, urllib.parse, webbrowser
 import tkinter as tk
 from tkinter import ttk
 
+import library
 import motion
 import video
 from ui import stars
@@ -14,35 +15,18 @@ try:
 except ImportError:
     Image = ImageTk = None
 
-MEDIA_ORDER = ["covers", "3dboxes", "miximages", "screenshots", "titlescreens", "physicalmedia", "marquees"]
+MEDIA_ORDER = library.MEDIA_ORDER
 IMG_W, IMG_H = 280, 220
 WIDE_W, WIDE_H = 224, 168  # the main window's details band: as tall as the filter tabs beside it allow
 RADIUS, MARGIN = 10, 6      # artwork corners, and room around it for its shadow
 PLAY_VIDEOS = True     # View → Play gameplay videos: ES-DE's local clips (the app sets these from config.json)
 STREAM_VIDEOS = False  # View → … and stream from YouTube when there's no clip (mpv + yt-dlp)
-_listings = {}  # media folder -> (mtime, {stem: [file names]})
 
 
 def media_for(media_dir, stems):
     """Image paths for a game, in MEDIA_ORDER, skipping formats Tk can't show without Pillow."""
-    out = []
-    for mtype in MEDIA_ORDER:
-        folder = os.path.join(media_dir, mtype)
-        try:
-            mtime = os.stat(folder).st_mtime
-        except OSError:
-            continue
-        cached = _listings.get(folder)
-        if not cached or cached[0] != mtime:
-            by_stem = {}
-            for f in os.listdir(folder):
-                by_stem.setdefault(os.path.splitext(f)[0], []).append(f)
-            cached = _listings[folder] = (mtime, by_stem)
-        for stem in stems:
-            for f in cached[1].get(stem, []):
-                if Image or f.lower().endswith((".png", ".gif")):
-                    out.append((mtype, os.path.join(folder, f)))
-    return out
+    return [m for m in library.media_for(media_dir, stems)
+            if Image or m[1].lower().endswith((".png", ".gif"))]
 
 
 def load_picture(path, w=IMG_W, h=IMG_H, bg="#202020"):

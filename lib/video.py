@@ -17,9 +17,10 @@ While a video loads the artwork stays up; the video box comes forward once mpv r
 import json, os, re, shutil, socket, subprocess, tempfile, threading, urllib.parse
 import tkinter as tk
 
+import library
 from fsutil import NO_WINDOW, is_windows
 
-EXTS = (".mp4", ".mkv", ".webm", ".avi", ".mov")
+EXTS = library.VIDEO_EXTS
 FPS = 24
 DELAY_MS = 700          # wait this long on a game before starting its clip, so arrowing through a list stays quick
 STREAM_DELAY_MS = 1500  # streams cost bandwidth and a few seconds to start: wait a little longer
@@ -30,28 +31,11 @@ STREAM_START = "50%"    # gameplay videos open on intros and talking: start stre
 FLATPAK_MPV = "io.mpv.Mpv"
 _backend = None
 _ytdl = None
-_listings = {}  # videos folder -> (mtime, {stem: file name})
 
 
 def video_for(media_dir, stems):
     """The game's clip in <media_dir>/videos, or None."""
-    folder = os.path.join(media_dir or "", "videos")
-    try:
-        mtime = os.stat(folder).st_mtime
-    except OSError:
-        return None
-    cached = _listings.get(folder)
-    if not cached or cached[0] != mtime:
-        by_stem = {}
-        for f in sorted(os.listdir(folder)):
-            stem, ext = os.path.splitext(f)
-            if ext.lower() in EXTS:
-                by_stem.setdefault(stem, f)
-        cached = _listings[folder] = (mtime, by_stem)
-    for stem in stems:
-        if stem in cached[1]:
-            return os.path.join(folder, cached[1][stem])
-    return None
+    return library.video_for(media_dir, stems)
 
 
 def youtube_query(title, console):

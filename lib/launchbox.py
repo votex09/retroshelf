@@ -11,9 +11,11 @@ import xml.etree.ElementTree as ET
 from fsutil import write_json
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CACHE = os.path.join(APP_DIR, "cache", "launchbox")
+# where the data goes: next to RetroShelf, or where the Electron app keeps its data (it sets RETROSHELF_DATA)
+DATA_DIR = os.environ.get("RETROSHELF_DATA") or APP_DIR
+CACHE = os.path.join(DATA_DIR, "cache", "launchbox")
 META = os.path.join(CACHE, "_meta.json")
-MANUAL = os.path.join(APP_DIR, "matches.json")  # hand-picked matches; outside cache/ so updates never touch it
+MANUAL = os.path.join(DATA_DIR, "matches.json")  # hand-picked matches; outside cache/ so updates never touch it
 URL = "https://gamesdb.launchbox-app.com/Metadata.zip"
 IMAGE_URL = "https://images.launchbox-app.com/"
 USER_AGENT = "RetroShelf/1.0"
@@ -278,7 +280,7 @@ class Matcher:
                 self.alts.setdefault(gid, []).append(name)
         self.keys = list(self.index)
         self.stamp = f"{meta['updated']}|v{MATCH_VERSION}"
-        self.memo_path = os.path.join(APP_DIR, "cache", "matches", safe(platform) + ".json")
+        self.memo_path = os.path.join(DATA_DIR, "cache", "matches", safe(platform) + ".json")
         try:
             with open(self.memo_path, encoding="utf-8") as f:
                 m = json.load(f)
