@@ -241,9 +241,9 @@ class DetailsPanel(ttk.Frame):
         self.spot.stop()
         if self.fader:
             self.fader.forget()
-        self.info, self.images, self.photo = None, [], None
         self.pic.configure(fg=self.muted)
-        self._card(text)
+        self._card(text)  # (before letting go of the picture: Tk forgets a PhotoImage the label still shows)
+        self.info, self.images, self.photo = None, [], None
         self.pic_lbl.config(text="")
         self.prev_btn.state(["disabled"])
         self.next_btn.state(["disabled"])

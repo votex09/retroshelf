@@ -1340,6 +1340,27 @@ class AppTest(unittest.TestCase):
         self.assertEqual(len(seen), 1, seen)
         self.assertEqual(pictures, 3 if details_pil() else pictures)
 
+    def test_flipping_a_game_with_artwork_keeps_the_cursor(self):
+        """Flipping the game whose picture is showing clears the details for a moment; that must not lose the picture
+        Tk is still drawing (it used to raise and leave the list with no cursor, so → stopped working)."""
+        a, keep = self.app, self.app.keep_tv
+        covers = os.path.join(os.path.dirname(self.p["roms"]), "ES-DE", "downloaded_media", "snes", "covers")
+        os.makedirs(covers, exist_ok=True)
+        tk.PhotoImage(width=60, height=80).write(os.path.join(covers, "Chrono Trigger (USA).png"), format="png")
+        rows = keep.get_children()
+        i = next(i for i, k in enumerate(rows) if keep.item(k, "text").startswith("Chrono Trigger (USA)"))
+        a.keys.place(keep, i)
+        keep.focus_force()
+        self.root.update()
+        self.assertIsNotNone(a.details.photo)
+        errors = []
+        self.root.report_callback_exception = lambda *exc: errors.append(exc)
+        self.key(keep, "<Right>")
+        self.root.update()
+        self.assertEqual(errors, [])
+        self.assertEqual(keep.selection(), (rows[i + 1],))
+        self.assertEqual(keep.focus(), rows[i + 1])
+
     def test_rename_dialog_and_undo(self):
         a = self.app
         a.rename_dialog()
