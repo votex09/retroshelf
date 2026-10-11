@@ -82,6 +82,8 @@ import dupes_gui  # noqa: E402
 import collections_gui  # noqa: E402
 import esde_collections  # noqa: E402
 import hiding  # noqa: E402
+import holding  # noqa: E402
+from holding import DESTS  # noqa: E402
 import osk  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402,F401  (held_rel: the tests use it from here)
@@ -127,7 +129,6 @@ PATTERN_NOTES = (
     "that moves a game (presets, patterns, ratings, genres, regions)."
 )
 CONFIG = os.path.join(APP_DIR, "config.json")
-DESTS = ["to_delete", "review_low_value"]
 HEAD_PAD = 4  # px left/right inside column headings, matching the theme's cell text inset
 # ---------- renaming ----------
 DEFAULT_TEMPLATE = "{title} ({region}) ({lang}) ({rev}) {tags}"  # No-Intro order
@@ -1855,29 +1856,11 @@ class App:
         fill()
 
         def restore():
-            sel = sorted((int(i) for i in tv.selection()), reverse=True)  # newest first undoes in order
+            nonlocal batches
+            sel = [int(i) for i in tv.selection()]
             if not sel:
                 return
-            back, failed = 0, []
-            for i in sel:
-                remaining = []
-                for src, target in reversed(batches[i]["moves"]):
-                    if not os.path.exists(target):
-                        continue  # deleted from the holding folder since; nothing to bring back
-                    try:
-                        if os.path.exists(src):
-                            raise OSError("something is already at the original path")
-                        os.makedirs(os.path.dirname(src), exist_ok=True)
-                        shutil.move(target, src)
-                        back += 1
-                        prune_empty(os.path.dirname(target), self.holding_root())
-                    except OSError as e:
-                        failed.append(f"{os.path.basename(src)}: {e}")
-                        remaining.append([src, target])
-                if remaining:
-                    batches[i]["moves"] = remaining[::-1]
-                else:
-                    del batches[i]
+            back, failed, batches = holding.restore_batches(batches, sel, self.holding_root())
             try:
                 self._write_moves(batches)
             except OSError as e:
@@ -2009,47 +1992,10 @@ class App:
 
     # ---------- holding folder ----------
     def _holding_games(self):
-        """Games sitting in <holding>/<to_delete|review_low_value>/<system>/, joined with the move log so each
-        knows where it came from, when it moved, and which RPCS3 / Vita3K data went with it."""
-        origin, moved_at, extras_of = {}, {}, {}
-        for b in self._read_moves():
-            owner = None
-            for src, target in b["moves"]:
-                origin[target], moved_at[target] = src, b["time"]
-                if os.sep + "installed" + os.sep in target and owner:
-                    extras_of.setdefault(owner, []).append(target)
-                else:
-                    owner = target
-        games = {}
-        root = self.holding_root()
-        for dest in DESTS:
-            base = os.path.join(root, dest)
-            for system in sorted(os.listdir(base)) if os.path.isdir(base) else []:
-                folder = os.path.join(base, system)
-                if not os.path.isdir(folder):
-                    continue
-                for e in os.scandir(folder):
-                    if e.name.startswith(".") or (e.is_dir() and e.name == "installed"):
-                        continue
-                    key = e.name if e.name.lower().endswith(PARTIAL_EXT) else unit_key(e.name)
-                    g = games.setdefault((dest, system, key), {"dest": dest, "system": system, "key": key,
-                                                               "paths": [], "extra": [], "size": 0, "moved": ""})
-                    g["paths"].append(e.path)
-                    g["size"] += dir_size(e.path) if e.is_dir() else e.stat().st_size
-                    g["moved"] = max(g["moved"], moved_at.get(e.path, ""))
-                    for x in extras_of.get(e.path, []):
-                        if os.path.lexists(x):
-                            g["extra"].append(x)
-                            g["size"] += dir_size(x) if os.path.isdir(x) else os.path.getsize(x)
-        return list(games.values()), origin
+        return holding.holding_games(self.holding_root(), self._read_moves())
 
     def _drop_from_log(self, targets):
-        batches = []
-        for b in self._read_moves():
-            b["moves"] = [m for m in b["moves"] if m[1] not in targets]
-            if b["moves"]:
-                batches.append(b)
-        self._write_moves(batches)
+        self._write_moves(holding.drop_from_log(self._read_moves(), targets))
 
     def holding_dialog(self):
         win = tk.Toplevel(self.root)
@@ -2168,22 +2114,8 @@ class App:
         def restore(games):
             if not games:
                 return
-            back, failed, done = 0, [], set()
-            for g in games:
-                pairs = [(p, state["origin"].get(p) or os.path.join(self.cfg["roms_root"], g["system"],
-                                                                     os.path.basename(p))) for p in g["paths"]]
-                pairs += [(x, state["origin"][x]) for x in g["extra"] if x in state["origin"]]
-                for target, src in pairs:
-                    try:
-                        if os.path.lexists(src):
-                            raise OSError("something is already at the original path")
-                        os.makedirs(os.path.dirname(src), exist_ok=True)
-                        shutil.move(target, src)
-                        done.add(target)
-                        back += 1
-                        prune_empty(os.path.dirname(target), self.holding_root())
-                    except OSError as e:
-                        failed.append(f"{os.path.basename(src)}: {e}")
+            back, failed, done = holding.restore_games(games, state["origin"], self.cfg["roms_root"],
+                                                       self.holding_root())
             try:
                 self._drop_from_log(done)
             except OSError as e:
@@ -2205,20 +2137,7 @@ class App:
                                                          f"{human(size)})?{note}{esde}\n\nThis can't be undone.",
                                        icon="warning", parent=win):
                 return
-            gone, failed, by_system = set(), [], {}
-            for g in games:
-                for p in g["paths"] + g["extra"]:
-                    try:
-                        if os.path.isdir(p) and not os.path.islink(p):
-                            shutil.rmtree(p)
-                        else:
-                            os.unlink(p)
-                        gone.add(p)
-                        prune_empty(os.path.dirname(p), self.holding_root())
-                    except OSError as e:
-                        failed.append(f"{os.path.basename(p)}: {e}")
-                if all(p in gone for p in g["paths"]):
-                    by_system.setdefault(g["system"], []).extend(os.path.basename(p.rstrip("/")) for p in g["paths"])
+            gone, failed, by_system = holding.delete_games(games, self.holding_root())
             try:
                 self._drop_from_log(gone)
             except OSError as e:
@@ -2639,18 +2558,6 @@ class App:
         search()
         entry.focus_set()
         entry.select_range(0, "end")
-
-
-def prune_empty(folder, stop):
-    """Remove folder and its parents while they're empty, never going above stop."""
-    stop = os.path.realpath(stop)
-    folder = os.path.realpath(folder)
-    while folder.startswith(stop + os.sep):
-        try:
-            os.rmdir(folder)
-        except OSError:
-            return
-        folder = os.path.dirname(folder)
 
 
 if __name__ == "__main__":

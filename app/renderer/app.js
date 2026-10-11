@@ -95,7 +95,8 @@ function rowHTML(g) {
   const src = g.thumb ? Art.media(g.thumb) : Art.cover(g.title, sys, 34, 46);
   const tags = g.regions.filter((r) => r !== "(none)").join(", ");
   const bits = [];
-  if (g.why) bits.push(`<span class="why${g.move ? "" : " keeper"}">${esc(g.why === "manual" ? "by hand" : g.why)}</span>`);
+  const why = g.why || (g.hidden ? "hidden in ES-DE" : "");
+  if (why) bits.push(`<span class="why${g.move ? "" : " keeper"}">${esc(why === "manual" ? "by hand" : why)}</span>`);
   if (tags) bits.push(esc(tags));
   if (!g.move && g.genres.length) bits.push(esc(g.genres[0]));
   const r = g.rating != null ? `<div class="r">★ ${g.rating.toFixed(1)}</div>` : "";
@@ -143,6 +144,10 @@ function counts() {
   const btn = $("move-btn");
   btn.disabled = !moving.length;
   btn.textContent = moving.length ? `Move ${plural(moving.length, "game")} · ${human(moving.reduce((s, g) => s + g.size, 0))}` : "Move files";
+  $("hide-btn").disabled = !moving.length;
+  const flips = S.st ? Object.keys(S.st.flips).length : 0;
+  $("reset-flips").hidden = !flips;
+  $("reset-flips").textContent = `Reset ${plural(flips, "flip")}`;
   hints();
 }
 
@@ -394,7 +399,7 @@ function playVideo(quiet) {
 function stateLine(g) {
   const el = $("state-line");
   if (!el) return;
-  const why = g.why === "manual" ? "flipped by hand" : g.why;
+  const why = g.why === "manual" ? "flipped by hand" : g.why || (g.hidden ? "hidden in ES-DE" : "");
   el.innerHTML = g.move ? `<b class="move">Moving</b>${why ? ` · ${esc(why)}` : ""}`
     : `<b class="keep">Keeping</b>${why ? ` · ${esc(why === "flipped by hand" ? why : `protected: ${why}`)}` : ""}`;
 }
@@ -402,12 +407,15 @@ function stateLine(g) {
 async function downloadLaunchbox() {
   const btn = $("lb-download");
   if (btn) btn.disabled = true;
+  if (!btn) busy("Downloading LaunchBox data…");
   try {
     await call("download_launchbox");
+    closeOverlay();
     S.overview.launchbox = true;
     if (S.sys) await openSystem(S.sys.system);
     toast("LaunchBox data downloaded");
   } catch (e) {
+    closeOverlay();
     oops(e);
     if ($("lb-download")) $("lb-download").disabled = false;
   }
@@ -436,6 +444,8 @@ function openPanel(name) {
 function closePopovers() {
   $("filters").hidden = true;
   $("systems-pop").hidden = true;
+  $("menu").hidden = true;
+  $("ctx").hidden = true;
   document.querySelectorAll(".tab").forEach((t) => t.classList.remove("open"));
 }
 
@@ -520,7 +530,7 @@ function wireFilters() {
   bind("patterns", "patterns", "value");
   $("rating-max").addEventListener("input", () => { if (S.st && !S.st.use_rating) { S.st.use_rating = $("use-rating").checked = true; } });
   document.addEventListener("mousedown", (e) => {
-    if (!e.target.closest(".popover, .tab, #system-btn")) closePopovers();
+    if (!e.target.closest(".popover, .tab, #system-btn, #menu-btn")) closePopovers();
   });
 }
 
@@ -574,7 +584,8 @@ async function openSystem(code) {
   loadSystem(res);
 }
 
-function loadSystem(res) {
+// keep: the game to stay on (after a rescan), else the one saved for this system.
+function loadSystem(res, keep) {
   S.sys = res;
   S.games = res.games.map((g) => ({ ...g, title: titleOf(g.key) }));
   S.byKey = new Map(S.games.map((g) => [g.key, g]));
@@ -595,7 +606,7 @@ function loadSystem(res) {
   for (const name of LISTS) lists[name].sel = 0;
   applyDecision(res.decision, false);
   rebuild({ slide: false });
-  const g = res.cursor && S.byKey.get(res.cursor);
+  const g = S.byKey.get(keep) || (res.cursor && S.byKey.get(res.cursor));
   setActive(g?.move ? "move" : "keep");
   if (g) { const i = L().indexOf(g.key); if (i >= 0) { L().sel = i; L().draw(); L().reveal(i, false); } }
   showDetails();
@@ -633,6 +644,122 @@ async function doMove() {
   }
 }
 
+// ---------- the ☰ menu ----------
+function openMenu() {
+  const m = $("menu");
+  for (const b of m.querySelectorAll("button[data-cmd]")) {
+    b.disabled = ["priority", "export", "rescan"].includes(b.dataset.cmd) && !S.sys ||
+      b.dataset.cmd === "export" && !S.games.some((g) => g.move) || ["holding", "moves", "change-holding"].includes(b.dataset.cmd) && !S.overview?.roms;
+  }
+  m.querySelector('[data-cmd="launchbox"]').firstChild.textContent = S.overview?.launchbox ? "Update LaunchBox data" : "Download LaunchBox data";
+  m.hidden = false;
+}
+
+function menuCommand(cmd) {
+  const run = {
+    holding: openHolding, moves: openMoves, priority: openPriority, export: exportMoves, rescan,
+    "change-holding": changeHolding, launchbox: downloadLaunchbox,
+    "change-roms": () => pickRoms().then((ok) => ok && toggleSystems()),
+  }[cmd];
+  Promise.resolve().then(run).catch(oops);
+}
+
+async function rescan() {
+  if (!S.sys) return;
+  const keep = L().current?.key;
+  await flushDecide();
+  loadSystem(await call("rescan"), keep);
+  toast("Rescanned");
+}
+
+async function exportMoves() {
+  await flushDecide();
+  const path = await rs.saveFile({ title: "Export move list", name: `${S.sys.system}_move.txt` });
+  if (!path) return;
+  const r = await call("export_moves", { path });
+  toast(`Saved ${plural(r.games, "game")} to ${path}`);
+}
+
+async function changeHolding() {
+  const folder = await rs.pickFolder(S.overview.holding, "Holding folder for moved games");
+  if (!folder) return;
+  S.overview = await call("set_holding", { path: folder });
+  toast(`Moved games go to ${S.overview.holding}`);
+}
+
+function resetFlips() {
+  const n = Object.keys(S.st.flips).length;
+  S.st.flips = {};
+  S.undo = [];
+  toast(`Reset ${plural(n, "flip")}`);
+  scheduleDecide(0);
+}
+
+// ---------- right-click on a game ----------
+function rowMenu(name, e) {
+  const row = e.target.closest(".row");
+  if (!row) return;
+  e.preventDefault();
+  const list = lists[name], i = Number(row.dataset.i), g = list.items[i];
+  setActive(name);
+  const marked = list.items.filter((x) => S.marked.has(x.key));
+  const games = S.marked.has(g.key) ? marked : [g];
+  if (!S.marked.has(g.key)) select(i, false);
+  const keys = games.map((x) => x.key);
+  const canMatch = games.length === 1 && S.sys.platform && S.overview.launchbox;
+  const items = [
+    [games.length > 1 ? `Hide ${games.length} games in ES-DE` : "Hide in ES-DE", games.some((x) => !x.hidden), () => hideGames(keys, true)],
+    ["Show in ES-DE again", games.some((x) => x.hidden), () => hideGames(keys, false)],
+    null,
+    ["Set LaunchBox match…", canMatch, () => openMatch(g.key)],
+    ["Back to automatic match", games.length === 1 && g.manual_match, () => setMatch(g.key, null, true)],
+  ];
+  const ctx = $("ctx");
+  ctx.innerHTML = "";
+  for (const it of items) {
+    if (!it) { ctx.appendChild(document.createElement("hr")); continue; }
+    const b = document.createElement("button");
+    b.textContent = it[0];
+    b.disabled = !it[1];
+    b.onclick = () => { closePopovers(); Promise.resolve().then(it[2]).catch(oops); };
+    ctx.appendChild(b);
+  }
+  ctx.hidden = false;
+  const w = ctx.offsetWidth, h = ctx.offsetHeight;
+  ctx.style.left = `${Math.min(e.clientX, innerWidth - w - 8)}px`;
+  ctx.style.top = `${Math.min(e.clientY, innerHeight - h - 8)}px`;
+}
+
+async function hideGames(keys, hide) {
+  if (!keys.length) return;
+  await flushDecide();
+  const check = await call("hide_check", { keys, hide });
+  if (!check.games) return;
+  if (check.es_de_running) {
+    overlay(`<h2>Close ES-DE first</h2><p>RetroDECK / ES-DE rewrites its gamelists when it quits, which would undo this.</p>`,
+      [["OK", closeOverlay, true]]);
+    return;
+  }
+  if (hide) {
+    const ok = await rs.confirm({ title: "Hide in ES-DE", ok: "Hide",
+      message: `Hide ${plural(check.games, "game")} in ES-DE?`,
+      detail: "The files stay where they are; ES-DE just leaves them out of its menus. Hidden games stay in Keeping." +
+        (check.shows_hidden ? "\n\nES-DE is set to show hidden games, so that's turned off too (ES-DE: Other settings → Show hidden games)." : "") });
+    if (!ok) return;
+  }
+  const keep = L().current?.key;
+  const res = await call("hide", { keys, hide });
+  loadSystem(res, keep);
+  toast(hide ? `Hid ${plural(res.hidden, "game")} in ES-DE. Right-click to show ${res.hidden === 1 ? "it" : "them"} again.`
+    : `${plural(res.hidden, "game")} shown in ES-DE again`);
+}
+
+async function setMatch(key, gid, clear = false) {
+  await flushDecide();
+  loadSystem(await call("set_match", { key, gid, clear }), key);
+  toast(clear ? "Back to the automatic match" : gid ? "LaunchBox match saved" : "Marked as not in LaunchBox");
+}
+
 // ---------- hints, keyboard and gamepads ----------
 function hints() {
   const marked = L().items.filter((g) => S.marked.has(g.key)).length;
@@ -647,10 +774,13 @@ function hints() {
 
 function handle(key, e = {}) {
   if (key === "Escape") {
-    if (!$("filters").hidden || !$("systems-pop").hidden) closePopovers();
+    if (!$("sheet-wrap").hidden) closeSheet();
+    else if (!$("filters").hidden || !$("systems-pop").hidden || !$("menu").hidden || !$("ctx").hidden) closePopovers();
     else if (S.query) { $("search").value = ""; S.query = ""; rebuild({ slide: false }); }
     return true;
   }
+  if (!$("sheet-wrap").hidden) return false;
+  if (key === "F5") { rescan(); return true; }
   if (!S.sys) return false;
   const list = L();
   switch (key) {
@@ -680,9 +810,10 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (e.target.closest("input, textarea, select")) {
-    if (e.key === "Escape") { e.target.blur(); closePopovers(); }
+    if (e.key === "Escape") { e.target.blur(); if ($("sheet-wrap").hidden) closePopovers(); else closeSheet(); }
     return;
   }
+  if (!$("sheet-wrap").hidden) { if (e.key === "Escape") closeSheet(); return; }
   if (e.key === "/" || (e.ctrlKey && e.key === "f")) { $("search").focus(); $("search").select(); e.preventDefault(); return; }
   if (S.pad) { S.pad = false; hints(); }
   if (handle(e.key, e)) e.preventDefault();
@@ -717,7 +848,10 @@ async function start() {
   rs.onHelperExit((info) => overlay(`<h2>RetroShelf's helper stopped</h2>
     <p>Nothing can load or change until RetroShelf is restarted.</p><p class="error">${esc(info.error || info.stderr || "")}</p>`));
   rs.onHelperEvent((name, data) => {
-    if (name === "launchbox" && $("lb-progress")) $("lb-progress").textContent = data.message;
+    if (name !== "launchbox") return;
+    if ($("lb-progress")) $("lb-progress").textContent = data.message;
+    const h2 = document.querySelector("#overlay-box h2");
+    if (h2 && !$("overlay").hidden) h2.textContent = data.message;
   });
   $("system-btn").onclick = (e) => { e.stopPropagation(); toggleSystems(); };
   $("change-roms").onclick = () => { closePopovers(); pickRoms().then((ok) => ok && toggleSystems()).catch(oops); };
@@ -728,6 +862,11 @@ async function start() {
     if (!L().items.length && lists[other].items.length) setActive(other);  // go where the matches are
   };
   $("move-btn").onclick = doMove;
+  $("hide-btn").onclick = () => hideGames(S.games.filter((g) => g.move).map((g) => g.key), true);
+  $("reset-flips").onclick = resetFlips;
+  $("menu-btn").onclick = (e) => { e.stopPropagation(); const open = $("menu").hidden; closePopovers(); if (open) openMenu(); };
+  $("menu").addEventListener("click", (e) => { const b = e.target.closest("button[data-cmd]"); if (b) { closePopovers(); menuCommand(b.dataset.cmd); } });
+  for (const name of LISTS) $(name).addEventListener("contextmenu", (e) => rowMenu(name, e));
   wireFilters();
   hints();
   requestAnimationFrame(pollPads);

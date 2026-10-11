@@ -4,6 +4,8 @@ RetroShelf is moving from Tk to Electron (the plan: Electron draws the windows, 
 the work). This folder is that app. So far it has the main window: pick a system, see its games in Keeping and
 Moving, sort them with presets, ratings, genres, regions and patterns, flip games across by hand (keyboard, mouse or
 gamepad), see a game's artwork, video and LaunchBox details, and move the Moving list into the holding folder. The
+☰ menu has the holding folder (restore or delete moved games), Restore a move, region priority, export and rescan;
+right-click a game to hide it in ES-DE or pick its LaunchBox match. The
 Tk app (`retroshelf.py`) is still the one that's released, until this one can do everything it does.
 
 It keeps its own settings (config.json, moves.json, LaunchBox's cache/) in its data folder (`~/.config/RetroShelf` on
@@ -14,7 +16,8 @@ settings across.
 main.js            the app: opens the window, runs the helper, answers the window's requests
 helper.js          runs the Python helper and matches its answers to requests
 preload.js         what the window is allowed to ask for (window.retroshelf)
-renderer/          the window: app.js (the main window), list.js (the game lists), art.js (stand-in box art);
+renderer/          the window: app.js (the main window), list.js (the game lists), sheets.js (holding folder,
+                   restore, region priority, LaunchBox match), art.js (stand-in box art);
                    the look comes from mockups/electron
 helper/helper.py   the Python helper: JSON lines over stdin / stdout, calling lib/ (see its docstring)
 helper/*.spec      how PyInstaller bundles the helper (and lib/) for the built app

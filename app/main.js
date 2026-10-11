@@ -2,7 +2,7 @@
 //   npm install && npm start        run from a checkout (uses python3 for the helper)
 //   npm run dist                    build an AppImage (Linux) or installer + portable .exe (Windows) into dist/
 //   electron . --smoke              start, check the window and the helper work together, print SMOKE OK, quit
-const { app, BrowserWindow, dialog, ipcMain, Menu, protocol } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { Helper } = require("./helper");
@@ -83,14 +83,23 @@ ipcMain.handle("helper:call", async (_e, method, params) => {
   return result;
 });
 ipcMain.handle("confirm", async (_e, opts) => {
-  const r = await dialog.showMessageBox(win, { type: "question", buttons: [opts.ok || "OK", "Cancel"], defaultId: 0,
+  const r = await dialog.showMessageBox(win, { type: opts.warning ? "warning" : "question", buttons: [opts.ok || "OK", "Cancel"], defaultId: 0,
     cancelId: 1, title: opts.title || "RetroShelf", message: opts.message, detail: opts.detail || undefined });
   return r.response === 0;
 });
-ipcMain.handle("pick-folder", async (_e, start) => {
-  const r = await dialog.showOpenDialog(win, { title: "Your ROMs folder", defaultPath: start || undefined,
-    properties: ["openDirectory"] });
+ipcMain.handle("pick-folder", async (_e, start, title) => {
+  const r = await dialog.showOpenDialog(win, { title: title || "Your ROMs folder", defaultPath: start || undefined,
+    properties: ["openDirectory", "createDirectory"] });
   return r.canceled ? null : r.filePaths[0];
+});
+ipcMain.handle("save-file", async (_e, opts) => {
+  const r = await dialog.showSaveDialog(win, { title: opts.title, defaultPath: opts.name,
+    filters: [{ name: "Text", extensions: ["txt"] }] });
+  return r.canceled ? null : r.filePath;
+});
+ipcMain.handle("open-folder", (_e, folder) => {  // folders only: opening a file could run it
+  try { if (!fs.statSync(folder).isDirectory()) return "not a folder"; } catch (e) { return e.message; }
+  return shell.openPath(folder);
 });
 ipcMain.handle("app:version", () => app.getVersion());
 
