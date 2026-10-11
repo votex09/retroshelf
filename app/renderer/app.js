@@ -293,6 +293,12 @@ function animateFlip(keys) {
   }
 }
 
+function unmarkAll() {
+  S.marked.clear();
+  L().refreshMarks();
+  hints();
+}
+
 function mark() {
   const g = L().current;
   if (!g) return;
@@ -895,6 +901,7 @@ function handle(key, e = {}) {
   if (key === "Escape") {
     if (!$("sheet-wrap").hidden) closeSheet();
     else if (!$("filters").hidden || !$("systems-pop").hidden || !$("menu").hidden || !$("ctx").hidden) closePopovers();
+    else if (S.marked.size) unmarkAll();
     else if (S.query) { $("search").value = ""; S.query = ""; rebuild({ slide: false }); }
     return true;
   }

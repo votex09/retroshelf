@@ -282,8 +282,8 @@ function startMenu() {
 }
 
 // L1 / R1 (F6 / Shift+F6): the next or previous part of the main window, round and round: the header, the filter
-// tabs, the game lists (one stop: the right stick or Tab goes between Keeping and Moving), the details panel and the
-// footer. Each part remembers where the cursor was in it; parts with nothing to press right now (a footer whose
+// tabs, the game lists (one stop: the d-pad ◀ ▶, the right stick or Tab go between Keeping and Moving), the details
+// panel and the footer. Each part remembers where the cursor was in it; parts with nothing to press right now (a footer whose
 // buttons are off) are skipped.
 const AREAS = [".topbar", "#filterbar", "lists", "#details", "footer"];
 const areaSaved = new Map();
@@ -435,6 +435,12 @@ function padButton(b, repeat) {
     if (b === 11) { gameMenu(); return; }
     if (b === 4 || b === 5) { nextZone(b === 5 ? 1 : -1); return; }
     if (b === STICK_LEFT || b === STICK_RIGHT) { if (S.sys) enterList(b === STICK_LEFT ? "keep" : "move"); return; }
+    // ◀ ▶ go between Keeping and Moving (X flips the game); ▶ from Moving leaves for what's right of it
+    if (S.sys && ((b === 14 && S.active === "move") || (b === 15 && S.active === "keep"))) {
+      if (!repeat) enterList(b === 14 ? "keep" : "move");
+      return;
+    }
+    if (S.sys && b === 14) return;
     const last = S.sys && L().sel >= L().items.length - 1;
     const leave = (b === 12 && S.sys && L().sel === 0) || (b === 13 && last) || (b === 15 && S.active === "move") || (!S.sys && dir);
     if (!repeat && leave) {
@@ -564,8 +570,8 @@ function uiHints() {
     const marked = L().items.filter((g) => S.marked.has(g.key)).length;
     const verb = S.active === "keep" ? "Move" : "Keep", act = marked ? `${verb} ${marked} marked` : verb;
     return pad
-      ? [["dpad", "Choose"], ["a", "Mark"], ["x", act], ["y", "Undo"], ["r3", "Game options"],
-        ...(S.query ? [["b", "Clear search"]] : []), ["rs-lr", "Other list"], ...around, ["rs-ud", "Scroll details"]]
+      ? [["dpad-ud", "Choose"], ["dpad-lr", "Other list"], ["a", "Mark"], ["x", act], ["y", "Undo"], ["r3", "Game options"],
+        ...(marked ? [["b", "Unmark all"]] : S.query ? [["b", "Clear search"]] : []), ...around, ["rs-ud", "Scroll details"]]
       : [k(S.active === "keep" ? "→" : "←", act), k("Space", "Mark"), k("Ctrl+Z", "Undo"), k("Tab", "Other list"),
         k("Shift+F10", "Game options"), ...around];
   }
