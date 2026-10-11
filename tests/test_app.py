@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -984,6 +984,45 @@ class AppTest(unittest.TestCase):
         self.assertEqual(a.system, "psx")
         w.close()
         self.assertIsNone(a.storage_window)
+
+    def test_find_duplicates_window(self):
+        a = self.app
+        gui = sys.modules["dupes_gui"]
+        roms = self.p["roms"]
+        # an SNES game copied into an sfc folder too, and one kept zipped as well as unzipped
+        game = sorted(a.units)[0]
+        src = a.units[game]["paths"][0]
+        os.makedirs(os.path.join(roms, "sfc"), exist_ok=True)
+        shutil.copy2(src, os.path.join(roms, "sfc", os.path.basename(src)))
+        other = sorted(a.units)[1]
+        with zipfile.ZipFile(os.path.splitext(a.units[other]["paths"][0])[0] + ".zip", "w") as z:
+            z.write(a.units[other]["paths"][0], os.path.basename(a.units[other]["paths"][0]))
+        w = gui.open_window(a)
+        self.pump(lambda: not w.busy)
+        sets = {(s.kind, s.title): s for s in w.sets.values()}
+        copies = sets[("copies", game)]
+        self.assertEqual(copies.copies[copies.keep].system, "snes")  # the fuller folder keeps its copy
+        forms = sets[("formats", other)]
+        self.assertEqual(os.path.splitext(forms.copies[forms.keep].primary)[1], ".zip")
+        # keep the unzipped one instead, by double-clicking it
+        sid = next(i for i, s in w.sets.items() if s is forms)
+        cid = next(c for c in w.tv.get_children(sid) if not forms.copies[w.copies[c][1]].primary.endswith(".zip"))
+        w.tv.selection_set(cid)
+        w.keep_selected()
+        self.assertFalse(forms.copies[forms.keep].primary.endswith(".zip"))
+        w.tv.selection_set(())
+        w.resolve()
+        self.assertNoErrors()
+        self.assertFalse(os.path.exists(os.path.join(roms, "sfc", os.path.basename(src))))
+        self.assertTrue(os.path.exists(src))
+        self.assertTrue(os.path.exists(a.units[other]["paths"][0]))
+        self.assertFalse(any(p.endswith(".zip") for p in a.units[other]["paths"]))
+        logged = {b["system"] for b in a._read_moves()}
+        self.assertEqual(logged, {"snes", "sfc"})
+        w.scan()
+        self.pump(lambda: not w.busy)
+        self.assertEqual(w.sets, {})
+        w.close()
 
     def test_pad_hints_for_any_window(self):
         """Windows that don't describe their buttons get hints by the kind of widget; every style draws."""
