@@ -975,7 +975,7 @@ async function start() {
     old = await switchFromOld();
     S.overview = await call("startup");
     applyOptions(await call("settings"));
-    if (S.opts.check_updates) rs.checkUpdates(true).catch(() => {});
+    watchForUpdates();
     if (S.overview.roms) call("import_waiting").then((n) => n && setTimeout(() =>
       toast(`${plural(n, "item")} waiting in the import folder: ☰ → Import ROMs (Ctrl+I) files them.`), 1200)).catch(() => {});
     showOverview();
@@ -993,7 +993,22 @@ async function start() {
     summary.error = e.message;
   }
   rs.ready(summary);
-  if (old && S.overview?.roms) setTimeout(() => offerRemoveOld(old), 800);
+  if (old && !old.failed && S.overview?.roms) setTimeout(() => offerRemoveOld(old), 800);
+}
+
+// Updates: looked for at start, then every hour and when the window comes back after a while, so a RetroShelf that
+// stays open still finds a new release (updates.js; the setting can turn it off at any time).
+const UPDATE_EVERY = 60 * 60 * 1000, UPDATE_ON_FOCUS = 10 * 60 * 1000;
+function watchForUpdates() {
+  let last = 0;
+  const check = (gap) => {
+    if (!S.opts.check_updates || Date.now() - last < gap) return;
+    last = Date.now();
+    rs.checkUpdates(true).catch(() => {});
+  };
+  check(0);
+  setInterval(() => check(UPDATE_EVERY - 60000), UPDATE_EVERY);
+  window.addEventListener("focus", () => check(UPDATE_ON_FOCUS));
 }
 
 // The old (Tk) RetroShelf, found by its app-menu entry: its settings come over and the entry opens this app, without
@@ -1001,7 +1016,13 @@ async function start() {
 async function switchFromOld() {
   const old = await call("old_app").catch(() => null);
   if (!old) return null;
-  old.brought = old.data ? await call("adopt_old", { folder: old.folder }).catch(() => []) : [];
+  old.brought = [];
+  if (old.data) {
+    try { old.brought = await call("adopt_old", { folder: old.folder }); } catch (e) {
+      console.error(e);
+      old.failed = true;  // its data didn't come over: don't offer to delete it
+    }
+  }
   old.menuMoved = old.menu && !(await rs.addToMenu().catch((e) => e.message));
   return old;
 }

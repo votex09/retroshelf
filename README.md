@@ -281,8 +281,8 @@ On first start, run **☰ → Library → Download LaunchBox data** (about 110 M
 
 ## Updating
 
-The app checks GitHub for updates when it starts (you can turn this off in **☰ → Settings**, which also has **Check
-for updates**). The installed Windows app and the AppImage download a new version by themselves, and it goes in when
+The app checks GitHub for updates when it starts and every hour while it stays open (you can turn this off in
+**☰ → Settings**, which also has **Check for updates**). The installed Windows app and the AppImage download a new version by themselves, and it goes in when
 you restart RetroShelf (or press **⬆ Restart to update**). The portable .exe says when a new version is out.
 
 Every change to the app that lands on `main` passes the tests and is then published as a release automatically
