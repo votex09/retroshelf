@@ -1,6 +1,6 @@
 """Tools → Compress games: turn the current system's disc images into .chd / .rvz (lib/compress.py), one game at a
 time, with the originals moved to the holding folder (or deleted, when asked) once each new file is checked."""
-import datetime, os, queue, threading
+import os, queue, threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -30,20 +30,6 @@ def open_window(app):
         return None
     w = app.compress_window = CompressWindow(app)
     return w
-
-
-def describe(job):
-    """'cue + 2 bin', 'iso', 'folder (gdi)'"""
-    if any(os.path.isdir(p) for p in job.parts):
-        return f"folder ({os.path.splitext(job.src)[1][1:].lower()})"
-    exts = [os.path.splitext(p)[1][1:].lower() for p in job.parts]
-    first, rest = exts[0], exts[1:]
-    if not rest:
-        return first
-    counts = {}
-    for e in rest:
-        counts[e] = counts.get(e, 0) + 1
-    return " + ".join([first] + [f"{n} {e}" if n > 1 else e for e, n in counts.items()])
 
 
 def games(n):
@@ -155,7 +141,7 @@ class CompressWindow:
             if jobs:
                 self.rows[key] = jobs
                 self.tv.insert("", "end", iid=key, text=key, values=(
-                    ", ".join(dict.fromkeys(describe(j) for j in jobs)), human(sum(j.size for j in jobs)),
+                    ", ".join(dict.fromkeys(compress.describe(j) for j in jobs)), human(sum(j.size for j in jobs)),
                     f"→ {FORMATS[self.ext]}" + (f" ({len(jobs)} discs)" if len(jobs) > 1 else "")))
             elif why not in ("nothing to compress",):
                 skipped.append((key, why))
@@ -235,49 +221,11 @@ class CompressWindow:
         threading.Thread(target=self._work, args=(jobs, tool, ctx), daemon=True).start()
 
     def _work(self, jobs, tool, ctx):
-        box, total = self.box, len(jobs)
-        done_keys, saved, moves, problems = [], 0, [], []
-        running = scraper.es_de_running()
-        try:
-            for n, (key, job) in enumerate(jobs):
-                if self.cancel.is_set():
-                    break
-                name = os.path.basename(job.out)
-                box.put(("row", (key, "Compressing …", "")))
-                free = compress.free_space(self.folder)
-                if free is not None and free < job.size + 64 * 1024 ** 2:
-                    box.put(("row", (key, f"Not enough free space ({human(free)} free)", "failed")))
-                    problems.append(f"{name}: not enough free space on the drive ({human(free)} free, up to "
-                                    f"{human(job.size)} needed)")
-                    break
-
-                def progress(stage, fraction, written, n=n, name=name):
-                    word = "Checking" if stage == "check" else "Compressing"
-                    detail = f"{fraction * 100:.0f}%" if fraction is not None else (
-                        f"{human(written)} written" if written else "")
-                    part = (fraction or 0) * (0.5 if ctx["verify"] else 1) + (0.5 if stage == "check" else 0)
-                    box.put(("progress", (f"{word} {name}  {detail}".rstrip(), (n + min(part, 1)) / total)))
-                try:
-                    new_size = compress.convert(job, tool, progress, self.cancel.is_set, verify=ctx["verify"])
-                except InterruptedError:
-                    box.put(("row", (key, "Stopped", "")))
-                    break
-                except Exception as e:
-                    box.put(("row", (key, str(e)[:200], "failed")))
-                    problems.append(f"{name}: {str(e)[:200]}")
-                    continue
-                m, probs = compress.finish(job, self.folder, compress.playlists_for(job, ctx["paths"][key]),
-                                           ctx["gamelist"], ctx["media"], ctx["holding"], running)
-                moves += m
-                problems += [f"{name}: {p}" for p in probs]
-                saved += max(0, job.size - new_size)
-                done_keys.append(key)
-                box.put(("row", (key, f"Done · {human(new_size)} (saved {human(max(0, job.size - new_size))})",
-                                 "done")))
-        except Exception as e:  # something unexpected: say so rather than leave the window spinning
-            problems.append(str(e)[:200])
-        box.put(("done", {"keys": done_keys, "saved": saved, "moves": moves, "problems": problems,
-                          "holding": ctx["holding"]}))
+        box = self.box
+        res = compress.run(jobs, tool, self.folder, ctx["paths"], ctx["gamelist"], ctx["media"], ctx["holding"],
+                           ctx["verify"], lambda key, text, tag: box.put(("row", (key, text, tag))),
+                           lambda text, fraction: box.put(("progress", (text, fraction))), self.cancel.is_set)
+        box.put(("done", {**res, "holding": ctx["holding"]}))
 
     def _poll(self):
         if not self.win.winfo_exists():
@@ -308,10 +256,7 @@ class CompressWindow:
         self.bar.config(value=0)
         n = len(dict.fromkeys(res["keys"]))
         if res["moves"]:
-            self.app._log_moves({"time": datetime.datetime.now().isoformat(timespec="seconds"),
-                                 "system": self.system, "dest": "to_delete", "games": n,
-                                 "size": sum(compress._size(t) for _, t in res["moves"]), "moves": res["moves"],
-                                 "why": "compressed"})
+            self.app._log_moves(compress.log_entry(self.system, n, res["moves"]))
         stopped = self.cancel.is_set()
         if self.closing:
             self.app.rescan()

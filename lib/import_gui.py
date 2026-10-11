@@ -14,22 +14,13 @@ WATCH_MS = 2000
 TITLE = "Import ROMs"
 
 
-def default_inbox(roms_root):
-    """The import folder: next to the ROMs folder (same drive, so filing big discs is a quick move)."""
-    base = os.path.dirname(os.path.normpath(roms_root)) if roms_root else os.path.expanduser("~")
-    return os.path.join(base, "import")
-
-
 def inbox_dir(app):
-    return app.cfg.get("import_dir") or default_inbox(app.cfg.get("roms_root"))
+    return romimport.inbox_dir(app.cfg)
 
 
 def waiting(app):
     """How many things are in the import folder."""
-    try:
-        return sum(1 for n in os.listdir(inbox_dir(app)) if not n.startswith("."))
-    except OSError:
-        return 0
+    return romimport.waiting(inbox_dir(app))
 
 
 def human(n):
@@ -158,13 +149,7 @@ class ImportWindow:
 
     def _systems(self):
         """Systems to offer: every known one plus any other folder in the ROMs folder."""
-        codes = set(romimport.LABELS)
-        try:
-            codes |= {d for d in os.listdir(self.roms_root) if not d.startswith((".", "_"))
-                      and os.path.isdir(os.path.join(self.roms_root, d))}
-        except OSError:
-            pass
-        return sorted(codes, key=lambda c: romimport.label(c).lower())
+        return romimport.system_choices(self.roms_root)
 
     def _open(self, path):
         try:
@@ -179,24 +164,14 @@ class ImportWindow:
 
     # ---------- the list ----------
     def _show(self, iid):
-        r = self.rows[iid]
-        system = "found when unpacked" if r.opaque and not r.override else r.describe()
-        hows = sorted({u.how for u in r.units if u.how})
-        how = "you" if r.override else (hows[0] if len(hows) == 1 else ", ".join(hows)[:60])
-        n = len(r.units)
-        name = r.name + (f"  ({n} games)" if r.archive and n > 1 else "")
-        tags = [t for t in self.tv.item(iid, "tags") if t == "odd"]
-        if r.status.startswith(("Imported", "Already")):
-            tags.append("done")
-        elif not r.status.startswith("Checking") and (not r.ready() or r.status):
-            tags.append("problem")
-        self.tv.item(iid, text=name, values=(system, how if r.units else "", human(r.size) if r.size else "",
-                                             r.status), tags=tags)
+        v = romimport.shown(self.rows[iid])
+        tags = [t for t in self.tv.item(iid, "tags") if t == "odd"] + ([v["tag"]] if v["tag"] else [])
+        self.tv.item(iid, text=v["name"], values=(v["system"], v["how"], human(v["size"]) if v["size"] else "",
+                                                  v["status"]), tags=tags)
 
     def _new(self, rows):
         """The rows that aren't in the list yet."""
-        known = {os.path.normcase(r.path) for r in self.rows.values() if not r.status.startswith("Imported")}
-        return [r for r in rows if os.path.normcase(r.path) not in known]
+        return romimport.new_rows(rows, self.rows.values())
 
     def add(self, paths, inbox=None, rows=None):
         new = self._new(romimport.collect(paths, inbox) if rows is None else rows)
@@ -214,44 +189,25 @@ class ImportWindow:
 
     def _scan(self, items):
         for iid, r in items:
-            try:
-                romimport.scan(r)
-                if r.status == "Checking …":
-                    r.status = ""
-            except Exception as e:  # shown in the row
-                r.status = f"Can't read it: {e}"
+            romimport.scan_row(r)
             self.box.put(("row", iid))
         self.box.put(("scanned", None))
 
     def refresh_inbox(self):
         """Pick up what's in the import folder; forget rows whose files have gone."""
         for iid, r in list(self.rows.items()):
-            if not r.status.startswith("Imported") and not all(os.path.exists(p) for p in r.sources()[:1]):
+            if romimport.gone(r):
                 self.tv.delete(iid)
                 del self.rows[iid]
         if os.path.isdir(self.inbox):
-            self.add([os.path.join(self.inbox, n) for n in sorted(os.listdir(self.inbox))
-                      if not n.startswith(".")], self.inbox)
-
-    def _inbox_state(self):
-        state = {}
-        for d, dirs, files in os.walk(self.inbox):
-            dirs[:] = [x for x in dirs if not x.startswith(".")]
-            for n in files:
-                p = os.path.join(d, n)
-                try:
-                    st = os.stat(p)
-                    state[p] = (st.st_size, st.st_mtime)
-                except OSError:
-                    pass
-        return state
+            self.add(romimport.inbox_paths(self.inbox), self.inbox)
 
     def _watch(self):
         """New files in the import folder show up once they've finished copying (two looks the same)."""
         if not self.win.winfo_exists():
             return
         if not self.busy:
-            state = self._inbox_state()
+            state = romimport.inbox_state(self.inbox)
             if state != self.snapshot:
                 self.pending = True
                 self.snapshot = state
@@ -294,9 +250,9 @@ class ImportWindow:
         if not path:
             return
         path = os.path.normpath(path)
-        root = os.path.normpath(self.roms_root)
-        if os.path.normcase(path) == os.path.normcase(root) or romimport._inside(path, root):
-            messagebox.showerror(TITLE, "The import folder can't be inside your ROMs folder.", parent=self.win)
+        problem = romimport.inbox_problem(path, self.roms_root)
+        if problem:
+            messagebox.showerror(TITLE, problem, parent=self.win)
             return
         self.inbox = path
         self.app.cfg["import_dir"] = path
@@ -323,15 +279,13 @@ class ImportWindow:
         for iid in self.tv.selection():
             r = self.rows.get(iid)
             if r and not r.status.startswith("Imported"):
-                r.override = code
-                if r.status.startswith(("Can't tell", "Pick")):
-                    r.status = ""
+                romimport.set_system(r, code)
                 self._show(iid)
         self._update_buttons()
 
     def todo(self):
-        return [(iid, r) for iid, r in self.rows.items()
-                if not r.status.startswith(("Imported", "Checking")) and r.ready()]
+        ready = set(romimport.to_import(self.rows.values()))
+        return [(iid, r) for iid, r in self.rows.items() if r in ready]
 
     def _update_buttons(self):
         n = len(self.todo())
@@ -368,25 +322,7 @@ class ImportWindow:
             def report(text=None, fraction=None, k=k):
                 self.box.put(("progress", (text, (k + (fraction or 0)) / total)))
             report(f"Importing {r.name} …")
-            try:
-                results = romimport.import_row(r, self.roms_root, report, self.cancel.is_set, delete)
-                good = [x for _, x in results if not isinstance(x, Exception)]
-                bad = [x for _, x in results if isinstance(x, Exception)]
-                systems = sorted({os.path.basename(os.path.dirname(p[0])) for p in good if p})
-                if good and not bad:
-                    r.status = "Imported → roms/" + ", roms/".join(systems)
-                elif good:
-                    r.status = f"Imported {len(good)}, {len(bad)} not: {bad[0]}"
-                elif bad and all(isinstance(x, FileExistsError) for x in bad):
-                    r.status = f"Already there: {bad[0]}"
-                else:
-                    r.status = f"{bad[0]}"[:200]
-                if r.inbox and good and not bad:
-                    romimport.prune(os.path.dirname(r.path), self.inbox)
-            except InterruptedError:
-                r.status = "Stopped"
-            except Exception as e:  # shown in the row
-                r.status = str(e)[:200] or type(e).__name__
+            romimport.import_one(r, self.roms_root, self.inbox, report, self.cancel.is_set, delete)
             self.box.put(("row", iid))
         self.box.put(("done", None))
 
@@ -417,12 +353,12 @@ class ImportWindow:
     def _finished(self):
         done = [r for r in self.rows.values() if r.status.startswith("Imported")]
         self._update_buttons()
-        systems = sorted({s for r in done for s in r.status.split("roms/")[1:]})
+        systems = romimport.imported_systems(done)
         if done:
             self.status.config(text=f"Imported {len(done)} — they're in your ROMs folder now.")
             self.app.load_roms_root(self.roms_root)  # new system folders show up in the main window
             self.app.toast(f"Imported {len(done)} game{'s' if len(done) != 1 else ''}"
-                           + (f" into {', '.join(s.strip(', ') for s in systems)}" if systems else "") + ".")
+                           + (f" into {', '.join(systems)}" if systems else "") + ".")
 
     def close(self):
         if self.busy:

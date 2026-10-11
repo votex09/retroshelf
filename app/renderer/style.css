@@ -413,3 +413,15 @@ body.pad .r-foot kbd { display: none; }
 .sheet.wide { width: min(700px, calc(100vw - 48px)); }
 .form::-webkit-scrollbar { width: 10px; }
 .form::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 10px; border: 3px solid var(--surface); }
+
+/* ---------- file-tools ---------- */
+.tool-line { margin: 0 22px 12px; }
+.job-progress { padding: 0 22px; }
+.job-progress .progress-bar { margin-top: 10px; }
+.sheet-tools .grow { flex: 1; }
+.inbox-path { flex: 1; min-width: 0; font-size: 13px; }
+.compress .trow { grid-template-columns: 22px minmax(0, 1fr) 120px 80px minmax(0, 220px); }
+.compress .trow.skip { cursor: default; }
+.imports .trow { grid-template-columns: 22px minmax(0, 1fr) 170px 110px 70px minmax(0, 220px); }
+.compress .done, .imports .trow.done .st { color: var(--keep); }
+.compress .failed, .imports .trow.problem .st, .imports .trow.problem .sys { color: var(--move); }
