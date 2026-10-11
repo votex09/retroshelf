@@ -388,7 +388,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (t.matches?.(TEXTY) || t.matches?.("input[type=number]")) {  // typing: Esc stops (the cursor stays on the box), ↑ ↓ leave it
-    const leave = (e.key === "ArrowUp" || e.key === "ArrowDown") && t.tagName !== "TEXTAREA";
+    const leave = (e.key === "ArrowUp" || e.key === "ArrowDown") && t.matches(TEXTY) && t.tagName !== "TEXTAREA";  // (↑ ↓ step a number)
     if (e.key === "Escape" || leave) {
       e.preventDefault(); e.stopPropagation();
       t.blur();
@@ -615,7 +615,8 @@ function uiHints() {
   }
   if (typingIn()) {  // a text box with the keyboard in it
     return pad ? [["a", "On-screen keyboard"], ["dpad", "Leave the box"], ["b", "Done typing"]]
-      : [k(typingIn().tagName === "TEXTAREA" ? "Tab" : typingIn() === $("search") ? "↓" : "↑ ↓", "Leave the box"), k("Esc", "Done typing")];
+      : typingIn().type === "number" ? [k("↑ ↓", "Change"), k("Tab", "Leave the box"), k("Esc", "Done typing")]
+        : [k(typingIn().tagName === "TEXTAREA" ? "Tab" : typingIn() === $("search") ? "↓" : "↑ ↓", "Leave the box"), k("Esc", "Done typing")];
   }
   const around = pad ? [["l1/r1", "Next area"], ["view", "Search"], ["menu", "Menu"]]
     : [k("F6", "Next area"), k("/", "Search"), k("F10", "Menu")];
