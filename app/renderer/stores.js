@@ -26,7 +26,6 @@ function pickKeys(sel, keys, key, e, anchor) {
 
 // ---------- NoPayStation ----------
 const npsSize = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(2)} GB` : `${(n / 1048576).toFixed(1)} MB`);
-const NPS_HINT = "Double-click or Enter to queue · Ctrl / Shift-click for several";
 const NPS_OWNED = ["Installed", "Have as ROM", "Have (other region)"];
 
 async function openNps(system) {
@@ -45,22 +44,27 @@ async function openNps(system) {
       ${info.mine ? `<label class="check"><input type="checkbox" id="n-mine"> Only for my games</label>` : ""}
       <label class="check"><input type="checkbox" id="n-hide"> Hide ones I have</label>
     </div>
-    <div class="results-line" id="n-res"></div>
-    <div class="table nps-rows" id="n-table"></div>
-    <div class="sheet-tools under"><span class="grow muted" id="n-hint">${NPS_HINT}</span><button class="ghost small" id="n-add">Add to queue</button></div>
-    <div class="sheet-tools queue-head"><b id="n-qhead">Queue</b><span class="grow"></span>
-      <button class="ghost small" id="n-retry">Retry failed</button><button class="ghost small" id="n-remove">Remove</button></div>
-    <div class="table nps-queue" id="n-queue"></div>
-    <div class="nps-progress"><div class="progress-bar"><div id="n-bar"></div></div><div class="progress-text" id="n-status"></div></div>
+    <div class="nps-body">
+      <div class="nps-main"><div class="results-line" id="n-res"></div><div class="table nps-rows" id="n-table"></div></div>
+      <aside class="nps-side">
+        <div class="nps-pick" id="n-pick"></div>
+        <button class="ghost" id="n-add">Add to queue</button>
+        <div class="nps-qhead"><b id="n-qhead">Queue</b><span class="muted" id="n-qsize"></span></div>
+        <div class="table nps-queue" id="n-queue"></div>
+        <div class="nps-qbtns"><button class="ghost small" id="n-remove">Remove</button><button class="ghost small" id="n-retry">Retry failed</button></div>
+        <div class="progress-bar"><div id="n-bar"></div></div><div class="progress-text" id="n-status"></div>
+        <button class="primary" id="n-start">Start</button>
+      </aside>
+    </div>
     <div class="sheet-foot">
       <span class="muted">Downloads</span><span class="path-text" id="n-dir" title="${esc(info.dir)}">${esc(info.dir)}</span>
       <button class="ghost small" id="n-dir-btn">Change…</button>
       ${info.emulator ? `<button class="ghost small" id="n-emu" title="${esc(`${info.emulator.label}: ${info.emulator.path}`)}">Emulators…</button>` : ""}
       <label class="check"><input type="checkbox" id="n-keep"${info.keep_pkg ? " checked" : ""}> Keep .pkg after install</label>
       <label class="check"><input type="checkbox" id="n-scrape"${info.scrape ? " checked" : ""}> Scrape new games (LaunchBox)</label>
-      <span class="grow"></span><button class="ghost" id="n-close">Close</button><button class="primary" id="n-start">Start</button>
+      <span class="grow"></span><button class="ghost" id="n-close">Close</button>
     </div>`,
-  "stores-sheet", () => {
+  "stores-sheet nps", () => {
     N.job?.stop();
     if (N.installed && S.sys?.system === info.system) rescanQuietly();
   }, npsKeys);
@@ -107,9 +111,15 @@ async function openNps(system) {
   function statusClass(st) {
     return st === "Installed" ? "st-ok" : NPS_OWNED.includes(st) ? "st-have" : st.startsWith("Failed") ? "st-bad" : "";
   }
-  function showHave() {
-    const row = N.sel.size === 1 ? N.list?.rows.find((x) => N.sel.has(x.key)) : null;
-    $("n-hint").textContent = row?.have.length ?`You have: ${row.have.join("  ·  ")}` : NPS_HINT;
+  function showHave() {  // the picked game (or how many are picked), beside the list
+    const rows = N.list?.rows.filter((x) => N.sel.has(x.key)) || [], row = rows.length === 1 ? rows[0] : null;
+    $("n-pick").innerHTML = row ? `<h3>${esc(row.name)}</h3>
+        <p class="muted">${esc(row.id)}  ·  ${esc(row.region)}  ·  ${npsSize(row.size)}</p>
+        ${row.status ? `<p class="${statusClass(row.status)}">${esc(row.status)}</p>` : ""}
+        ${row.have.length ? `<p class="muted">You have: ${esc(row.have.join("  ·  "))}</p>` : ""}`
+      : rows.length ? `<h3>${rows.length} picked</h3><p class="muted">${npsSize(rows.reduce((n, x) => n + x.size, 0))}</p>`
+        : `<p class="muted">Pick a game to see it here. Double-click, Space or Enter adds it to the queue; Ctrl or Shift-click picks several.</p>`;
+    $("n-add").disabled = !rows.length;
   }
 
   // ----- the queue -----
@@ -133,9 +143,11 @@ async function openNps(system) {
     $("n-queue").innerHTML = N.queue.length ? N.queue.map((q) => `<div class="trow${N.qsel.has(q.key) ? " on" : ""}" data-key="${esc(q.key)}">
       <span class="nm" title="${esc(q.label)}">${esc(q.label)}</span><span class="num">${npsSize(q.size)}</span>
       <span class="dim ${statusClass(N.states.get(q.key) || "")}" data-state>${esc(N.states.get(q.key) || "")}</span></div>`).join("")
-      : `<div class="none">Pick games above and press Add to queue.</div>`;
+      : `<div class="none">Nothing queued yet.</div>`;
     const pending = N.queue.filter((q) => N.states.get(q.key) === "Queued");
-    $("n-qhead").textContent = `Queue   ${pending.length} waiting  ·  ${npsSize(pending.reduce((s, q) => s + q.size, 0))}`;
+    $("n-qhead").textContent = pending.length ? `Queue: ${pending.length} waiting` : "Queue";
+    $("n-qsize").textContent = pending.length ? npsSize(pending.reduce((s, q) => s + q.size, 0)) : "";
+    $("n-remove").disabled = !N.queue.length;
     $("n-retry").disabled = !N.queue.some((q) => (N.states.get(q.key) || "").startsWith("Failed"));
   }
   function setState(key, text) {
@@ -143,8 +155,8 @@ async function openNps(system) {
     const cell = document.querySelector(`#n-queue .trow[data-key="${CSS.escape(key)}"] [data-state]`);
     if (cell) { cell.textContent = text; cell.className = `dim ${statusClass(text)}`; }
   }
-  function dequeue() {
-    for (const q of N.queue.filter((q) => N.qsel.has(q.key))) {
+  function dequeue(keys = N.qsel) {
+    for (const q of N.queue.filter((q) => keys.has(q.key))) {
       const st = N.states.get(q.key) || "";
       if (st === "Queued" || st === "Done" || st.startsWith("Failed")) {
         N.queue = N.queue.filter((j) => j !== q);
@@ -229,11 +241,17 @@ async function openNps(system) {
     if (row) enqueue([row.dataset.key]).catch(oops);
   });
   $("n-queue").addEventListener("click", (e) => { if (tableClick("n-queue", N.qsel, "qanchor", e)) fillQueue(); });
-  npsKeys.hints = { pad: [["dpad", "Choose"], ["a", "Select"], ["x", "Add to queue"], ["y", "Take off the queue"]],
-    keys: [["key", "↑ ↓", "Choose"], ["key", "Space", "Select"], ["key", "Enter", "Add to queue"], ["key", "Del", "Take off the queue"]] };
+  // On a game: A (Space) or X (Enter) queues it, Y takes it off again. In the queue: A picks, Y takes the picked off.
+  const inQueue = (el) => Boolean(el?.closest("#n-queue"));
+  npsKeys.hints = (el) => (inQueue(el)
+    ? { pad: [["dpad", "Choose"], ["a", "Pick"], ["y", "Take off the queue"]],
+      keys: [["key", "↑ ↓", "Choose"], ["key", "Space", "Pick"], ["key", "Backspace", "Take off the queue"]] }
+    : { pad: [["dpad", "Choose"], ["a", "Add to queue"], ["y", "Take off the queue"]],
+      keys: [["key", "↑ ↓", "Choose"], ["key", "Space", "Add to queue"], ["key", "Backspace", "Take off the queue"]] });
   function npsKeys(key) {
-    if (key === "Enter") { enqueue([...N.sel]).catch(oops); return true; }
-    if (key === "Delete" || key === "Backspace") { dequeue(); return true; }  // (Y on a pad)
+    const queue = inQueue(P.cur);
+    if (key === "Enter" || (key === " " && !queue)) { enqueue([...N.sel]).catch(oops); return true; }
+    if (key === "Delete" || key === "Backspace") { dequeue(queue ? N.qsel : N.sel); return true; }  // (Y on a pad)
     if (key === "ArrowDown" || key === "ArrowUp") {
       const keys = N.list?.rows.map((x) => x.key) || [];
       if (!keys.length) return false;
@@ -287,6 +305,7 @@ async function openNps(system) {
     }
   };
   fillQueue();
+  showHave();
   load();
   $("n-q").focus();
 }

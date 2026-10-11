@@ -132,6 +132,9 @@ const CONTROLS = [
   ["Next / previous part of the window", "l1/r1", "F6 Shift+F6"], ["Search", "view", "/"], ["☰ menu", "menu", "F10"],
   ["Move between controls", "dpad", "↑ ↓ ← →"], ["Press", "a", "Enter"], ["Back, close", "b", "Esc"],
   ["Scroll the details or a window", "rs-ud", "PgUp PgDn"],
+  ["In a window's table (NoPayStation, the stores, Storage)"],
+  ["Choose; past the first or last row, leave the table", "dpad-ud", "↑ ↓"], ["A page up / down", "l2/r2", "PgUp PgDn"],
+  ["NoPayStation: add to the queue / take off", "a/y", "Space / Backspace"],
   ["Review (Ctrl+R)"],
   ["Keep / move", "a/x", "Space / Enter"], ["Back / skip", "dpad-lr", "← →"], ["Undo", "y", "Ctrl+Z"],
 ];

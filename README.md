@@ -39,7 +39,9 @@ rename can be undone, and games only go for good when you delete them from the h
 
   With a keyboard you can also type a few letters to jump to a game, and Shift+↑ ↓ or Ctrl+A select several.
   Outside the lists the D-pad or arrow keys move a ring from control to control and A or Enter presses; each part
-  of the window remembers where you were. A in a text box opens an on-screen keyboard. The bar along the bottom
+  of the window remembers where you were. In a window's table the row under the ring is the picked one; L2 / R2
+  (PgUp / PgDn) page through it, Home / End jump to its ends, and ▲ past the first row or ▼ past the last leaves
+  it. A in a text box opens an on-screen keyboard. The bar along the bottom
   shows what works right there, as Steam Deck buttons or keys, whichever you used last. **☰ → Settings → Use a
   gamepad** turns the pad off; on a Steam Deck, Steam keeps the built-in controls while it runs.
 - Each system goes back to the game you were on when you left it, after a restart too.
@@ -153,6 +155,8 @@ rename can be undone, and games only go for good when you delete them from the h
 
 **NoPayStation (PS3, PS Vita, PSP)**
 - **☰ → Get games → NoPayStation…** searches the NoPayStation lists. Queue games, DLC, demos and PS3 updates, and download and install them.
+- The list fills the window; beside it are the picked game, the queue and **Start**. A / Space (or double-click)
+  adds a game to the queue, Y / Backspace takes it off.
 - Shows which games you already have; can list available updates for installed PS3 games.
 - Parallel, resumable downloads. Right-click the queue to retry failed jobs.
 - PS3 packages are installed into RPCS3, PS Vita packages through Vita3K, PSP packages into your `roms` folder.
