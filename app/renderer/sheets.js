@@ -126,7 +126,7 @@ async function openHolding() {
     if (!games.length) return;
     const extra = games.filter((g) => g.installed).length;
     const forget = $("h-forget").checked;
-    const ok = await rs.confirm({ title: "Delete for good", ok: "Delete", warning: true,
+    const ok = await confirmBox({ title: "Delete for good", ok: "Delete", warning: true,
       message: `Permanently delete ${what} (${plural(games.length, "game")}, ${human(games.reduce((s, g) => s + g.size, 0))})?`,
       detail: [extra ? `${extra} of them include RPCS3 / Vita3K game data, which is deleted too.` : "",
         forget ? "Their ES-DE artwork and gamelist entries are removed as well." : "", "This can't be undone."].filter(Boolean).join("\n\n") });
@@ -427,6 +427,7 @@ function openReview() {
       if (d.video) R.timer = setTimeout(() => {
         if (seq !== R.seq || !$("r-media")) return;
         $("r-media").innerHTML = `<video src="${Art.media(d.video)}" autoplay loop muted playsinline></video>`;
+        $("r-media").querySelector("video").addEventListener("error", () => clipFailed($("r-media"), d.video));
       }, 1500);
     }).catch(oops);
   }

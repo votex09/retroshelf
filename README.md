@@ -31,19 +31,20 @@ rename can be undone, and games only go for good when you delete them from the h
   - Type a few letters to jump to a game, Shift+↑/↓ selects a range, Ctrl+A everything shown, and Tab switches
     between Keeping and Moving, back where you were.
 - Any standard gamepad works, with no Steam Input or extra software: D-pad or stick to move, A marks (Space), X flips
-  (Enter), Y undoes, B closes, LB / RB switch lists, LT / RT page, Start opens Review. RetroShelf reads pads itself
-  (Linux: `/dev/input`; Windows: XInput) and only while its window has the focus. **View → Use a gamepad** turns it
-  off. On a Steam Deck, Steam keeps the built-in controls while it's running; other pads work.
-  While the pad is what you're using, a bar along the bottom of the window shows the buttons that do something
-  there, drawn the way your pad labels them (Xbox letters, PlayStation shapes or Nintendo letters), and what each
-  does right now ("Mark", "Move 3 marked", "Keep", …). It goes away when you type or move the mouse.
-  A highlight sits on whatever the pad has reached (the row under the cursor, a button, a filter tab, a key of
-  the on-screen keyboard) and glides to the next thing as you move, the way a console menu does; A and X make it
-  flash.
-  The View / Select button (F6 on a keyboard) goes from the lists to the search box to the filter tabs and back,
-  and A in a text box opens an on-screen keyboard (D-pad to move, A types, Y deletes, LB for capitals, X when done).
+  (Enter), Y undoes, LB / RB switch lists, LT / RT page, B goes back. **Start** opens the ☰ menu, **View** goes to the
+  header and buttons, **R3** opens the game's menu (hide in ES-DE, LaunchBox match, collections) and the right stick
+  scrolls the details. **☰ → Settings → Use a gamepad** turns it off. On a Steam Deck, Steam keeps the built-in
+  controls while it's running; other pads work.
+  Everything else in the window works from the pad too: outside the lists the D-pad moves an accent ring from control
+  to control (menus, filter tabs, settings, every tool window), A presses what it's on, B steps back, and LB / RB
+  jump between the header, filter tabs, lists, details and buttons. ↑ on the first game and ↓ on the last leave the
+  list. A on a drop-down opens its choices as a list, and A in a text box opens an on-screen keyboard (A types,
+  X adds a space, Y deletes, LB for capitals, B when done). A bar along the bottom says what each button does right
+  now; it goes away when you type or move the mouse.
+  With a keyboard the same ring follows the arrow keys outside the lists: F6 goes to the next part of the window,
+  Enter presses, Esc steps back and Shift+F10 (or the Menu key) opens the game's menu.
 - Each system goes back to the game you were on when you left it, after a restart too.
-- **View → Review one at a time…** (Ctrl+R) goes through the list with each game's artwork and details:
+- **☰ → Review one at a time…** (Ctrl+R) goes through the list with each game's artwork and details:
   K (or Space) keeps, M (or Enter) moves, S skips, ← goes back, Backspace undoes.
 - **Hide in ES-DE** (next to Move) is the gentler choice for the Moving list's games: they stay on disk and ES-DE
   leaves them out of its menus (it marks them hidden in its gamelist, and turns off ES-DE's "Show hidden games"
@@ -67,12 +68,12 @@ rename can be undone, and games only go for good when you delete them from the h
   to their new numbers, artwork and details fade in (not while you're flicking down a list, so browsing stays
   instant), notifications slide in and out, the gamepad's button bar rises into view, and Review slides each game's
   name in as its progress bar glides along. The mouse wheel scrolls every list and text box smoothly, easing to a stop
-  (quick flicks add up into one longer glide). **View → Animations** turns them off.
+  (quick flicks add up into one longer glide). **☰ → Settings → Animations** turns them off.
 
 **Storage overview**
 - **Library → Storage overview…** (or click the free-space figure at the top) shows how much each system takes:
   its games, its ES-DE media (artwork, videos, manuals), and how much of it is disc images that
-  **☰ → Compress games** could shrink. Pick a system to see its biggest games. Double-click a system or a
+  **☰ → This system → Compress games** could shrink. Pick a system to see its biggest games. Double-click a system or a
   game to go to it in the main window.
 
 **Import ROMs**
@@ -96,23 +97,23 @@ rename can be undone, and games only go for good when you delete them from the h
 **LaunchBox metadata**
 - Downloads the free LaunchBox Games Database once and matches your games to it automatically.
 - Right-click a game to pick its LaunchBox entry by hand when the match is missing or wrong.
-- **☰ → Scrape metadata…** fills ES-DE text (description, developer, release date, genre, rating …) and images (covers,
+- **☰ → This system → Scrape metadata…** fills ES-DE text (description, developer, release date, genre, rating …) and images (covers,
   screenshots, title screens, marquees, 3D boxes …). It only fills gaps and never overwrites what's already there.
 
 **Gameplay videos**
 - The details panel and the review window play the selected game's gameplay clip, muted and looping, a moment
-  after you land on it: 🔇 turns the sound on, ‹ › go back to the pictures. Clips are ES-DE's own, from its
-  `videos` folder (ES-DE's scraper downloads them).
-- For games without a clip, **View → … and stream from YouTube when there's no clip** plays the top YouTube result
-  for "*title* *console* gameplay" instead, starting halfway in to skip past intros. It's off by default: it uses
-  [yt-dlp](https://github.com/yt-dlp/yt-dlp) to play YouTube outside YouTube's own player, which YouTube's terms
-  don't allow, and the top result isn't always plain gameplay of the right game. **Gameplay video ↗** still opens the search in your browser.
-- Playing needs [mpv](https://mpv.io) (on Steam Deck: from Discover; that build includes yt-dlp), or ffmpeg for
-  clips only (no sound). Without either, the panel shows the artwork as before. **View → Play gameplay videos**
-  turns videos off.
+  after you land on it: 🔇 Sound turns the sound on, the thumbnails go back to the pictures. Clips are ES-DE's own,
+  from the `videos` folder of its media folder (ES-DE's scraper downloads them). RetroShelf looks for that folder
+  where ES-DE's settings put it (Other settings → Game media directory), next to the ROMs folder (RetroDECK,
+  portable ES-DE), in `~/ES-DE`, and in EmuDeck's `Emulation/tools/downloaded_media`. A clip that can't play says
+  why under the picture.
+- For games without a clip, **☰ → Settings → Gameplay from YouTube when there's no clip** plays the top YouTube
+  result for "*title* *console* gameplay" in YouTube's own embedded player (it needs the internet, and the top result
+  isn't always plain gameplay of the right game). It's off by default. **Gameplay videos on YouTube ↗** opens the
+  search in your browser instead. **☰ → Settings → Play gameplay videos** turns videos off.
 
 **Rename files**
-- **☰ → Rename files…** renames ROMs to a pattern, by default the No-Intro order:
+- **☰ → This system → Rename files…** renames ROMs to a pattern, by default the No-Intro order:
   `{title} ({region}) ({lang}) ({rev}) {tags}`. This also strips set numbers like `0012 - `.
 - Live preview, conflict detection, and undo.
 - Games you matched by hand, and scene-style names like `Final_Fantasy_IV_Complete_Collection_US.chd`, take
@@ -124,7 +125,7 @@ rename can be undone, and games only go for good when you delete them from the h
   ROM set file name, so renaming them would stop them starting.
 
 **Compress games**
-- **☰ → Compress games…** turns disc images into the compressed formats the emulators read, usually a third
+- **☰ → This system → Compress games…** turns disc images into the compressed formats the emulators read, usually a third
   to a half smaller: CD games (PlayStation, Saturn, Sega CD, Dreamcast, PC Engine CD, Neo Geo CD, 3DO, PC-FX) and
   PS2 discs become `.chd`, GameCube and Wii discs become `.rvz`. Select games to do only those.
 - Each new file is written next to the game and checked before anything is replaced. `.m3u` playlists, ES-DE's
@@ -133,7 +134,7 @@ rename can be undone, and games only go for good when you delete them from the h
 - Uses chdman (from RetroDECK or MAME) and dolphin-tool (from RetroDECK or Dolphin), found by themselves.
 
 **Library health check**
-- **☰ → Library health check…** looks through every system folder (or just the current one) for what stops
+- **☰ → Library → Library health check…** looks through every system folder (or just the current one) for what stops
   games starting: `.cue` / `.gdi` sheets and `.m3u` playlists naming files that aren't there, and raw `.bin`
   images with no `.cue`, and games on several discs with no `.m3u` playlist (one is written, and the separate
   discs are hidden in ES-DE so the game shows once). It also finds what takes space for nothing: empty game files, unfinished downloads,
@@ -143,7 +144,7 @@ rename can be undone, and games only go for good when you delete them from the h
   Problems it can't fix are listed with what's missing.
 
 **Find duplicates**
-- **☰ → Find duplicates…** finds games kept twice in one folder in different forms (a `.cue` / `.bin` and a
+- **☰ → Library → Find duplicates…** finds games kept twice in one folder in different forms (a `.cue` / `.bin` and a
   `.chd`, a `.zip` and the ROM it holds), and identical files anywhere in the library, compared by content: the
   same game in two folders (`snes` and `sfc`, `genesis` and `megadrive`) or under two names.
 - One copy of each stays, chosen for you: the one ES-DE's gamelist knows, then the better form (`.chd` over
@@ -152,13 +153,13 @@ rename can be undone, and games only go for good when you delete them from the h
   gamelist entry (play count, favorite) is moved over to it.
 
 **NoPayStation (PS3, PS Vita, PSP)**
-- **☰ → NoPayStation…** searches the NoPayStation lists. Queue games, DLC, demos and PS3 updates, and download and install them.
+- **☰ → Get games → NoPayStation…** searches the NoPayStation lists. Queue games, DLC, demos and PS3 updates, and download and install them.
 - Shows which games you already have; can list available updates for installed PS3 games.
 - Parallel, resumable downloads. Right-click the queue to retry failed jobs.
 - PS3 packages are installed into RPCS3, PS Vita packages through Vita3K, PSP packages into your `roms` folder.
 
 **Homebrew Hub (Game Boy, Game Boy Color, Game Boy Advance, NES)**
-- **☰ → Homebrew Hub…** browses the free homebrew on [Homebrew Hub](https://hh.gbdev.io): search by name or
+- **☰ → Get games → Homebrew Hub…** browses the free homebrew on [Homebrew Hub](https://hh.gbdev.io): search by name or
   developer, filter by system and type (games, demos, tools, music), with screenshots and descriptions.
 - Open-source games install with one click. Homebrew Hub lets each author decide which apps may download their game,
   so for the others **Open on Homebrew Hub** opens the game's page in your browser; download it there and RetroShelf
@@ -167,7 +168,7 @@ rename can be undone, and games only go for good when you delete them from the h
   ES-DE.
 
 **itch.io homebrew (Game Boy, GBA, NES, SNES, Mega Drive, Master System, PC Engine, Atari 2600, PICO-8)**
-- **☰ → itch.io homebrew…** lists free games itch.io tags for the system, from itch.io's official browse feeds.
+- **☰ → Get games → itch.io homebrew…** lists free games itch.io tags for the system, from itch.io's official browse feeds.
 - Games download on itch.io in your browser, where their authors can ask for an optional donation: **Open on
   itch.io** for a listed game, or **Browse on itch.io** to look around. Every ROM for the system that lands in your
   Downloads folder is put in the right `roms` folder (zips are unpacked; other downloads are left alone).
@@ -175,14 +176,14 @@ rename can be undone, and games only go for good when you delete them from the h
   itch.io still works.
 
 **PDRoms homebrew (19 systems, from Game Boy, NES and Mega Drive to Lynx, Neo Geo Pocket and WonderSwan)**
-- **☰ → PDRoms homebrew…** lists the games on [PDRoms](https://pdroms.de), a homebrew archive running since
+- **☰ → Get games → PDRoms homebrew…** lists the games on [PDRoms](https://pdroms.de), a homebrew archive running since
   1998 that only carries freeware, open-source and legally cleared software. Fan games it marks as
   copyright-restricted aren't listed.
 - Pick a game to see its author, description and screenshot. Games download on PDRoms in your browser (**Open on
   PDRoms** or **Browse on PDRoms**) and land in the right `roms` folder, as with itch.io.
 
 **Free arcade games (MAMEDEV)**
-- **☰ → Free arcade games (MAMEDEV)…** lists the [arcade games their owners released for free,
+- **☰ → Get games → Free arcade games (MAMEDEV)…** lists the [arcade games their owners released for free,
   non-commercial use](https://www.mamedev.org/roms/) through the MAME team: Gridlee, Robby Roto, Alien Arena, the
   Exidy classics and more.
 - **Install** asks you to confirm non-commercial use, as mamedev.org does, then downloads the game from mamedev.org
@@ -254,7 +255,7 @@ retroshelf.bat             # Windows: double-click it, or: py retroshelf.py
 
 ### No RetroDECK or ES-DE yet?
 
-On first start without a games library, RetroShelf offers to set one up (later: **☰ → Set up RetroDECK…**,
+On first start without a games library, RetroShelf offers to set one up (later: **☰ → Library → Set up RetroDECK…**,
 or **Set up ES-DE…** on Windows). Pick where your games should go (your home folder, an SD card or drive, or any
 folder, each with its free space), and RetroShelf does the rest:
 
@@ -274,7 +275,7 @@ existing ES-DE from its settings.
   application menu from **☰ → Settings → Add to app menu**. (The Tk version: **Help → Add to app menu**.)
 - **Steam / Steam Deck:** add the AppImage to Steam as a non-Steam game.
 
-On first start, run **☰ → Download LaunchBox data** (about 110 MB) to enable ratings, genres, matching and scraping.
+On first start, run **☰ → Library → Download LaunchBox data** (about 110 MB) to enable ratings, genres, matching and scraping.
 
 ## Updating
 

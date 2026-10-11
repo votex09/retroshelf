@@ -2,8 +2,8 @@
 // call, runJob, sheet, setProgress …; the work is in app/helper/tool_files.py.)
 "use strict";
 
-registerTool({ cmd: "compress", label: "Compress games…", sub: "disc images to CHD / RVZ, originals held", system: true, open: () => openCompress() });
-registerTool({ cmd: "import", label: "Import ROMs…", sub: "file new games into the ROMs folder by system", system: false, open: () => openImport() });
+registerTool({ cmd: "compress", group: "system", label: "Compress games…", sub: "disc images to CHD / RVZ, originals held", system: true, open: () => openCompress() });
+registerTool({ cmd: "import", group: "library", key: "Ctrl+I", label: "Import ROMs…", sub: "file new games into the ROMs folder by system", system: false, open: () => openImport() });
 
 // Clicking a row picks it (again: unpicks it). rows: the .trow elements with data-id; sel: a Set of ids.
 function pickRows(table, sel, parse, changed) {
@@ -73,7 +73,7 @@ async function openCompress() {
   $("c-delete").onchange = saveOpts;
   $("c-close").onclick = closeSheet;
   const askStop = async () => {  // closing while it works (Close, Esc, a click outside) asks first
-    if (!await rs.confirm({ title: "Compress games", ok: "Stop", message: "Stop compressing?", detail: "The game being compressed now stays as it was." })) return;
+    if (!await confirmBox({ title: "Compress games", ok: "Stop", message: "Stop compressing?", detail: "The game being compressed now stays as it was." })) return;
     sheetBusy = null;
     closeSheet();
   };
@@ -84,7 +84,7 @@ async function openCompress() {
     const del = $("c-delete").checked;
     const where = del ? "The originals are deleted once each new file is in place." :
       `The originals move to\n${C.info.holding}/` + (C.info.same_drive ? "\n(on the same drive: the space comes back when you delete them there)." : "");
-    if (!await rs.confirm({ title: "Compress games", ok: "Compress", message: `Compress ${plural(keys.length, "game")} (${human(size)})?`,
+    if (!await confirmBox({ title: "Compress games", ok: "Compress", message: `Compress ${plural(keys.length, "game")} (${human(size)})?`,
       detail: `${where}\n\nBig discs take a few minutes each.` })) return;
     $("c-go").textContent = "Stop";
     $("c-status").textContent = "Starting …";
@@ -219,7 +219,7 @@ async function openImport() {
         return;
       }
       const where = p.folders > 1 ? ` in ${p.folders} folders` : "";
-      if (!await rs.confirm({ title: "Import ROMs", ok: "Add", message: `Add ${plural(p.games, "game")}${where} from\n\n${path}${p.folders > 1 ? " (and the folders inside it)" : ""}?`,
+      if (!await confirmBox({ title: "Import ROMs", ok: "Add", message: `Add ${plural(p.games, "game")}${where} from\n\n${path}${p.folders > 1 ? " (and the folders inside it)" : ""}?`,
         detail: "They're copied: the originals stay where they are." })) return;
       await scan(await call("import_add_folder"));
     } catch (e) { oops(e); }
@@ -233,7 +233,7 @@ async function openImport() {
   $("i-delete").onchange = () => call("import_options", { delete: $("i-delete").checked }).catch(oops);
   $("i-close").onclick = closeSheet;
   const askStop = async () => {  // closing while it works (Close, Esc, a click outside) asks first
-    if (!await rs.confirm({ title: "Import ROMs", ok: "Stop", message: "Stop importing?", detail: "The game being imported now is left where it was." })) return;
+    if (!await confirmBox({ title: "Import ROMs", ok: "Stop", message: "Stop importing?", detail: "The game being imported now is left where it was." })) return;
     sheetBusy = null;
     closeSheet();
   };

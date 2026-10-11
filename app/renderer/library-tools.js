@@ -2,9 +2,9 @@
 // (Uses app.js, sheets.js and tools.js: call, runJob, sheet, setProgress …)
 "use strict";
 
-registerTool({ cmd: "storage", label: "Storage overview…", sub: "space per system, and the biggest games", system: false, open: () => openStorage() });
-registerTool({ cmd: "health", label: "Library health check…", sub: "missing tracks, stray files and artwork", system: false, open: () => openHealth() });
-registerTool({ cmd: "dupes", label: "Find duplicates…", sub: "games kept twice, identical copies", system: false, open: () => openDupes() });
+registerTool({ cmd: "storage", group: "library", label: "Storage overview…", sub: "space per system, and the biggest games", system: false, open: () => openStorage() });
+registerTool({ cmd: "health", group: "library", label: "Library health check…", sub: "missing tracks, stray files and artwork", system: false, open: () => openHealth() });
+registerTool({ cmd: "dupes", group: "library", label: "Find duplicates…", sub: "games kept twice, identical copies", system: false, open: () => openDupes() });
 
 // Put the main window on a system, and on one of its games (emptying the search box if that hides it).
 async function showInMain(system, key) {
@@ -208,7 +208,7 @@ async function openHealth() {
     if (!ids.length || look.job) return;
     try {
       const plan = await call("health_fix_plan", { ids });
-      const ok = await rs.confirm({ title: "Library health check", ok: "Fix", message: "Fix these?",
+      const ok = await confirmBox({ title: "Library health check", ok: "Fix", message: "Fix these?",
         detail: plan.lines.map((l) => `• ${l}`).join("\n") +
           (plan.deletes ? `\n\n${plan.deletes.toLocaleString()} files are deleted for good (artwork and videos can be scraped again).` : "") });
       if (!ok) return;
@@ -313,7 +313,7 @@ async function openDupes() {
     const ids = chosen();
     if (!ids.length || look.job) return;
     const sets = ids.map((i) => D.sets[i]), n = sets.reduce((k, s) => k + s.copies.length - 1, 0);
-    const ok = await rs.confirm({ title: "Find duplicates", ok: "Move",
+    const ok = await confirmBox({ title: "Find duplicates", ok: "Move",
       message: `Move ${n.toLocaleString()} extra cop${n === 1 ? "y" : "ies"} of ${plural(sets.length, "game")} (${human(sets.reduce((k, s) => k + extra(s), 0))}) into ${D.holding}?`,
       detail: D.same ? "The holding folder is on the same drive: the space comes back when you delete them there." : "" });
     if (!ok) return;

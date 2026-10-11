@@ -3,7 +3,7 @@
 "use strict";
 
 const SETUP_NAME = /Windows/.test(navigator.userAgent) ? "ES-DE" : "RetroDECK";
-registerTool({ cmd: "setup", label: `Set up ${SETUP_NAME}…`, sub: "install it and use its ROMs folder", anywhere: true, open: () => openSetup() });
+registerTool({ cmd: "setup", group: "library", label: `Set up ${SETUP_NAME}…`, sub: "install it and use its ROMs folder", anywhere: true, open: () => openSetup() });
 
 async function openSetup() {
   let info;
@@ -86,7 +86,7 @@ async function openSetup() {
       <div class="progress-text" id="u-status"></div><pre class="log" id="u-log"></pre>`,
     foot("", `<button class="ghost" id="u-stop">Cancel</button>`));
     sheetBusy = async () => {
-      if (!(await rs.confirm({ title: `Set up ${info.name}`, message: `Stop setting up ${info.name}?`, ok: "Stop" }))) return;
+      if (!(await confirmBox({ title: `Set up ${info.name}`, message: `Stop setting up ${info.name}?`, ok: "Stop" }))) return;
       job?.stop();
     };
     $("u-stop").onclick = sheetBusy;

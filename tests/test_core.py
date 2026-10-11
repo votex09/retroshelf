@@ -2264,5 +2264,23 @@ class YouTube(unittest.TestCase):
             self.assertIsNone(youtube.find("Nothing", "", cache, lambda url: "none"))
             self.assertTrue(youtube.embed("dQw4w9WgXcQ").startswith(youtube.EMBED + "dQw4w9WgXcQ?"))
 
+
+class MediaFolder(unittest.TestCase):
+    def test_finds_esde_media_where_its_settings_or_emudeck_put_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            home, roms = os.path.join(d, "home"), os.path.join(d, "Emulation", "roms")
+            os.makedirs(roms)
+            with mock.patch.dict(os.environ, {"HOME": home, "USERPROFILE": home}):
+                self.assertEqual(scraper.media_root(roms), os.path.realpath(os.path.join(d, "Emulation", "ES-DE", "downloaded_media")))
+                tools = os.path.join(d, "Emulation", "tools", "downloaded_media")  # EmuDeck
+                os.makedirs(tools)
+                self.assertEqual(scraper.media_root(roms), os.path.realpath(tools))
+                custom = os.path.join(d, "SD card", "media & art")  # ES-DE: Game media directory
+                os.makedirs(custom)
+                os.makedirs(os.path.join(home, "ES-DE", "settings"))
+                with open(os.path.join(home, "ES-DE", "settings", "es_settings.xml"), "w", encoding="utf-8") as f:
+                    f.write(f'<?xml version="1.0"?>\n<string name="MediaDirectory" value="{custom.replace("&", "&amp;")}" />\n')
+                self.assertEqual(scraper.media_root(roms), os.path.realpath(custom))
+
 if __name__ == "__main__":
     unittest.main()

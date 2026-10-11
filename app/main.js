@@ -85,11 +85,6 @@ ipcMain.handle("helper:call", async (_e, method, params) => {
   allowMedia(result);
   return result;
 });
-ipcMain.handle("confirm", async (_e, opts) => {
-  const r = await dialog.showMessageBox(win, { type: opts.warning ? "warning" : "question", buttons: [opts.ok || "OK", "Cancel"], defaultId: 0,
-    cancelId: 1, title: opts.title || "RetroShelf", message: opts.message, detail: opts.detail || undefined });
-  return r.response === 0;
-});
 ipcMain.handle("pick-folder", async (_e, start, title) => {
   const r = await dialog.showOpenDialog(win, { title: title || "Your ROMs folder", defaultPath: start || undefined,
     properties: ["openDirectory", "createDirectory"] });

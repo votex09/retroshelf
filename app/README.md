@@ -21,7 +21,9 @@ renderer/          the window: app.js (the main window), list.js (the game lists
                    restore, Review, collections, region priority, LaunchBox match), the ☰ menu's tool windows
                    (tools.js: scrape, rename; file-tools.js: compress, import; library-tools.js: storage, health
                    check, duplicates; stores.js: NoPayStation, homebrew stores; setup.js: first-run setup;
-                   settings.js: settings and help), art.js (stand-in box art); the look comes from mockups/electron
+                   settings.js: settings and help), pad.js (the gamepad and keyboard cursor outside the lists,
+                   drop-down lists and the on-screen keyboard), art.js (stand-in box art); the look comes from
+                   mockups/electron
 helper/helper.py   the Python helper: JSON lines over stdin / stdout, calling lib/ (see its docstring)
 helper/rpc.py      its plumbing: @method, events, long jobs with progress and Stop
 helper/tool_*.py   each tool window's Python side

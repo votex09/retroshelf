@@ -16,8 +16,8 @@ function setProgress(barId, textId, p) {
 }
 
 // ---------- Scrape metadata ----------
-registerTool({ cmd: "scrape", label: "Scrape metadata…", sub: "LaunchBox text and artwork for ES-DE", system: true, open: () => openScrape() });
-registerTool({ cmd: "rename", label: "Rename files…", sub: "to No-Intro style names, undoable", system: true, open: () => openRename() });
+registerTool({ cmd: "scrape", group: "system", label: "Scrape metadata…", sub: "LaunchBox text and artwork for ES-DE", system: true, open: () => openScrape() });
+registerTool({ cmd: "rename", group: "system", label: "Rename files…", sub: "to No-Intro style names, undoable", system: true, open: () => openRename() });
 
 async function openScrape() {
   await flushDecide();
@@ -139,7 +139,7 @@ async function openRename() {
   $("n-close").onclick = closeSheet;
   $("n-undo").onclick = () => { closeSheet(); openRenameUndo(); };
   $("n-go").onclick = async () => {
-    const ok = await rs.confirm({ title: "Rename files", ok: "Rename", message: `Rename ${plural(plan.rename, "file")}?`,
+    const ok = await confirmBox({ title: "Rename files", ok: "Rename", message: `Rename ${plural(plan.rename, "file")}?`,
       detail: "You can undo this later with Undo… in this window." });
     if (!ok) return;
     try {

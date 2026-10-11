@@ -66,7 +66,21 @@ function overlay(html, buttons = []) {
   $("overlay").hidden = false;
   btns?.querySelector(".primary")?.focus();
 }
-const closeOverlay = () => ($("overlay").hidden = true);
+let overlayCancel = null;  // what B / Esc does in a question (confirmBox)
+const closeOverlay = () => { $("overlay").hidden = true; overlayCancel = null; };
+
+// Asks before something big. -> true for the ok button. In the window rather than a system dialog, so a gamepad can
+// answer it too (A / Enter for ok, B / Esc cancels).
+function confirmBox({ title = "", message = "", detail = "", ok = "OK", cancel = "Cancel", warning = false }) {
+  return new Promise((resolve) => {
+    const done = (answer) => { closeOverlay(); resolve(answer); };
+    const short = message && message.length <= 90 && !message.includes("\n");
+    overlay(`<h2>${esc(short ? message : title)}</h2>${short ? "" : `<p class="lines">${esc(message)}</p>`}
+      ${detail ? `<p class="lines">${esc(detail)}</p>` : ""}`, [[cancel, () => done(false)], [ok, () => done(true), true]]);
+    overlayCancel = () => done(false);
+    if (warning) $("overlay-box").querySelector(".primary").classList.add("danger");
+  });
+}
 const busy = (text) => overlay(`<div class="spinner"></div><h2>${esc(text)}</h2>`);
 
 function rollNumber(el, to, fmt = (v) => Math.round(v).toLocaleString()) {
@@ -349,7 +363,8 @@ function renderDetails(g, fresh) {
     <div class="rating">${rating}</div>
     <div class="genres">${g.genres.map((x) => `<span>${esc(x)}</span>`).join("")}</div>
     <p class="state-line" id="state-line"></p>
-    ${d && !d.video ? `<button class="link" id="yt">▶ Gameplay videos on YouTube ↗</button>` : ""}
+    <div class="detail-links"><button class="link" id="game-menu" title="Right-click a game, R3 or the Menu key">Game options…</button>
+    ${d && !d.video ? `<button class="link" id="yt">▶ Gameplay videos on YouTube ↗</button>` : ""}</div>
     ${lbCard}
     ${d?.description ? `<div class="desc">${esc(d.description)}</div>` : ""}
     <div class="facts">${facts.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join("")}</div>`;
@@ -376,6 +391,10 @@ function renderDetails(g, fresh) {
   const bg = images[0] ? Art.media(images[0].path) : Art.cover(g.title, sys);
   $("backdrop").style.backgroundImage = `url("${bg}")`;
   $("lb-download")?.addEventListener("click", downloadLaunchbox);
+  $("game-menu").addEventListener("click", (e) => {
+    const r = e.target.getBoundingClientRect(), row = L().rows.get(g.key);
+    if (row) rowMenu(S.active, { target: row, clientX: r.left, clientY: r.bottom + 4, preventDefault() {} });
+  });
   $("yt")?.addEventListener("click", () => rs.openUrl("https://www.youtube.com/results?search_query=" +
     encodeURIComponent([d.title || g.title, d.console || S.sys.fullname, "gameplay"].join(" "))));  // no clip from ES-DE
   if (fresh) { body.classList.remove("swap"); void body.offsetHeight; body.classList.add("swap"); body.scrollTop = 0; }
@@ -398,11 +417,21 @@ function playVideo(quiet) {
   const media = $("media");
   media.innerHTML = `<video src="${Art.media(d.video)}" autoplay loop playsinline ${quiet ? "muted" : "controls"}></video>`
     + (quiet ? `<button class="unmute">🔇 Sound</button>` : "");
+  media.querySelector("video").addEventListener("error", () => clipFailed(media, d.video));
   media.querySelector(".unmute")?.addEventListener("click", (e) => {
     const v = media.querySelector("video");
     v.muted = false; v.controls = true; e.target.remove();
   });
   markThumb($("thumbs").children.length - 1);
+}
+
+// A clip that won't play (a format Chromium can't decode, an unreadable file): say so instead of a blank box.
+function clipFailed(media, file) {
+  const v = media.querySelector("video");
+  const why = { 3: "it couldn't be decoded", 4: "its format isn't supported" }[v?.error?.code] || "it couldn't be read";
+  console.error(`Video ${file}: ${v?.error?.message || why}`);
+  media.querySelector(".unmute")?.remove();
+  media.insertAdjacentHTML("beforeend", `<p class="clip-error">This game's clip can't play: ${esc(why)}.</p>`);
 }
 
 // No ES-DE clip: the top YouTube gameplay video, in YouTube's own player (the helper finds it: lib/youtube.py).
@@ -654,7 +683,7 @@ async function doMove() {
       plan.installed ? `${plural(plan.installed, "game has", "games have")} installed data that moves with them.` : "",
       plan.same_drive ? "" : "That folder is on another drive, so the files are copied across, which can take a while.",
     ].filter(Boolean).join("\n\n");
-    const ok = await rs.confirm({ title: "Move games", ok: "Move",
+    const ok = await confirmBox({ title: "Move games", ok: "Move",
       message: `Move ${plural(plan.games, "game")} (${plural(plan.files, "file")}, ${human(plan.size)}) out of ${S.sys.fullname}?`, detail });
     if (!ok) return;
     busy(`Moving ${plural(plan.games, "game")}…`);
@@ -686,20 +715,55 @@ function runJob(method, params, onProgress) {
 }
 
 // ---------- the ☰ menu ----------
-// Tool windows add themselves: registerTool({ cmd, label, sub, system: needs an open system, anywhere: needs no ROMs
-// folder either, open })
+// Tool windows add themselves: registerTool({ cmd, group: the submenu (system, library, get), label, sub: its
+// tooltip, key, system: needs an open system, anywhere: needs no ROMs folder either, open })
 const TOOLS = [];
 function registerTool(t) { TOOLS.push(t); }
 
-function openMenu() {
+// The ☰ menu: a short list, with the rest one level down (registerTool's group puts a tool in one).
+const MENU = [
+  { cmd: "review", label: "Review one at a time…", key: "Ctrl+R", need: "system" },
+  { group: "moved", label: "Moved games" },
+  { group: "system", label: "This system" },
+  { group: "library", label: "Library" },
+  { group: "get", label: "Get games" },
+  null,
+  { cmd: "settings", label: "Settings…" },
+  { cmd: "keys", label: "Keyboard and gamepad" },
+];
+const GROUPS = {
+  moved: { label: "Moved games", items: [
+    { cmd: "holding", label: "Holding folder…", sub: "see, restore or delete moved games", need: "roms" },
+    { cmd: "moves", label: "Restore a move…", sub: "undo a whole Move", need: "roms" },
+    { cmd: "export", label: "Export move list…", need: "moving" },
+    { cmd: "change-holding", label: "Change holding folder…", need: "roms" }] },
+  system: { label: "This system", items: [
+    { cmd: "rescan", label: "Rescan", key: "F5", need: "system" },
+    { cmd: "priority", label: "Region priority…", need: "system" },
+    { cmd: "collection", label: "Save as an ES-DE collection…", need: "system" }] },
+  library: { label: "Library", items: [
+    { cmd: "change-roms", label: "Change ROMs folder…" },
+    { cmd: "launchbox", label: "Download LaunchBox data", sub: "ratings, genres and descriptions" }] },
+  get: { label: "Get games", items: [] },
+};
+
+function openMenu(group = null) {
   const m = $("menu");
-  $("menu-tools").innerHTML = TOOLS.map((t) => `<button data-cmd="${t.cmd}">${esc(t.label)}${t.sub ? `<small>${esc(t.sub)}</small>` : ""}</button>`).join("");
-  for (const b of m.querySelectorAll("button[data-cmd]")) {
-    b.disabled = ["priority", "export", "rescan", "review", "collection"].includes(b.dataset.cmd) && !S.sys ||
-      b.dataset.cmd === "export" && !S.games.some((g) => g.move) || ["holding", "moves", "change-holding"].includes(b.dataset.cmd) && !S.overview?.roms;
+  const can = (it) => it.need === "system" ? Boolean(S.sys) : it.need === "roms" ? Boolean(S.overview?.roms)
+    : it.need === "moving" ? S.games.some((g) => g.move) : true;
+  const item = (it) => !it ? "<hr>" : it.group
+    ? `<button data-group="${it.group}">${esc(it.label)}<span class="sub-arrow">›</span></button>`
+    : `<button data-cmd="${it.cmd}"${can(it) ? "" : " disabled"}${it.sub ? ` title="${esc(it.sub)}"` : ""}>${esc(it.label)}${it.key ? `<kbd>${esc(it.key)}</kbd>` : ""}</button>`;
+  let items = MENU;
+  if (group) {
+    const tools = TOOLS.filter((t) => (t.group || "library") === group).map((t) => ({ cmd: t.cmd, label: t.label, sub: t.sub, key: t.key,
+      need: t.anywhere ? null : t.system ? "system" : "roms" }));
+    items = group === "system" ? [...GROUPS.system.items, ...tools] : group === "library" ? [...tools, null, ...GROUPS.library.items]
+      : [...GROUPS[group].items, ...tools];
+    items = items.map((it) => it?.cmd === "launchbox" ? { ...it, label: S.overview?.launchbox ? "Update LaunchBox data" : "Download LaunchBox data" } : it);
   }
-  for (const t of TOOLS) m.querySelector(`[data-cmd="${t.cmd}"]`).disabled = !t.anywhere && (t.system && !S.sys || !S.overview?.roms);
-  m.querySelector('[data-cmd="launchbox"]').firstChild.textContent = S.overview?.launchbox ? "Update LaunchBox data" : "Download LaunchBox data";
+  m.innerHTML = (group ? `<button class="menu-back" data-back="1">‹ ${esc(GROUPS[group].label)}</button><hr>` : "") + items.map(item).join("");
+  m.dataset.group = group || "";
   m.hidden = false;
 }
 
@@ -794,7 +858,7 @@ async function hideGames(keys, hide) {
     return;
   }
   if (hide) {
-    const ok = await rs.confirm({ title: "Hide in ES-DE", ok: "Hide",
+    const ok = await confirmBox({ title: "Hide in ES-DE", ok: "Hide",
       message: `Hide ${plural(check.games, "game")} in ES-DE?`,
       detail: "The files stay where they are; ES-DE just leaves them out of its menus. Hidden games stay in Keeping." +
         (check.shows_hidden ? "\n\nES-DE is set to show hidden games, so that's turned off too (ES-DE: Other settings → Show hidden games)." : "") });
@@ -816,14 +880,17 @@ async function setMatch(key, gid, clear = false) {
 // ---------- hints, keyboard and gamepads ----------
 function hints() {
   document.body.classList.toggle("pad", S.pad);
-  const marked = L().items.filter((g) => S.marked.has(g.key)).length;
+  const ui = typeof uiHints === "function" ? uiHints() : null;
+  const marked = S.sys ? L().items.filter((g) => S.marked.has(g.key)).length : 0;
   const verb = S.active === "keep" ? "Move" : "Keep";
   const act = marked ? `${verb} ${marked} marked` : verb;
-  const h = S.pad
-    ? [["a", "A", "Mark"], ["x", "X", act], ["y", "Y", "Undo"], ["bumper", "LB/RB", "Switch list"], ["b", "B", "Close"]]
+  const h = ui || (S.pad
+    ? [["a", "A", "Mark"], ["x", "X", act], ["y", "Y", "Undo"], ["bumper", "LB/RB", "Switch list"], ["start", "☰", "Menu"],
+      ["view", "⧉", "Toolbar"]]
     : [["key", S.active === "keep" ? "→" : "←", act], ["key", "Space", "Mark"], ["key", "Tab", "Switch list"],
-      ["key", "Ctrl+Z", "Undo"], ["key", "/", "Search"]];
-  $("hints").innerHTML = h.map(([c, g, t]) => `<span class="hint"><span class="glyph ${c}">${esc(g)}</span>${esc(t)}</span>`).join("");
+      ["key", "Ctrl+Z", "Undo"], ["key", "/", "Search"], ["key", "F6", "Toolbar"]]);
+  const html = h.map(([c, g, t]) => `<span class="hint"><span class="glyph ${c}">${esc(g)}</span>${esc(t)}</span>`).join("");
+  if ($("hints").innerHTML !== html) $("hints").innerHTML = html;
 }
 
 function handle(key, e = {}) {
@@ -859,50 +926,6 @@ function handle(key, e = {}) {
   return true;
 }
 
-document.addEventListener("keydown", (e) => {
-  if (!$("overlay").hidden) return;
-  if (e.target === $("search")) {
-    if (e.key === "Escape" || e.key === "ArrowDown" || e.key === "Enter") { e.target.blur(); e.preventDefault(); }
-    return;
-  }
-  if (e.target.closest("input, textarea, select")) {
-    if (e.key === "Escape") { e.target.blur(); if ($("sheet-wrap").hidden) closePopovers(); else closeSheet(); }
-    return;
-  }
-  if (!$("sheet-wrap").hidden) {
-    if (e.key === "Escape") closeSheet();
-    else if (sheetKeys && sheetKeys(e.key, e)) e.preventDefault();
-    return;
-  }
-  if (e.key === "/" || (e.ctrlKey && e.key === "f")) { $("search").focus(); $("search").select(); e.preventDefault(); return; }
-  if (S.pad) { S.pad = false; hints(); }
-  if (handle(e.key, e)) e.preventDefault();
-});
-
-// Gamepads (Steam Deck, Xbox and the like) press the same keys: d-pad, A mark, X flip, Y undo, LB/RB switch list,
-// LT/RT page, B close.
-const BUTTONS = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight", 0: " ", 2: "Enter", 3: "Backspace",
-  4: "Tab", 5: "Tab", 6: "PageUp", 7: "PageDown", 1: "Escape" };
-const held = {};
-function pollPads(now) {
-  if (!S.opts.gamepad) { requestAnimationFrame(pollPads); return; }
-  for (const pad of navigator.getGamepads ? navigator.getGamepads() : []) {
-    if (!pad) continue;
-    const pressed = new Set(Object.keys(BUTTONS).filter((b) => pad.buttons[b]?.pressed).map(Number));
-    if (pad.axes[1] < -0.55) pressed.add(12);
-    if (pad.axes[1] > 0.55) pressed.add(13);
-    for (const b of pressed) {
-      if (!(b in held)) {
-        held[b] = now + 400;
-        if (!S.pad) { S.pad = true; hints(); }
-        if ($("overlay").hidden && document.activeElement?.tagName !== "TEXTAREA") handle(BUTTONS[b]);
-      } else if (b >= 12 && b <= 13 && now >= held[b]) { held[b] = now + 80; handle(BUTTONS[b]); }
-    }
-    for (const b of Object.keys(held)) if (!pressed.has(Number(b))) delete held[b];
-  }
-  requestAnimationFrame(pollPads);
-}
-
 // ---------- start ----------
 async function start() {
   rs.version().then((v) => ($("version").textContent = `v${v}`));
@@ -928,11 +951,16 @@ async function start() {
   $("hide-btn").onclick = () => hideGames(S.games.filter((g) => g.move).map((g) => g.key), true);
   $("reset-flips").onclick = resetFlips;
   $("menu-btn").onclick = (e) => { e.stopPropagation(); const open = $("menu").hidden; closePopovers(); if (open) openMenu(); };
-  $("menu").addEventListener("click", (e) => { const b = e.target.closest("button[data-cmd]"); if (b) { closePopovers(); menuCommand(b.dataset.cmd); } });
+  $("menu").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.group) { openMenu(b.dataset.group); return; }
+    if (b.dataset.back) { const g = $("menu").dataset.group; openMenu(); $("menu").querySelector(`[data-group="${g}"]`)?.focus(); return; }
+    if (b.dataset.cmd) { closePopovers(); menuCommand(b.dataset.cmd); }
+  });
   for (const name of LISTS) $(name).addEventListener("contextmenu", (e) => rowMenu(name, e));
   wireFilters();
   hints();
-  requestAnimationFrame(pollPads);
 
   const summary = { roms: "", systems: 0, system: "", games: 0 };
   try {
