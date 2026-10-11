@@ -179,6 +179,23 @@ class AppTest(unittest.TestCase):
         self.assertFalse(os.path.exists(held))  # emptied folders are pruned
         self.assertEqual(len(a.units), SNES_N)
 
+    def test_new_app_handoff(self):
+        a = self.app
+        a.cfg["region_priority"] = "Japan, USA"
+        new = tempfile.mkdtemp(prefix="retroshelf-app-")
+        self.addCleanup(shutil.rmtree, new, ignore_errors=True)
+        a.app_dialog({"name": "RetroShelf-2026.1012.0-linux-x86_64.AppImage", "url": "https://x/app", "size": 9,
+                      "page": "https://x/release"})
+        win = self.root.winfo_children()[-1]
+        with mock.patch.object(self.rs.handoff, "app_data_dir", return_value=new), \
+                mock.patch.object(self.rs.webbrowser, "open") as browser:
+            button(win, "Download the new app").invoke()
+        browser.assert_called_once_with("https://x/app")
+        with open(os.path.join(new, "config.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["region_priority"], "Japan, USA")
+        self.assertNoErrors()
+        win.destroy()
+
     def test_keep_flips_survive_a_move(self):
         a = self.app
         self.preset(SPORTS)
