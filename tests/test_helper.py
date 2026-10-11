@@ -716,6 +716,30 @@ print(json.dumps({"info": info, "load": load, "us": us, "braid": braid, "hidden"
         self.assertEqual([q["name"] for q in out["up"]], ["Game  ·  update 1.01", "Game  ·  update 1.02"])
         self.assertTrue(self.config_value("nps_keep_pkg"))
 
+    def test_nopaystation_art(self):
+        """A picked game's box art and screenshot come from LaunchBox's data, matched by name."""
+        out = session(self.data, self.FAKE_WEB + """
+import launchbox as lb
+h.startup()
+before = h.nps_art("psp", "Braid", "US")
+lb.CACHE = os.path.join(os.environ["RETROSHELF_DATA"], "cache", "launchbox")
+os.makedirs(lb.CACHE)
+lb.META = os.path.join(lb.CACHE, "_meta.json")
+json.dump({"updated": "x", "platforms": ["Sony PSP"], "platform_alts": {}, "details": True}, open(lb.META, "w"))
+json.dump({"games": {"7": {"n": "Braid", "r": None, "v": 0, "g": []}}, "alts": []}, open(lb.CACHE + "/Sony_PSP.json", "w"))
+import gzip
+with gzip.open(lb.CACHE + "/Sony_PSP.details.json.gz", "wt") as f:
+    json.dump({"7": {"o": "", "img": [["Screenshot - Gameplay", "s.png", ""], ["Box - Front", "eu.png", "Europe"],
+                                      ["Box - Front", "us.png", "North America"]]}}, f)
+art = h.nps_art("psp", "Braid (Demo)", "US")
+none = h.nps_art("psp", "Nothing Like It", "US")
+print(json.dumps({"before": before, "art": art, "none": none, "shot": h.store_shot(art["art"][0])[:22]}))""")
+        self.assertIn("download LaunchBox data", out["before"]["problem"])
+        self.assertEqual(out["art"], {"art": ["https://images.launchbox-app.com/us.png",
+                                              "https://images.launchbox-app.com/s.png"], "problem": ""})
+        self.assertEqual(out["none"], {"art": [], "problem": "No artwork: LaunchBox doesn't know this game"})
+        self.assertEqual(out["shot"], "data:image/png;base64,")
+
     def config_value(self, key):
         with open(os.path.join(self.data, "config.json"), encoding="utf-8") as f:
             return json.load(f)[key]

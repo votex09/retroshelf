@@ -5,7 +5,7 @@ NoPayStation: the lists and each row's status come from lib/nps_queue.py; the wi
 rows to nps_run, which downloads and installs them as a job ("progress" events carry each row's status by its key).
 The stores: one window for all four, a "store" naming its source in lib/catalog.py. Games the user downloads in their
 browser are filed by a Downloads watcher per store, which the window polls with store_watch."""
-import base64, os, shutil, threading, time, urllib.request
+import base64, os, re, shutil, threading, time, urllib.request
 
 import catalog
 import downloads
@@ -43,6 +43,7 @@ def _open_system():
 # ---------- NoPayStation ----------
 _nps = {"rows": {}, "lib": None}  # (system, kind) -> rows; the Library of the system the window is on
 _nps_lock = threading.RLock()
+_nps_lb = {}  # platform -> (LaunchBox Matcher, details), for nps_art
 
 
 def _key(r):
@@ -90,7 +91,7 @@ def nps_info(system=None):
     console, kinds = nps.CONSOLES[system]
     _lib(system, fresh=True)  # look at what's here afresh each time the window opens
     emulator = nps.SYSTEM_EMULATOR.get(system)
-    return {"system": system, "console": console, "kinds": list(kinds), "regions": nps_queue.REGION_CHOICES,
+    return {"system": system, "console": console, "console_name": nps.FULL_NAMES[system], "kinds": list(kinds), "regions": nps_queue.REGION_CHOICES,
             "systems": [[s, nps.FULL_NAMES[s]] for s in nps.CONSOLES], "note": nps_queue.INSTALL_NOTES[console],
             "problem": nps.firmware_problem(system, roms), "age": _list_date(system), "mine": system in ("ps3", "psvita"),
             "dir": nps_queue.default_dir(cfg), "keep_pkg": cfg.get("nps_keep_pkg", False),
@@ -134,6 +135,34 @@ def nps_rows(system, kind, region="All regions", query="", mine=False, hide_have
     shown, status = nps_queue.shown_rows(rows, kind, lib.owned_ids, lambda r: queued.get(_key(r)) or lib.status(r),
                                          region, query, mine, hide_have, (sort, desc))
     return {"rows": [_nps_out(r, status[id(r)], lib) for r in shown[:limit]], "shown": len(shown), "total": len(rows)}
+
+
+_nps_art = {}  # (platform, name, region) -> nps_art's answer
+NPS_ART_TYPES = (["Box - Front", "Box - Front - Reconstructed", "Fanart - Box - Front"],
+                 ["Screenshot - Gameplay", "Screenshot - Game Title"])
+
+
+@method
+def nps_art(system, name, region=""):
+    """A NoPayStation game's box art and a screenshot from LaunchBox's data (matched by name) -> {"art": [image
+    urls, load them with store_shot], "problem"}; problem says why there's none."""
+    platform = lb.resolve_platform(system, nps.FULL_NAMES.get(system), ctx["cfg"]["platform_overrides"])
+    if not platform or not lb.has_details():
+        return {"art": [], "problem": "No artwork: download LaunchBox data from the ☰ menu first"}
+    title = re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", "", name).strip()
+    k = (platform, title, region)
+    if k not in _nps_art:
+        with _nps_lock:
+            if platform not in _nps_lb:
+                _nps_lb[platform] = (lb.Matcher(platform), lb.load_details(platform))
+        matcher, details = _nps_lb[platform]
+        gid, _, _ = matcher.match(title)
+        det = details.get(gid) or {}
+        regions = (nps.REGIONS.get(region, region),) if region else ()
+        art = [scraper.pick_image(det.get("img", []), types, regions) for types in NPS_ART_TYPES]
+        _nps_art[k] = {"art": [lb.IMAGE_URL + i[1] for i in art if i],
+                       "problem": "" if gid else "No artwork: LaunchBox doesn't know this game"}
+    return _nps_art[k]
 
 
 @method
