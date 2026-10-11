@@ -66,3 +66,40 @@ def import_old(folder):
         if roms and not os.path.isdir(roms):
             ctx["cfg"]["roms_root"] = ""
         return {"copied": copied, "overview": ctx["overview"]()}
+
+
+@method
+def old_app():
+    """The old (Tk) RetroShelf, the first time the new app finds it: -> {"folder", "data", "menu", "git"}, or None
+    (none found, or already dealt with). menu: its app-menu entry still starts it."""
+    cfg = ctx["cfg"]
+    if not cfg:
+        ctx["reload_cfg"]()
+    if cfg.get("old_app_done"):
+        return None
+    folder = handoff.find_old()
+    if not folder:
+        return None
+    return {"folder": folder, "data": handoff.has_data(folder), "menu": handoff.old_entry() == folder,
+            "git": os.path.isdir(os.path.join(folder, ".git"))}
+
+
+@method
+def adopt_old(folder):
+    """Bring the old app's data over without undoing anything set in this app since. -> what was brought over."""
+    with ctx["state_lock"]:
+        copied = handoff.copy_data(folder, ctx["data_dir"], new_wins=True)
+        ctx["reload_cfg"]()
+    return copied
+
+
+@method
+def retire_old(folder, remove=False):
+    """Don't ask about the old app again; with remove, delete its folder (and its app-menu entry if still its)."""
+    if remove:
+        cfg = ctx["cfg"]
+        handoff.remove_old(folder, keep=(ctx["data_dir"], ctx["app_dir"], cfg.get("roms_root"),
+                                         cfg.get("holding_root")))
+    with ctx["state_lock"]:
+        ctx["cfg"]["old_app_done"] = True
+        ctx["save_cfg"]()

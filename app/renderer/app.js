@@ -968,9 +968,11 @@ async function start() {
   hints();
 
   const summary = { roms: "", systems: 0, system: "", games: 0 };
+  let old = null;
   try {
     const hello = await call("hello");
     Object.assign(summary, { python: hello.python, frozen: hello.frozen });
+    old = await switchFromOld();
     S.overview = await call("startup");
     applyOptions(await call("settings"));
     if (S.opts.check_updates) rs.checkUpdates(true).catch(() => {});
@@ -991,6 +993,32 @@ async function start() {
     summary.error = e.message;
   }
   rs.ready(summary);
+  if (old && S.overview?.roms) setTimeout(() => offerRemoveOld(old), 800);
+}
+
+// The old (Tk) RetroShelf, found by its app-menu entry: its settings come over and the entry opens this app, without
+// asking (lib/handoff.py); then removing the old copy is offered once.
+async function switchFromOld() {
+  const old = await call("old_app").catch(() => null);
+  if (!old) return null;
+  old.brought = old.data ? await call("adopt_old", { folder: old.folder }).catch(() => []) : [];
+  old.menuMoved = old.menu && !(await rs.addToMenu().catch((e) => e.message));
+  return old;
+}
+
+async function offerRemoveOld(old) {
+  const done = [old.brought.length && "your settings, logs and LaunchBox matches are in this app",
+    old.menuMoved && "the app menu's RetroShelf opens this app"].filter(Boolean);
+  const remove = await confirmBox({ title: "The old RetroShelf is still here",
+    message: `It's in ${old.folder}.${done.length ? ` ${done.join(", and ").replace(/^./, (c) => c.toUpperCase())}.` : ""}` +
+      " Nothing else needs it: remove it?",
+    detail: (old.git ? "It's a git clone: changes in it that weren't pushed go with it. " : "") +
+      "If you added the old one to Steam, add this app there instead.",
+    ok: "Remove it", cancel: "Keep it", warning: true });
+  try {
+    await call("retire_old", { folder: old.folder, remove });
+    if (remove) toast("The old RetroShelf is removed");
+  } catch (e) { oops(e); }
 }
 
 document.addEventListener("DOMContentLoaded", start);  // once sheets.js, tools.js … have loaded too

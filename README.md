@@ -239,8 +239,10 @@ everything else it needs are inside.
 - **Windows:** `RetroShelf-<version>-win-x64.exe` installs it (no administrator needed), or run
   `RetroShelf-<version>-portable.exe` from anywhere.
 
-Coming from the older version (the zip with `retroshelf.py`)? Its last update offers the app and brings your
-settings, move and rename logs, hand-picked matches and downloaded data over. You can also do that from the app:
+Coming from the older version (the zip with `retroshelf.py`)? The first time the app runs it finds the old copy
+(from its app-menu entry, or in your home folder), brings your settings, move and rename logs, hand-picked matches and
+downloaded data over without undoing anything you've set in the app, and points the app-menu entry (Windows: the
+Start menu shortcut) at the app. Then it offers to remove the old copy. For a copy kept somewhere else:
 **☰ → Settings → Bring settings over from the old RetroShelf…**, then pick its folder.
 
 ### The older version
