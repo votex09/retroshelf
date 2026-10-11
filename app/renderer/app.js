@@ -51,6 +51,8 @@ function toast(text, { undo = false, error = false } = {}) {
   toastTimer = setTimeout(() => t.classList.remove("show"), error ? 5000 : 2400);
 }
 const oops = (e) => { console.error(e); toast(e.message || String(e), { error: true }); };
+// A button or key whose work failed without its own catch (Hide, F5, …): say so rather than doing nothing at all.
+window.addEventListener("unhandledrejection", (e) => { e.preventDefault(); oops(e.reason ?? "Something went wrong"); });
 
 // A box over the window. buttons: [[label, fn, primary?]]; none: it can't be closed (busy).
 function overlay(html, buttons = []) {
@@ -79,7 +81,10 @@ function confirmBox({ title = "", message = "", detail = "", ok = "OK", cancel =
     overlay(`<h2>${esc(short ? message : title)}</h2>${short ? "" : `<p class="lines">${esc(message)}</p>`}
       ${detail ? `<p class="lines">${esc(detail)}</p>` : ""}`, [[cancel, () => done(false)], [ok, () => done(true), true]]);
     overlayCancel = () => done(false);
-    if (warning) $("overlay-box").querySelector(".primary").classList.add("danger");
+    if (warning) {  // (something that can't be undone: the cursor starts on Cancel, so a stray A / Enter doesn't do it)
+      $("overlay-box").querySelector(".primary").classList.add("danger");
+      $("overlay-box").querySelector(".btns .ghost").focus();
+    }
   });
 }
 // Folders and files are always picked in the window (pad.js's browseBox): the desktop's dialog can't be worked with a
@@ -195,6 +200,7 @@ function rememberCursor() {
 
 // ---------- deciding (in the helper) ----------
 let decideTimer = null, decideSeq = 0, deciding = null;
+const wanted = new Map();  // games just flipped by dropping their old flip -> the list they should end up in
 function scheduleDecide(delay = 250) {
   clearTimeout(decideTimer);
   decideTimer = setTimeout(() => { decideTimer = null; runDecide(); }, delay);
@@ -202,7 +208,19 @@ function scheduleDecide(delay = 250) {
 function runDecide() {
   const seq = ++decideSeq;
   deciding = call("decide", { state: S.st, cursor_key: L().current?.key ?? null })
-    .then((dec) => { if (seq === decideSeq) applyDecision(dec); })
+    .then((dec) => {
+      if (seq !== decideSeq) return;
+      // Dropping a flip hands the game back to the filters, which may have come to agree with that flip since: then
+      // it has to be flipped the other way instead, or it would stay put.
+      const moving = new Set(dec.move);
+      let again = false;
+      for (const [k, want] of wanted) {
+        if (moving.has(k) !== want && !(k in S.st.flips) && S.byKey.has(k)) { S.st.flips[k] = want; S.byKey.get(k).why = "manual"; again = true; }
+      }
+      wanted.clear();
+      if (again) return runDecide();
+      applyDecision(dec);
+    })
     .catch(oops);
   return deciding;
 }
@@ -234,7 +252,7 @@ function flip(keys) {
   for (const k of keys) {
     const g = S.byKey.get(k);
     prev[k] = S.st.flips[k];
-    if (k in S.st.flips) { delete S.st.flips[k]; g.why = ""; } else { S.st.flips[k] = !g.move; g.why = "manual"; }
+    if (k in S.st.flips) { delete S.st.flips[k]; g.why = ""; wanted.set(k, !g.move); } else { S.st.flips[k] = !g.move; g.why = "manual"; }
     g.move = !g.move;
   }
   S.undo.push({ keys, prev });
@@ -651,7 +669,15 @@ async function openSystem(code) {
   $("system-tag").textContent = code;
   $("system-name").textContent = "Loading…";
   for (const name of LISTS) $(name).querySelector(".empty").textContent = "Loading…";
-  const res = await call("open_system", { system: code });
+  let res;
+  try {
+    res = await call("open_system", { system: code });
+  } catch (e) {  // (the folder went, say): the header goes back to the system that's still open
+    $("system-tag").textContent = S.sys?.system || "";
+    $("system-name").textContent = S.sys?.fullname || "Pick a system";
+    for (const name of LISTS) { const l = lists[name]; l.emptyEl.textContent = l.emptyText(); }
+    throw e;
+  }
   loadSystem(res);
 }
 
