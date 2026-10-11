@@ -101,7 +101,7 @@ async function openSettings() {
     };
   });
   $("o-old").onclick = async () => {
-    const folder = await rs.pickFolder(null, "The old RetroShelf's folder (with retroshelf.py in it)");
+    const folder = await pickFolder(null, "The old RetroShelf's folder (with retroshelf.py in it)");
     if (!folder) return;
     try {
       const r = await call("import_old", { folder });

@@ -540,6 +540,7 @@ def restore_moves(ids):
 rpc.ctx.update(cfg=cfg, save_cfg=save_cfg, need_system=_need_system, open_system=open_system, current=current,
                state_lock=_state_lock, data_dir=DATA_DIR, app_dir=APP_DIR, overview=_overview,
                reload_cfg=load_cfg)
+import tool_browse  # noqa: E402,F401
 import tool_files  # noqa: E402,F401
 import tool_library  # noqa: E402,F401
 import tool_rename  # noqa: E402,F401

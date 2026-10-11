@@ -489,6 +489,47 @@ const picker = (() => {
   return { open, close, shown: () => Boolean(el && !el.hidden) };
 })();
 
+// ---------- folders and files, without the desktop's dialog (a gamepad can't work that one) ----------
+// -> the folder's path (files: [paths], save: the folder joined to that name), or null / [] when cancelled.
+function browseBox({ start = null, title = "Your ROMs folder", files = false, save = null } = {}) {
+  return new Promise((resolve) => {
+    const picked = new Set();
+    let here = null;
+    const done = (answer) => { closeOverlay(); resolve(answer); };
+    async function show(path, land = null) {  // land: the entry to put the cursor on (the folder just left)
+      try { here = await call("browse", { path, files }); } catch (e) { oops(e); done(files ? [] : null); return; }
+      const join = (name) => here.path.replace(/[\\/]$/, "") + here.sep + name;
+      const entries = here.entries.map((e) => `<button class="${e.dir ? "dir" : "file"}${picked.has(join(e.name)) ? " on" : ""}"
+        data-name="${esc(e.name)}">${e.dir ? "📁" : "📄"} ${esc(e.name)}</button>`).join("");
+      overlay(`<h2>${esc(title)}</h2>
+        <div class="browse-places">${here.places.map((p, i) => `<button class="chip" data-place="${i}">${esc(p.label)}</button>`).join("")}</div>
+        <p class="browse-path">${esc(here.path)}</p>
+        <div class="browse-list">${here.parent ? `<button class="dir up" data-up="1">‹ Up a folder</button>` : ""}${entries}
+          ${here.error ? `<p class="error">${esc(here.error)}</p>` : !here.entries.length ? `<p class="muted">${files ? "Nothing here" : "No folders inside"}</p>` : ""}
+          ${here.more ? `<p class="muted">… and ${here.more.toLocaleString()} more</p>` : ""}</div>`,
+      [["Cancel", () => done(files ? [] : null)],
+        [files ? `Add ${picked.size || ""} picked`.replace("  ", " ") : save ? "Save here" : "Use this folder",
+          () => done(files ? [...picked] : save ? join(save) : here.path), true]]);
+      const box = $("overlay-box");
+      box.classList.add("browse");
+      if (files && !picked.size) box.querySelector(".btns .primary").disabled = true;
+      overlayCancel = () => done(files ? [] : null);
+      box.querySelector(".browse-list").onclick = box.querySelector(".browse-places").onclick = (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        if (b.dataset.up) show(here.parent, here.path.replace(/[\\/]$/, "").split(/[\\/]/).pop());
+        else if (b.dataset.place) show(here.places[Number(b.dataset.place)].path);
+        else if (b.classList.contains("dir")) show(join(b.dataset.name));
+        else { const p = join(b.dataset.name); if (picked.has(p)) picked.delete(p); else picked.add(p); show(here.path, b.dataset.name); }
+      };
+      const first = [...box.querySelectorAll(".browse-list button")].find((b) => b.dataset.name === land)
+        || box.querySelector(".browse-list button");
+      if (first && (S.pad || document.body.classList.contains("kbd"))) setCursor(first);
+    }
+    show(start);
+  });
+}
+
 // ---------- the on-screen keyboard ----------
 const osk = (() => {
   const ROWS = ["1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.-", "*?!()[]#&:"];
