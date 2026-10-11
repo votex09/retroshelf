@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui", "esde_collections", "collections_gui", "hiding"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui", "esde_collections", "collections_gui", "hiding", "osk"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -198,6 +198,18 @@ class AppTest(unittest.TestCase):
         self.assertEqual(self.app.pat_text.get("1.0", "end").strip(), "zelda")
         self.assertTrue(self.app.preset_vars[SPORTS].get())
         self.assertEqual(self.cfg()["system_state"]["snes"]["patterns"], "zelda")
+
+    def test_each_system_goes_back_to_the_game_you_were_on(self):
+        a = self.app
+        a.keys.place(a.keep_tv, 3)
+        here = a.keep_tv.focus()
+        a.load_system("psx")
+        self.assertNotEqual(a.keep_tv.focus(), here)
+        a.load_system("snes")
+        self.assertEqual(a.keep_tv.focus(), here)
+        self.assertIs(self.root.focus_get(), a.keep_tv)
+        self.restart()  # and after a restart (it opens on snes, the last system)
+        self.assertEqual(self.app.keep_tv.focus(), here)
 
     def test_unreadable_config_is_set_aside(self):
         self.close()
@@ -889,6 +901,57 @@ class AppTest(unittest.TestCase):
         self.assertEqual(press("down"), [])
         self.assertFalse(self.cfg()["gamepad"])
         self.assertEqual(hints.shown(), [])
+
+    def test_gamepad_reaches_search_and_filters_and_types(self):
+        a = self.app
+        held, clock = set(), [0.0]
+
+        class Pad:
+            def poll(self, now):
+                return set(held), []
+        pads = a.gamepads
+        pads.source, pads.clock = Pad(), lambda: clock[0]
+
+        def press(*buttons):
+            held.update(buttons)
+            clock[0] += 0.05
+            pads.step()
+            held.clear()
+            clock[0] += 0.05
+            pads.step()
+            self.root.update()
+        a.keys.place(a.keep_tv, 2)
+        a.keep_tv.focus_force()
+        self.pump(lambda: self.root.focus_get() is a.keep_tv)
+        press("select")  # View / Select: lists → search box
+        self.assertIs(self.root.focus_get(), a.search_entry)
+        self.assertEqual(dict(a.pad_hints.shown())["a"], "Keyboard")
+        press("a")  # A in a text box: the on-screen keyboard, not a typed space
+        kb = self.root._osk
+        self.pump(lambda: self.root.focus_get() is not None and self.root.focus_get().winfo_toplevel() is kb.win)
+        self.assertEqual(a.search_entry.get(), "")
+        press("a")  # types the key under the cursor (q, at the start)
+        press("down", "right")
+        press("a")
+        self.assertEqual(a.search_entry.get(), "qs")
+        press("y")  # Y deletes
+        self.assertEqual(a.search_entry.get(), "q")
+        press("lb")  # LB: capitals
+        press("a")
+        self.assertEqual(a.search_entry.get(), "qS")
+        press("x")  # X: done, back in the search box
+        self.assertFalse(kb.win.winfo_exists())
+        self.assertIs(self.root.focus_get(), a.search_entry)
+        a.view_filter.set("")
+        a.refresh()
+        press("select")  # → the filter tabs
+        self.assertIs(self.root.focus_get(), a.filter_tabs)
+        press("select")  # → back to the list, where the cursor was
+        self.assertIs(self.root.focus_get(), a.keep_tv)
+        self.assertEqual(a.keep_tv.get_children().index(a.keep_tv.focus()), 2)
+        a.keep_tv.event_generate("<Shift-F6>")  # and backwards from the keyboard
+        self.root.update()
+        self.assertIs(self.root.focus_get(), a.filter_tabs)
 
     def test_compress_window(self):
         a = self.app

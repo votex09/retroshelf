@@ -1345,7 +1345,7 @@ class Gamepad(unittest.TestCase):
                             ("", "xbox"), (None, "xbox")):
             self.assertEqual(padhints.style_for(name), style, name)
         for style in padhints.STYLES.values():  # every button the hints use has a glyph in every style
-            self.assertTrue({"a", "b", "x", "y", "lb", "rb", "lt", "rt", "start"} <= set(style))
+            self.assertTrue({"a", "b", "x", "y", "lb", "rb", "lt", "rt", "start", "select"} <= set(style))
 
     def test_the_last_pad_pressed_picks_the_glyphs(self):
         src = gamepad.LinuxSource()

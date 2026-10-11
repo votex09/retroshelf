@@ -37,6 +37,9 @@ rename can be undone, and games only go for good when you delete them from the h
   While the pad is what you're using, a bar along the bottom of the window shows the buttons that do something
   there, drawn the way your pad labels them (Xbox letters, PlayStation shapes or Nintendo letters), and what each
   does right now ("Mark", "Move 3 marked", "Keep", …). It goes away when you type or move the mouse.
+  The View / Select button (F6 on a keyboard) goes from the lists to the search box to the filter tabs and back,
+  and A in a text box opens an on-screen keyboard (D-pad to move, A types, Y deletes, LB for capitals, X when done).
+- Each system goes back to the game you were on when you left it, after a restart too.
 - **View → Review one at a time…** (Ctrl+R) goes through the list with each game's artwork and details:
   K (or Space) keeps, M (or Enter) moves, S skips, ← goes back, Backspace undoes.
 - **Hide in ES-DE** (next to Move) is the gentler choice for the Moving list's games: they stay on disk and ES-DE

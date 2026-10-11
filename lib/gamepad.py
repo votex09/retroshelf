@@ -26,18 +26,21 @@ STICK = 0.55  # how far a stick goes before it counts as a press (0..1)
 
 DIRECTIONS = ("up", "down", "left", "right")
 KEYS = {"up": "<Up>", "down": "<Down>", "left": "<Left>", "right": "<Right>", "a": "<space>", "b": "<Escape>",
-        "x": "<Return>", "y": "<Control-z>", "rb": "<Tab>", "lt": "<Prior>", "rt": "<Next>", "start": "<Control-r>"}
+        "x": "<Return>", "y": "<Control-z>", "rb": "<Tab>", "lt": "<Prior>", "rt": "<Next>", "start": "<Control-r>",
+        "select": "<F6>"}
 REPEATS = set(DIRECTIONS) | {"lt", "rt"}
 
 HELP = [
     ("D-pad / left stick", "Move through the list (hold to keep going)"),
-    ("A (✕)", "Mark a game and go to the next (Space); press buttons and ticks"),
+    ("A (✕)", "Mark a game and go to the next (Space); press buttons and ticks; in a text box, an on-screen "
+              "keyboard"),
     ("X", "Flip the marked games, or the selected one (Enter)"),
     ("Y", "Undo (Ctrl+Z)"),
     ("B (○)", "Close the window (Esc)"),
     ("LB / RB", "Switch between Keeping and Moving, or move between controls (Shift+Tab / Tab)"),
     ("LT / RT", "A page up / down"),
     ("Start", "Review one at a time (Ctrl+R)"),
+    ("View / Select", "Go to the lists, the search box or the filter tabs (F6)"),
     ("In Review", "A keeps, X moves, ← → back / skip, Y undoes, B closes"),
 ]
 
@@ -302,6 +305,7 @@ class Gamepads:
         self.enabled = True
         self.active, self.watchers, self.ticks = False, [], 0
         self.pointer, self.sending = None, False
+        self.on_type = None  # A in a text box calls this with the box (an on-screen keyboard), instead of Space
         self.keys = dict(KEYS, lb=shift_tab())
         # real keys reach whichever widget has the keyboard first through this tag (added to it as it gets
         # the keyboard), before any of its own bindings can stop them
@@ -342,7 +346,11 @@ class Gamepads:
         sent = []
         for b in self.repeater.update(pressed, now):
             seq = self.keys.get(b)
-            if seq:
+            if b == "a" and self.on_type and is_text_box(target):
+                self.on_type(target)
+                sent.append(b)
+                target = self.focus() or target
+            elif seq:
                 self.press(target, seq)
                 sent.append(b)
                 target = self.focus() or target  # Tab, or a window opening, moves the keyboard
@@ -429,6 +437,18 @@ class Gamepads:
             except Exception:
                 pass
         self.job, self.source = None, None
+
+
+def is_text_box(widget):
+    """An Entry someone can type in (not read-only or disabled)."""
+    try:
+        kind = widget.winfo_class()
+        if kind not in ("TEntry", "Entry"):
+            return False
+        state = str(widget.cget("state"))
+        return state not in ("readonly", "disabled") and not (kind == "TEntry" and widget.instate(["readonly"]))
+    except Exception:
+        return False
 
 
 class _Path:
