@@ -1,0 +1,44 @@
+{
+  "name": "retroshelf",
+  "productName": "RetroShelf",
+  "version": "0.1.0",
+  "description": "Tidy up an ES-DE / RetroDECK game library",
+  "homepage": "https://github.com/votex09/retroshelf",
+  "author": "votex09",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "helper": "pyinstaller --noconfirm --clean --distpath build/helper --workpath build/pyinstaller helper/retroshelf-helper.spec",
+    "dist": "npm run helper && electron-builder --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.16.1"
+  },
+  "build": {
+    "appId": "io.github.votex09.retroshelf",
+    "productName": "RetroShelf",
+    "artifactName": "RetroShelf-${version}-${os}-${arch}.${ext}",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "helper.js", "updates.js", "preload.js", "renderer/**"],
+    "extraResources": [{ "from": "build/helper/retroshelf-helper", "to": "helper" }],
+    "linux": {
+      "target": ["AppImage"],
+      "icon": "renderer/icon-256.png",
+      "category": "Game"
+    },
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "../assets/icon.ico"
+    },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true },
+    "portable": { "artifactName": "RetroShelf-${version}-portable.exe" },
+    "publish": [{ "provider": "github", "owner": "votex09", "repo": "retroshelf" }]
+  }
+}

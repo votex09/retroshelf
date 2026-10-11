@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'">
+  <title>RetroShelf</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="icon-64.png" alt=""><span>RetroShelf</span><small id="version"></small></div>
+    <div class="space" id="space" hidden>
+      <svg viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="15"/><circle class="fill" id="space-ring" cx="18" cy="18" r="15"/></svg>
+      <div><b id="free"></b><small>free on this drive</small></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="folder">
+      <div>
+        <h2>ROMs folder</h2>
+        <p id="roms" class="path">Looking for your ROMs…</p>
+      </div>
+      <button id="change" class="ghost">Change…</button>
+    </section>
+
+    <p class="note">This is the new RetroShelf, still being built. It can find your library so far; the game lists
+      and everything else come over from the current app next.</p>
+
+    <section class="systems" id="systems"></section>
+    <p class="message" id="message" hidden></p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

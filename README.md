@@ -308,6 +308,8 @@ tests/sandbox.py --screenshot a.png # same, headless: saves a screenshot (needs 
 The tests need Python with Tk (`python3-tk`); the window tests also need a display or `xvfb-run`. CI runs them
 on both Linux and Windows.
 
+RetroShelf is being moved to Electron, in `app/` (see [app/README.md](app/README.md)). It isn't released yet.
+
 ## Credits
 
 - Game metadata and images: [LaunchBox Games Database](https://gamesdb.launchbox-app.com/)

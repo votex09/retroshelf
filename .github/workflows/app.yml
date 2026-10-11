@@ -1,0 +1,71 @@
+# The new Electron app (app/): builds the Linux AppImage and the Windows installer + portable .exe with the Python
+# helper bundled in, starts each build once to check the window and the helper work together, and keeps the builds
+# as downloads on the run's page (Actions tab). Nothing is released from here until the switch-over; releases still
+# come from release.yml.
+name: Electron app
+
+on:
+  pull_request:
+    paths: ["app/**", "lib/**", ".github/workflows/app.yml"]
+  push:
+    branches: [main]
+    paths: ["app/**", "lib/**", ".github/workflows/app.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.04, not latest: the bundled helper needs at least the glibc it was built with
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install PyInstaller and the helper's optional modules
+        run: python -m pip install --quiet pyinstaller==6.22.3 cryptography
+      - name: Test the helper
+        working-directory: .
+        run: python -m unittest tests.test_helper -v
+      - name: Install Electron and electron-builder
+        run: npm ci
+      - name: Build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run dist
+      - name: Start the AppImage once
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends xvfb xauth libnss3 libgbm1 libasound2
+          ./dist/*.AppImage --appimage-extract >/dev/null
+          xvfb-run -a squashfs-root/AppRun --smoke --no-sandbox --disable-gpu | tee smoke.txt
+          grep -q '^SMOKE OK .*"frozen":true' smoke.txt
+      - name: Start the Windows build once
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          ./dist/win-unpacked/RetroShelf.exe --smoke | tee smoke.txt
+          grep -q '^SMOKE OK .*"frozen":true' smoke.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: retroshelf-app-${{ runner.os }}
+          path: |
+            app/dist/*.AppImage
+            app/dist/*.exe
+          if-no-files-found: error

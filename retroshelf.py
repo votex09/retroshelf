@@ -48,6 +48,8 @@ sys.path.insert(0, os.path.join(APP_DIR, "lib"))
 import sv_ttk  # noqa: E402  (vendored Sun Valley theme, MIT)
 
 import launchbox as lb  # noqa: E402
+import library  # noqa: E402
+from library import NON_GAME_EXT, PARTIAL_EXT, list_entries, read_systeminfo, valid_exts  # noqa: E402,F401
 import listkeys  # noqa: E402
 import motion  # noqa: E402
 import review  # noqa: E402
@@ -122,9 +124,6 @@ PATTERN_NOTES = (
 CONFIG = os.path.join(APP_DIR, "config.json")
 DESTS = ["to_delete", "review_low_value"]
 HEAD_PAD = 4  # px left/right inside column headings, matching the theme's cell text inset
-NON_GAME_EXT = {".txt", ".nfo", ".md", ".pdf", ".htm", ".html", ".xml", ".json", ".dat", ".jpg", ".jpeg",
-                ".png", ".gif", ".bmp", ".webp", ".mp4", ".py", ".sh", ".log", ".ini", ".cfg", ".directory"}
-
 JUNK_TAGS = r"Proto|Beta|Demo|Sample|Kiosk|Unl|Promo|Not for Resale|Test Program|Alpha|Pirate|Aftermarket"
 
 SPORTS_WORDS = (
@@ -296,7 +295,6 @@ PRESET_LABELS = {  # shorter text for the checkboxes; the full names stay the ke
     "Junk (demo/kiosk/beta/proto/unl)": "Junk (demos, betas, protos …)",
     DUPES: "Region dupes (keep one)",
 }
-PARTIAL_EXT = (".part", ".crdownload", ".tmp")
 
 
 # ---------- renaming ----------
@@ -478,61 +476,11 @@ def dir_size(path):
     return total
 
 
-def read_systeminfo(folder):
-    """-> (system name, full name, {game extensions}) from ES-DE's systeminfo.txt; missing parts are None."""
-    try:
-        with open(os.path.join(folder, "systeminfo.txt"), encoding="utf-8") as f:
-            text = f.read()
-    except OSError:
-        return None, None, None
-    name = re.search(r"System name:\s*\n(.*)", text)
-    full = re.search(r"Full system name:\s*\n(.*)", text)
-    exts = re.search(r"Supported file extensions:\s*\n(.*)", text)
-    return (
-        name.group(1).strip() if name else None,
-        full.group(1).strip() if full else None,
-        {e.lower() for e in exts.group(1).split()} if exts else None,
-    )
-
-
-def is_game(entry, exts):
-    """Dirs count (ES-DE game folders); files must have a game extension (partial downloads judged by the inner one)."""
-    if entry.name.startswith((".", "_")):
-        return False
-    if entry.is_dir():
-        return True
-    name = entry.name.lower()
-    if name.endswith(PARTIAL_EXT):
-        name = os.path.splitext(name)[0]
-    ext = os.path.splitext(name)[1]
-    return ext in exts if exts else ext not in NON_GAME_EXT
-
-
-def list_entries(folder, exts=None):
-    try:
-        return [e for e in os.scandir(folder) if is_game(e, exts)]
-    except OSError:
-        return []
-
-
-def valid_exts(folder, system):
-    name, _, exts = read_systeminfo(folder)
-    return exts if name == system else None
-
-
 find_gamelist = scraper.find_gamelist
 
 
 def guess_roms_root(esde_bases=()):
-    """The ROMs folder of the RetroDECK / ES-DE on this computer (RetroDECK's config says where its folder went;
-    ES-DE's settings, or the portable copies RetroShelf set up, say where its ROMs are), else a usual spot."""
-    for p in ([frontend.retrodeck_roms()] + frontend.esde_installs(esde_bases) +
-              [os.path.join(APP_DIR, "..", "retrodeck", "roms"), os.path.join(APP_DIR, "..", "roms"),
-               os.path.join(APP_DIR, "..", "..", "roms"), os.path.expanduser("~/retrodeck/roms"),
-               os.path.expanduser("~/ROMs")]):
-        if p and os.path.isdir(p):
-            return os.path.realpath(p)
-    return ""
+    return library.guess_roms_root(APP_DIR, esde_bases)
 
 
 class App:
@@ -1379,17 +1327,8 @@ class App:
         if path and os.path.isdir(path):
             self.cfg["roms_root"] = path
             self.save_cfg()
-            # NoPayStation systems are listed even when their folder is missing; installing creates it
-            for d in sorted(set(os.listdir(path)) | set(nps.CONSOLES)):
-                full = os.path.join(path, d)
-                if d.startswith((".", "_")) or not (os.path.isdir(full) or d in nps.CONSOLES):
-                    continue
-                n = len(list_entries(full, valid_exts(full, d)))
-                if n == 0 and d not in nps.CONSOLES:  # NoPayStation systems stay pickable so they can be filled
-                    continue
-                name, fullname, _ = read_systeminfo(full)
+            for d, fullname, n in library.systems(path):
                 self.system_codes.append(d)
-                fullname = fullname if name == d and fullname else nps.FULL_NAMES.get(d, "?")
                 labels.append(f"{d} — {fullname} ({n})")
         self.system_cb["values"] = labels
         self.show_holding()
