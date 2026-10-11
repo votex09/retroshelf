@@ -65,6 +65,8 @@ class Keyboard:
                                  ("x", "Done")]
         self._place()
         self._show()
+        # take the keyboard once the window is up (asking before it's mapped can be ignored)
+        win.bind("<Map>", lambda e: win.focus_force() if e.widget is win else None)
         win.focus_force()
 
     def _place(self):

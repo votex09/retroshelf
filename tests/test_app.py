@@ -863,6 +863,10 @@ class AppTest(unittest.TestCase):
             pads.step()
             self.assertFalse(pads.active)
             self.assertEqual(hints.shown(), [])
+            # put it back: with no window manager (xvfb) the keyboard follows the pointer, and later tests'
+            # new windows would lose the keyboard to the main window it's left over
+            self.root.event_generate("<Motion>", warp=True, x=x - self.root.winfo_rootx(), y=y - self.root.winfo_rooty())
+            self.root.update()
             press("down")
         # holding the D-pad keeps going
         a.keys.place(keep, 0)
