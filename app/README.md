@@ -19,8 +19,9 @@ helper.js          runs the Python helper and matches its answers to requests
 preload.js         what the window is allowed to ask for (window.retroshelf)
 renderer/          the window: app.js (the main window), list.js (the game lists), sheets.js (holding folder,
                    restore, Review, collections, region priority, LaunchBox match), the ☰ menu's tool windows
-                   (tools.js: scrape, rename; file-tools.js: compress, import; library-tools.js: storage, health check, duplicates; setup.js:
-                   first-run setup), art.js (stand-in box art); the look comes from mockups/electron
+                   (tools.js: scrape, rename; file-tools.js: compress, import; library-tools.js: storage, health
+                   check, duplicates; stores.js: NoPayStation, homebrew stores; setup.js: first-run setup;
+                   settings.js: settings and help), art.js (stand-in box art); the look comes from mockups/electron
 helper/helper.py   the Python helper: JSON lines over stdin / stdout, calling lib/ (see its docstring)
 helper/rpc.py      its plumbing: @method, events, long jobs with progress and Stop
 helper/tool_*.py   each tool window's Python side

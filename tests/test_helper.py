@@ -337,6 +337,37 @@ print(json.dumps({"found": found, "done": done, "twice": h.dupes_resolve({str(s[
                                                     "Chrono Trigger (USA).sfc")))
         self.assertEqual((out["runs"][0]["system"], out["runs"][0]["files"]), ("snes", 1))
 
+    def test_settings(self):
+        out = session(self.data, """
+import launchbox
+launchbox.platforms = lambda: ["Nintendo SNES", "Sega Genesis"]
+h.startup()
+before = h.settings()
+h.open_system("snes")
+picked = h.set_platform("Sega Genesis")
+with_system = h.settings()["platform"]
+auto = h.set_platform(automatic=True)
+opts = h.set_option("play_videos", False)
+try:
+    h.set_option("roms_root", "/")
+    bad = False
+except ValueError:
+    bad = True
+print(json.dumps({"before": before, "picked": picked["platform"], "with": with_system, "auto": auto["platform"],
+                  "opts": opts, "bad": bad}))""")
+        self.assertNotIn("platform", out["before"])
+        self.assertTrue(out["before"]["play_videos"])
+        self.assertEqual(out["picked"], "Sega Genesis")
+        self.assertEqual(out["with"]["current"], "Sega Genesis")
+        self.assertTrue(out["with"]["override"])
+        self.assertEqual(out["with"]["choices"], ["Nintendo SNES", "Sega Genesis"])
+        self.assertEqual(out["auto"], out["with"]["automatic"])
+        self.assertFalse(out["opts"]["play_videos"])
+        self.assertTrue(out["bad"])
+        cfg = self.config()
+        self.assertFalse(cfg["play_videos"])
+        self.assertNotIn("snes", cfg["platform_overrides"])
+
     def test_needs_a_system(self):
         with self.assertRaisesRegex(AssertionError, "No system is open"):
             session(self.data, 'h.startup(); h.decide({})')
@@ -425,6 +456,198 @@ print(json.dumps({{"info": info, "scanned": scanned, "done": done, "inside": ins
         self.assertIsNone(out["watch"][0])  # seen once: it might still be copying
         self.assertIn("Metroid (USA).gba", [r["name"] for r in out["watch"][1]["rows"]])
         self.assertTrue(os.path.exists(os.path.join(nas, "Ico (USA).7z")))  # added from elsewhere: copied, not moved
+
+
+class Stores(unittest.TestCase):
+    """Tools → NoPayStation and the homebrew stores, with every download faked (no network)."""
+    FAKE_WEB = """
+import io, os, urllib.request
+from unittest import mock
+import rpc, scraper, tool_stores
+PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63fcff"
+                    "1f0003030200efa037a90000000049454e44ae426082")
+class Resp(io.BytesIO):
+    headers = {}
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+def urlopen(req, timeout=None, context=None):
+    url = req.full_url if hasattr(req, "full_url") else req
+    return Resp(PNG if url.endswith(".png") else b"GB ROM")
+mock.patch.object(urllib.request, "urlopen", side_effect=urlopen).start()
+mock.patch.object(scraper, "es_de_running", return_value=False).start()
+events = []
+tool_stores.event = lambda name, data=None: events.append(data)
+"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.roms = os.path.join(self.tmp.name, "roms")
+        self.data = os.path.join(self.tmp.name, "data")
+        self.downloads = os.path.join(self.tmp.name, "Downloads")
+        make_roms(self.roms)
+        os.makedirs(self.data)
+        os.makedirs(self.downloads)
+        with open(os.path.join(self.data, "config.json"), "w", encoding="utf-8") as f:
+            json.dump({"roms_root": self.roms, "homebrew_downloads": self.downloads,
+                       "nps_dir": os.path.join(self.tmp.name, "NPS")}, f)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_homebrew_hub(self):
+        """One-click install with Stop, and filing a game the user downloads from its page in their browser."""
+        out = session(self.data, self.FAKE_WEB + """
+import homebrew
+game = {"filename": "game.gb", "playable": True, "default": True}
+entries = [
+    {"slug": "open", "title": "Open Racer", "platform": "GB", "typetag": "game", "gameLicense": "MIT", "developer": "Ann",
+     "date": "2020-05-01", "description": "Fast.", "screenshots": ["s.png"], "basepath": "database", "files": [game]},
+    {"slug": "closed", "title": "Closed Quest", "platform": "GB", "typetag": "game", "developer": "Bo",
+     "screenshots": [], "basepath": "database", "files": [game]},
+    {"slug": "nsfw", "title": "Hidden", "platform": "GB", "nsfw": True, "files": [game]}]
+mock.patch.object(homebrew, "load_catalog", return_value=entries).start()
+h.startup()
+info = h.store_info("homebrew")
+load = h.store_load("homebrew", "GB")
+before = h.store_rows("homebrew", "GB")
+game = h.store_game("homebrew", "GB", "open")
+shot = h.store_shot(game["shot"])
+rpc.METHODS["cancel"]("j0")
+stopped = h.store_install("j0", "homebrew", "GB", "open")
+installed = h.store_install("j1", "homebrew", "GB", "open")
+opened = h.store_open("homebrew", "GB", "closed")
+waiting = h.store_rows("homebrew", "GB")
+open(info["downloads"] + "/game.gb", "wb").write(b"GB ROM")
+watch = [h.store_watch("homebrew") for _ in range(2)]
+after = h.store_rows("homebrew", "GB", hide_have=True)
+print(json.dumps({"info": info, "load": load, "before": before, "game": game, "shot": shot[:22], "stopped": stopped,
+                  "installed": installed, "opened": opened, "waiting": waiting, "watch": watch, "after": after,
+                  "events": events}))""")
+        self.assertEqual((out["info"]["code"], out["info"]["one_click"], out["info"]["kinds"][0]), ("GB", True, "game"))
+        self.assertEqual(out["load"]["error"], "")
+        self.assertEqual([(r["key"], r["status"]) for r in out["before"]["rows"]],
+                         [("closed", "via website"), ("open", "")])  # sorted, NSFW left out
+        self.assertEqual(out["before"]["results"], "2 shown  ·  1 one-click installs")
+        self.assertTrue(out["game"]["can_install"])
+        self.assertEqual(out["game"]["meta"], "Ann  ·  2020  ·  MIT")
+        self.assertEqual(out["shot"], "data:image/png;base64,")
+        self.assertEqual(out["stopped"], {"stopped": True})
+        self.assertEqual(out["installed"]["message"], "Added Open Racer (Homebrew).gb to roms/gb with its description "
+                                                      "and screenshot")
+        self.assertIn({"job": "j1", "message": "Downloading Open Racer …", "done": 0, "total": 0}, out["events"])
+        with open(os.path.join(self.tmp.name, "ES-DE", "gamelists", "gb", "gamelist.xml"), encoding="utf-8") as f:
+            self.assertIn("<desc>Fast.</desc>", f.read())
+        self.assertEqual(out["opened"]["url"], "https://hh.gbdev.io/game/closed")
+        self.assertEqual(out["opened"]["waiting"]["count"], 1)
+        self.assertEqual({r["key"]: r["status"] for r in out["waiting"]["rows"]}, {"closed": "Waiting", "open": "Installed"})
+        self.assertEqual(out["watch"][1]["filed"][0]["toast"], "Added Closed Quest (Homebrew) to roms/gb.")
+        self.assertEqual(out["watch"][1]["waiting"]["count"], 0)
+        self.assertTrue(os.path.exists(os.path.join(self.roms, "gb", "Closed Quest (Homebrew).gb")))
+        self.assertEqual(out["after"]["rows"], [])  # both are here now
+
+    def test_other_stores(self):
+        """itch.io blocked (Browse still files any ROM), PDRoms details fetched once, MAMEDEV asks first."""
+        out = session(self.data, self.FAKE_WEB + """
+import itch, pdroms, mamedev
+url = "https://pdroms.de/files/nintendo-game-boy-gb-gbc/alpha-wing"
+mock.patch.object(itch, "load_catalog", side_effect=itch.Blocked("itch.io turned the request away")).start()
+mock.patch.object(pdroms, "load_catalog", return_value=[{"url": url, "title": "Alpha Wing", "added": "2007", "system": "gb"}]).start()
+details = mock.patch.object(pdroms, "load_details", return_value={"author": "kedo", "description": "A shooter."}).start()
+mock.patch.object(mamedev, "load_catalog", return_value=[{"id": "gridlee", "title": "Gridlee", "year": "1982",
+    "company": "Videa", "page": "https://www.mamedev.org/roms/gridlee/", "zips": ["https://x.invalid/gridlee.zip"],
+    "notice": "Gridlee is free for non-commercial use."}]).start()
+h.startup()
+itch_load = h.store_load("itch", "nes")
+browse = h.store_browse("itch", "nes")
+open(h.store_info("itch")["downloads"] + "/space_blaster.nes", "wb").write(b"NES")
+watch = [h.store_watch("itch") for _ in range(2)]
+h.store_load("pdroms", "gb")
+pd = [h.store_game("pdroms", "gb", url) for _ in range(2)]
+h.store_load("mamedev", "mame")
+mame = h.store_game("mamedev", "mame", "gridlee")
+print(json.dumps({"itch": itch_load, "browse": browse, "watch": watch, "pd": pd, "fills": details.call_count,
+                  "mame": mame, "mame_info": h.store_info("mamedev")}))""")
+        self.assertIn("Browse on itch.io still works", out["itch"]["error"])
+        self.assertEqual(out["browse"]["url"], "https://itch.io/games/price-free/tag-nes")
+        self.assertEqual(out["watch"][1]["filed"][0]["system"], "nes")
+        self.assertEqual(out["watch"][1]["waiting"]["count"], 1)  # still browsing
+        self.assertTrue(os.path.exists(os.path.join(self.roms, "nes", "space blaster (Homebrew).nes")))
+        self.assertEqual((out["pd"][0]["meta"], out["pd"][1]["description"], out["fills"]), ("kedo  ·  2007", "A shooter.", 1))
+        self.assertIn("non-commercial use only", out["mame"]["confirm"])
+        self.assertTrue(out["mame"]["can_install"])
+        self.assertEqual((out["mame_info"]["license_header"], out["mame_info"]["browser_downloads"]), (None, False))
+
+    def test_nopaystation(self):
+        """Lists filtered and sorted with what's already here, updates queued with the older ones, and a run."""
+        os.makedirs(os.path.join(self.roms, "psp"))
+        open(os.path.join(self.roms, "psp", "Ape Academy 2 (USA).cso"), "w").close()
+        out = session(self.data, self.FAKE_WEB + """
+import nps
+def row(name, tid, region, size, **kw):
+    return dict({"system": "psp", "console": "PSP", "kind": "Games", "id": tid, "region": region, "name": name,
+                 "url": "http://x.invalid/" + tid, "content_id": "UP0000-" + tid, "size": size, "sha256": "",
+                 "rap": "", "zrif": "", "subtype": ""}, **kw)
+games = [row("Ape Academy 2", "ULUS10001", "US", 3 << 20), row("Braid", "ULUS10002", "US", 1 << 20),
+         row("Braid", "ULES10002", "EU", 2 << 20)]
+mock.patch.object(nps, "load_list", return_value=games).start()
+def download(r, dest, progress, cancelled):
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    open(dest, "wb").write(b"PKG")
+    progress(r["size"], r["size"])
+    return True
+def install(r, pkg, roms, log, progress, cancelled):
+    r["entry"] = os.path.join(roms, "psp", nps.rom_name(r) + " (PSN).pbp")
+    open(r["entry"], "wb").write(b"PBP")
+    return True
+mock.patch.object(nps, "download", side_effect=download).start()
+mock.patch.object(nps, "install", side_effect=install).start()
+updates = [dict(row("Game  ·  update " + v, "BLUS00001", "US", 1, kind="Updates", system="ps3", console="PS3",
+                    content_id="UP-BLUS00001-" + v), version=v) for v in ("1.01", "1.02", "1.03")]
+mock.patch.object(nps, "load_updates", return_value=updates).start()
+h.startup()
+info = h.nps_info("psp")
+load = h.nps_load("j1", "psp", "Games")
+us = h.nps_rows("psp", "Games", region="US", sort="size", desc=True)
+braid = h.nps_rows("psp", "Games", query="braid")
+hidden = h.nps_rows("psp", "Games", hide_have=True)
+queue = h.nps_enqueue("psp", "Games", [r["key"] for r in braid["rows"] if r["region"] == "USA"])
+space = h.nps_space("psp", [q["key"] for q in queue])
+run = h.nps_run("j2", "psp", [q["key"] for q in queue], others=["Done"])
+after = h.nps_rows("psp", "Games", region="US")
+mock.patch.object(nps, "owned_ids", return_value={"BLUS00001"}).start()  # RPCS3 has the game
+h.nps_info("ps3")
+h.nps_load("j3", "ps3", "Updates")
+ups = h.nps_rows("ps3", "Updates")
+up = h.nps_enqueue("ps3", "Updates", [r["key"] for r in ups["rows"] if r["name"].endswith("1.02")])
+h.nps_options(keep_pkg=True)
+print(json.dumps({"info": info, "load": load, "us": us, "braid": braid, "hidden": hidden, "queue": queue,
+                  "space": space, "run": run, "after": after, "up": up, "events": events, "cache": nps.CACHE}))""")
+        self.assertEqual((out["info"]["console"], out["info"]["kinds"], out["info"]["mine"]), ("PSP", ["Games"], False))
+        self.assertIsNone(out["info"]["emulator"])  # Emulators… is for Windows
+        self.assertEqual(out["cache"], os.path.join(self.data, "cache", "nps"))
+        self.assertEqual([(r["name"], r["status"]) for r in out["us"]["rows"]],
+                         [("Ape Academy 2", "Have as ROM"), ("Braid", "")])  # biggest first
+        self.assertEqual(out["us"]["rows"][0]["have"], ["Ape Academy 2 (USA)"])
+        self.assertEqual((out["us"]["shown"], out["us"]["total"]), (2, 3))
+        self.assertEqual([r["region"] for r in out["braid"]["rows"]], ["USA", "Europe"])
+        self.assertEqual(len(out["hidden"]["rows"]), 2)
+        self.assertEqual([(q["label"], q["status"]) for q in out["queue"]], [("Braid  (ULUS10002, Games)", "Queued")])
+        self.assertEqual(out["space"]["need"], 2 << 20)
+        self.assertEqual(list(out["run"]["states"].values()), ["Done"])
+        self.assertEqual(out["run"]["summary"], "2 installed, 0 failed")
+        self.assertTrue(out["run"]["installed"])
+        states = [e["state"] for e in out["events"] if e.get("job") == "j2" and e.get("state")]
+        self.assertEqual(states[0], "Downloading")
+        self.assertIn("Installing", states)
+        self.assertEqual(states[-1], "Done")
+        self.assertEqual(out["after"]["rows"][1]["status"], "Installed")
+        self.assertFalse(os.listdir(os.path.join(self.tmp.name, "NPS", "PSP")))  # the .pkg went once installed
+        self.assertEqual([q["name"] for q in out["up"]], ["Game  ·  update 1.01", "Game  ·  update 1.02"])
+        self.assertTrue(self.config_value("nps_keep_pkg"))
+
+    def config_value(self, key):
+        with open(os.path.join(self.data, "config.json"), encoding="utf-8") as f:
+            return json.load(f)[key]
 
 
 class Library(unittest.TestCase):

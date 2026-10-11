@@ -75,7 +75,8 @@ CONFIG = os.path.join(DATA_DIR, "config.json")
 MOVES = os.path.join(DATA_DIR, "moves.json")
 CFG_DEFAULTS = {"roms_root": "", "holding_root": "", "system": "", "platform_overrides": {},
                 "region_priority": rules.DEFAULT_PRIORITY, "system_state": {}, "esde_bases": [],
-                "setup_offered": False}
+                "setup_offered": False, "play_videos": True, "gamepad": True, "animations": True,
+                "show_details": True}
 _state_lock = threading.Lock()  # one system-changing request at a time
 cfg = {}
 current = {"sc": None, "decision": None, "fullname": None}
@@ -541,7 +542,9 @@ import tool_files  # noqa: E402,F401
 import tool_library  # noqa: E402,F401
 import tool_rename  # noqa: E402,F401
 import tool_scrape  # noqa: E402,F401
+import tool_settings  # noqa: E402,F401
 import tool_setup  # noqa: E402,F401
+import tool_stores  # noqa: E402,F401
 
 
 # ---------- plumbing ----------

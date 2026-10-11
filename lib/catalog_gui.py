@@ -1,21 +1,16 @@
 """A window for browsing a site's games and getting them into roms/<system>/ (Homebrew Hub, itch.io, PDRoms,
 MAMEDEV).
 
-Each site is a "source" object (see homebrew_gui, itch_gui, pdroms_gui and mamedev_gui) that lists
-entries and says how to show them. Games the source may fetch itself install with one click; the rest open in the
-user's browser, where they download them, and the Downloads watcher (lib/downloads.py) files what lands there.
-
-Optional source hooks: fill(e) -> dict of details fetched when a game is picked (for lists that only carry titles),
-confirm(e) -> text the user must agree to before a one-click install, one_click_filter (default: one_click),
-browser_downloads = False when the site's page is only for reading (no Downloads watching), license_header = None to
-leave that column out."""
+Each site is a "source" object from lib/catalog.py (which says what a source can do, and holds what this window
+shares with the Electron app's). Games the source may fetch itself install with one click; the rest open in the
+user's browser, where they download them, and the Downloads watcher (lib/downloads.py) files what lands there."""
 import base64, io, os, queue, threading, urllib.request, webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox
 
+import catalog
 import downloads
 import dialogs
-import scraper
 import ui
 
 try:
@@ -25,13 +20,8 @@ except ImportError:
 
 WATCH_MS = 1500
 SHOT_W, SHOT_H = 320, 288
-USER_AGENT = "RetroShelf/1.0 (+https://github.com/votex09/retroshelf)"
-
-
-def short_path(path):
-    """The last two folders, so a long path can't crowd the window."""
-    parts = os.path.normpath(path).split(os.sep)
-    return path if len(parts) <= 3 else os.sep.join(["…"] + parts[-2:])
+USER_AGENT = catalog.USER_AGENT
+short_path = catalog.short_path
 
 
 def open_window(app, source):
@@ -101,7 +91,7 @@ class CatalogWindow:
         search.pack(side="left", fill="x", expand=True)
         search.focus_set()
         self.one_click = tk.BooleanVar(value=False)
-        if getattr(src, "one_click_filter", src.one_click):
+        if catalog.one_click_filter(src):
             ttk.Checkbutton(flt, text="One-click only", variable=self.one_click,
                             command=self.render).pack(side="left", padx=(12, 0))
         self.hide_have = tk.BooleanVar(value=False)
@@ -123,7 +113,7 @@ class CatalogWindow:
             ui.Tooltip(browse, lambda: f"Opens {src.name} in your browser. Every {self.system_label()} ROM you "
                                        f"download there is put in roms/{src.system_for(self.code)}.")
         self.dir_lbl = ttk.Label(foot, text=short_path(self.dl_dir()), style="Muted.TLabel")
-        if getattr(src, "browser_downloads", True):
+        if catalog.watches_downloads(src):
             ttk.Label(foot, text="Downloads").pack(side="left")
             ttk.Button(foot, text="Change…", command=self.browse_dir).pack(side="left", padx=(8, 0))
             self.dir_lbl.pack(side="left", padx=(8, 0))
@@ -181,7 +171,7 @@ class CatalogWindow:
 
     # ---------- options ----------
     def dl_dir(self):
-        return self.app.cfg.get("homebrew_downloads") or downloads.downloads_dir()
+        return catalog.downloads_folder(self.app.cfg)
 
     def browse_dir(self):
         path = dialogs.ask_directory(self.win, "Where your browser saves downloads", self.dl_dir())
@@ -234,39 +224,18 @@ class CatalogWindow:
             self.entries = res
             self.by_key = {self.src.key(e): e for e in res}
             age = self.src.cached_age(code)
-            self.age_lbl.config(text="" if age is None else "list from today" if age < 1 else
-                                f"list from {int(age)} day{'s' if age >= 2 else ''} ago")
+            self.age_lbl.config(text=catalog.age_text(age))
             self.status.config(text="")
             self.render()
         self._in_thread(lambda: self.src.load(code, refresh), done)
 
-    def _waiting_for(self, e):
-        return any(w["id"] == self.src.key(e) for w in self.watcher.waiting)
-
     def _status_of(self, e):
-        if self._waiting_for(e):
-            return "Waiting"
-        if self.src.installed_path(e, self.roms_root):
-            return "Installed"
-        return "" if self.src.can_download(e) or not self.src.one_click else "via website"
+        return catalog.status_of(self.src, e, self.roms_root, self.watcher.waiting)
 
     def render(self):
-        src, q, kind = self.src, self.query.get().lower().strip(), self.kind.get()
-        shown = []
-        for e in self.entries:
-            if src.kinds and kind != "all" and src.kind(e) != kind:
-                continue
-            if q and q not in src.title(e).lower() and q not in src.developer(e).lower():
-                continue
-            if self.one_click.get() and not src.can_download(e):
-                continue
-            if self.hide_have.get() and src.installed_path(e, self.roms_root):
-                continue
-            if src.hidden(e):
-                continue
-            shown.append(e)
-        shown.sort(key=lambda e: src.title(e).lower())
-        self.shown = shown
+        src = self.src
+        shown = self.shown = catalog.shown(src, self.entries, self.roms_root, self.query.get(), self.kind.get(),
+                                           self.one_click.get(), self.hide_have.get())
         keep = self.tv.selection()
         self.tv.delete(*self.tv.get_children())
         for e in shown:
@@ -276,10 +245,7 @@ class CatalogWindow:
                            values=(src.developer(e), src.kind(e), src.license(e), status), tags=tags)
         if keep and self.tv.exists(keep[0]):
             self.tv.selection_set(keep)
-        text = f"{len(shown):,} shown"
-        if getattr(src, "one_click_filter", src.one_click):
-            text += f"  ·  {sum(src.can_download(e) for e in shown):,} one-click installs"
-        self.res_lbl.config(text=text)
+        self.res_lbl.config(text=catalog.results_text(src, shown))
         self._select()
 
     # ---------- details ----------
@@ -298,9 +264,9 @@ class CatalogWindow:
             self.info.insert("end", src.title(e) + "\n", "title")
             self.info.insert("end", "  ·  ".join(bits) + "\n\n", "meta")
             self.info.insert("end", src.description(e) or ("Loading details …" if filling else "No description."))
-            if src.one_click and not src.can_download(e):
-                self.info.insert("end", f"\n\nThe author hasn't allowed apps to download this one: use "
-                                        f"{src.open_label.rstrip(' ↗')} and download it from the game's page.", "meta")
+            note = catalog.website_only_note(src, e)
+            if note:
+                self.info.insert("end", "\n\n" + note, "meta")
             if filling:
                 self.pic.configure(image="", text="")
             else:
@@ -371,9 +337,7 @@ class CatalogWindow:
 
     # ---------- getting games ----------
     def _can_install(self):
-        e = self.selected
-        return bool(self.src.one_click and e and self.src.can_download(e)
-                    and not self.src.installed_path(e, self.roms_root))
+        return catalog.can_install(self.src, self.selected, self.roms_root)
 
     def install(self):
         e = self.selected
@@ -392,7 +356,7 @@ class CatalogWindow:
         if not e:
             return
         webbrowser.open(self.src.page_url(e))
-        if self.src.installed_path(e, self.roms_root) or not getattr(self.src, "browser_downloads", True):
+        if self.src.installed_path(e, self.roms_root) or not catalog.watches_downloads(self.src):
             return  # just looking
         self.watcher.expect(self.src.want(e))
         self._show_waiting()
@@ -412,8 +376,7 @@ class CatalogWindow:
     def _show_waiting(self):
         w = self.watcher.waiting
         if w:
-            names = ", ".join(x["title"] for x in w[:3]) + (f" +{len(w) - 3}" if len(w) > 3 else "")
-            self.wait_lbl.config(text=f"Waiting for {names} to land in {short_path(self.watcher.folder)}")
+            self.wait_lbl.config(text=catalog.waiting_text(w, self.watcher.folder))
             self.stop_btn.pack(side="right", before=self.wait_lbl)
         else:
             self.wait_lbl.config(text="")
@@ -435,31 +398,12 @@ class CatalogWindow:
             self.render()
             return
         system, item = want["system"], want.get("item")
-        note = self._add_metadata(item, res, system) if item else ""
+        note = catalog.add_metadata(self.src, item, res, system, self.roms_root) if item else ""
         self.status.config(text=f"Added {os.path.basename(res)} to roms/{system}{note}")
         self.app.toast(f"Added {os.path.splitext(os.path.basename(res))[0]} to roms/{system}.")
         if self.app.system == system:
             self.app.rescan()
         self.render()
-
-    def _add_metadata(self, e, rom, system):
-        """The site's description, developer and screenshot for ES-DE, where nothing is there yet."""
-        if scraper.es_de_running():
-            return " (close ES-DE and rescrape to add its description)"
-        name = os.path.basename(rom)
-        try:
-            scraper.write_gamelist(scraper.gamelist_path(self.roms_root, system),
-                                   {name: self.src.es_de_fields(e)}, lambda m: None)
-            url = self.src.screenshot_url(e)
-            folder = os.path.join(scraper.media_root(self.roms_root), system, "screenshots")
-            stem = os.path.splitext(name)[0]
-            ext = os.path.splitext(url.split("?")[0])[1].lower() if url else ""
-            if url and not scraper.has_media(folder, stem):
-                os.makedirs(folder, exist_ok=True)
-                scraper.download(url, os.path.join(folder, stem + (ext if len(ext) <= 5 and ext else ".png")))
-            return " with its description and screenshot"
-        except Exception as ex:
-            return f" (metadata not added: {ex})"
 
     def close(self):
         if self.watcher.waiting and not messagebox.askyesno(
