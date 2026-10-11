@@ -1,6 +1,7 @@
-"""A focus ring for gamepad use: while the pad is what's in use, an accent outline sits on whatever it moves — the
-row under the cursor in a list, a button, a tick box, a key of the on-screen keyboard — and glides to the next one
-as you move, the way a console menu does. Pressing A or X makes it pulse. It goes away with the mouse or keyboard.
+"""A focus ring for the gamepad and the keyboard: while either is moving around, an accent outline sits on what
+has the keyboard — the row under the cursor in a list, a button, a tick box, a key of the on-screen keyboard — and
+glides to the next one as you move, the way a console menu does. Pressing A or X makes it pulse. The mouse puts it away
+(the app decides when: the gamepad's watchers for the pad, its own key bindings for the keyboard).
 
 Where the ring goes:
   - a widget (or one of its parents, up to its window) with a pad_focus() method names the widget to outline

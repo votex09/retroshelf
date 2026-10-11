@@ -61,7 +61,9 @@ rename can be undone, and games only go for good when you delete them from the h
 - A details panel shows the selected game's artwork, LaunchBox description, year, developer,
   rating and genres, plus a button that searches YouTube for gameplay videos. Artwork and videos always fill the
   same box (small pictures are scaled up), so the panel never shifts between games; Review shows them bigger.
-- Short, quick animations show what just happened: a flipped game glows in the list it lands in, the list counts roll
+- Short, quick animations show what just happened: a flipped game's name flies across to the other list and glows
+  where it lands, the row under the mouse lights up gently, the keyboard gets the same gliding highlight as a gamepad
+  (Tab, arrows, F6; moving the mouse puts it away), tooltips fade in, the list counts roll
   to their new numbers, artwork and details fade in (not while you're flicking down a list, so browsing stays
   instant), notifications slide in and out, the gamepad's button bar rises into view, and Review slides each game's
   name in as its progress bar glides along.
