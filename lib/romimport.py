@@ -243,6 +243,14 @@ def sniff_disc(f, base=0):
     return None, "a disc RetroShelf can't place"
 
 
+def cue_for(name, head):
+    """The .cue a lone raw CD image (.bin / .img) needs, from its first 16 bytes; None if it isn't one."""
+    if head[:12] != SYNC:
+        return None
+    mode = "MODE1/2352" if head[15] == 1 else "MODE2/2352"
+    return f'FILE "{name}" BINARY\n  TRACK 01 {mode}\n    INDEX 01 00:00:00\n'
+
+
 def parse_cue(text):
     """-> [(file name, track mode, start in bytes)] for each track."""
     tracks, current = [], None
@@ -454,10 +462,7 @@ def detect(unit, opener, sizes, fallback=None):
             with f:
                 system, how = sniff_rom(main, f, sizes.get(main, 0))
                 if system in CUE_SYSTEMS and ext in (".bin", ".img") and len(unit.files) == 1:
-                    head = _read(f, 0, 16)
-                    if head[:12] == SYNC:
-                        mode = "MODE1/2352" if head[15] == 1 else "MODE2/2352"
-                        unit.cue = f'FILE "{os.path.basename(main)}" BINARY\n  TRACK 01 {mode}\n    INDEX 01 00:00:00\n'
+                    unit.cue = cue_for(os.path.basename(main), _read(f, 0, 16))
                 if system == "xbox" and how.endswith("(full dump)"):
                     unit.xbox_trim = True
     if not system and fallback and ext != ".md":
