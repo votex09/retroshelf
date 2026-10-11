@@ -87,7 +87,7 @@ async function openStorage() {
     $("st-systems").querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
     fillGames();
   }
-  storageKeys.hints = { pad: [["dpad", "✥", "Choose"], ["x", "X", "Open the system"]],
+  storageKeys.hints = { pad: [["dpad", "Choose"], ["x", "Open the system"]],
     keys: [["key", "↑ ↓", "Choose"], ["key", "Enter", "Open the system"]] };
   function storageKeys(key) {
     const i = T.systems.findIndex((s) => s.code === T.sel);

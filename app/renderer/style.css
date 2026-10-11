@@ -256,11 +256,12 @@ footer { display: flex; align-items: center; gap: 16px; padding: 12px 18px; }
   min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; display: grid; place-items: center;
   font-size: 11px; font-weight: 800; color: #0b0d12;
 }
-.glyph.a { background: #5ad25a; } .glyph.b { background: #ff5f5f; } .glyph.x { background: #4aa3ff; } .glyph.y { background: #ffd23f; }
-.glyph.bumper { background: #c9cedb; border-radius: 6px; }
 .glyph.key { background: var(--surface-3); color: var(--text); border-radius: 6px; font-weight: 600; }
-.glyph.dpad { background: #c9cedb; border-radius: 6px; }
-.glyph.select, .glyph.start, .glyph.stick { background: #c9cedb; border-radius: 6px; font-size: 9.5px; letter-spacing: .04em; }
+/* Steam Deck buttons (pad.js's padGlyph) */
+.glyph.pad { min-width: 0; padding: 0; display: inline-flex; align-items: center; gap: 3px; }
+.glyph.pad .pg { height: 24px; width: auto; display: block; flex-shrink: 0; }
+.glyph.pad .pg.tall { height: 32px; margin: -4px 0; }
+.glyph.pad text { font-family: inherit; }
 
 /* the on-screen keyboard (pad.js) */
 .osk {
@@ -456,7 +457,7 @@ body.still .pad-cur { transition: none; }
 .r-foot kbd { margin-left: 6px; color: var(--muted); font: inherit; font-size: 12px; }
 .r-foot .primary kbd { color: #04263a; opacity: .7; }
 .r-foot .glyph { display: none; }
-body.pad .r-foot .glyph { display: inline-grid; margin-right: 6px; }
+body.pad .r-foot .glyph { display: inline-flex; margin-right: 6px; }
 body.pad .r-foot kbd { display: none; }
 .r-foot button { display: inline-flex; align-items: center; }
 

@@ -3,8 +3,8 @@
 //   A cursor (an accent ring, .pad-cur) sits on one control; the d-pad or the arrow keys move it to the nearest
 // control that way, A / Enter / Space presses it and B / Esc goes back: out of a text box, out of a submenu, closes
 // the popover or sheet, then back to the lists. In the lists themselves the keys are app.js's handle(). Everywhere in
-// the main window LB / RB (F6) go round its parts (header, filter tabs, Keeping, Moving, details, footer), Select
-// (View) searches, Start opens ☰, and R3, the Menu key or Shift+F10 opens the game's menu. A in a text box opens an
+// the main window L1 / R1 (F6) go round its parts (header, filter tabs, Keeping, Moving, details, footer), View
+// searches, Menu opens ☰, and R3, the Menu key or Shift+F10 opens the game's menu. A in a text box opens an
 // on-screen keyboard (osk below). The hints along the bottom always list what the buttons do right there (uiHints),
 // and a ring flies to wherever the cursor lands (glide).
 "use strict";
@@ -81,7 +81,7 @@ function nearest(from, dir, els, loose = false) {
 }
 
 // ---------- showing where the cursor went ----------
-// A ring flies from where the cursor was to where it lands, then pulses there, so a jump (LB / RB, a sheet opening,
+// A ring flies from where the cursor was to where it lands, then pulses there, so a jump (L1 / R1, a sheet opening,
 // back to the lists) is easy to follow. Not with ☰ → Settings → Animations off or the system's reduced motion.
 const glideOff = matchMedia("(prefers-reduced-motion: reduce)");
 let glideEl = null;
@@ -281,7 +281,7 @@ function startMenu() {
   openMenu();
 }
 
-// LB / RB (F6 / Shift+F6): the next or previous part of the main window, round and round: the header, the filter
+// L1 / R1 (F6 / Shift+F6): the next or previous part of the main window, round and round: the header, the filter
 // tabs, the game lists (one stop: the right stick or Tab goes between Keeping and Moving), the details panel and the
 // footer. Each part remembers where the cursor was in it; parts with nothing to press right now (a footer whose
 // buttons are off) are skipped.
@@ -308,7 +308,7 @@ function nextZone(step) {
   }
 }
 
-// Select (View): search, with the on-screen keyboard.
+// View: search, with the on-screen keyboard.
 function openSearch() {
   closePopovers();
   setCursor($("search"), { focus: false });
@@ -499,26 +499,73 @@ function pollPads(now) {
   syncCursor();
 }
 
-// Everything the keys or buttons do right now, for the hints along the bottom (app.js's hints()): [class, glyph, text].
-// A sheet can add its own (its keys handler's .hints = { pad: [...], keys: [...] }), shown while its table or its
-// own keys have the cursor.
+// ---------- Steam Deck button glyphs, drawn here (not Valve's artwork) ----------
+// padGlyph("a") -> an inline SVG of that button: a b x y, l1 r1 (bumpers), l2 r2 (triggers), view, menu, dpad,
+// dpad-lr, dpad-ud (the d-pad, those arms lit), rs, r3, rs-lr, rs-ud (the right stick, clicked or pushed that way).
+// "l1/r1" draws both.
+const GLYPH_ON = "#e6e9ef", GLYPH_INK = "#14171d", GLYPH_OFF = "#5f6678";
+const GLYPHS = (() => {
+  const svg = (w, h, body, label) => `<svg class="pg${h > 24 ? " tall" : ""}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" `
+    + `aria-label="${label}">${body}</svg>`;
+  const text = (x, y, t, size = 12) => `<text x="${x}" y="${y}" text-anchor="middle" font-size="${size}" `
+    + `font-weight="800" fill="${GLYPH_INK}">${t}</text>`;
+  const face = (t) => svg(24, 24, `<circle cx="12" cy="12" r="11" fill="${GLYPH_ON}"/>${text(12, 16.3, t)}`, t);
+  // a bumper: long and flat, its outer top corner well rounded; a trigger: tall, its top an arch
+  const bumper = (t, left) => svg(32, 24, `<path d="${left ? "M3 20V12Q3 4 12 4H27Q29 4 29 6V18Q29 20 27 20Z"
+    : "M29 20V12Q29 4 20 4H5Q3 4 3 6V18Q3 20 5 20Z"}" fill="${GLYPH_ON}"/>${text(left ? 17 : 15, 16, t, 10.5)}`, t);
+  const trigger = (t) => svg(26, 24, `<path d="M3 21V11Q3 2 13 2Q23 2 23 11V21Q23 23 21 23H5Q3 23 3 21Z" fill="${GLYPH_ON}"/>`
+    + text(13, 17.5, t, 10.5), t);
+  const pill = (body, label) => svg(30, 24, `<rect x="1" y="3" width="28" height="18" rx="9" fill="${GLYPH_ON}"/>${body}`, label);
+  const ink = `fill="none" stroke="${GLYPH_INK}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"`;
+  const tri = (pts, fill) => `<path d="M${pts}Z" fill="${fill}"/>`;
+  function dpad(lit, label) {  // lit: which arms ("u", "d", "l", "r")
+    const arm = { u: [8.5, 1, 7, 9], d: [8.5, 14, 7, 9], l: [1, 8.5, 9, 7], r: [14, 8.5, 9, 7] };
+    const point = { u: "12 3.2 14.3 6.4 9.7 6.4", d: "12 20.8 14.3 17.6 9.7 17.6", l: "3.2 12 6.4 9.7 6.4 14.3",
+      r: "20.8 12 17.6 9.7 17.6 14.3" };
+    const body = Object.keys(arm).map((a) => `<rect x="${arm[a][0]}" y="${arm[a][1]}" width="${arm[a][2]}" `
+      + `height="${arm[a][3]}" rx="2" fill="${lit.includes(a) ? GLYPH_ON : GLYPH_OFF}"/>`
+      + (lit.includes(a) ? tri(point[a], GLYPH_INK) : "")).join("");
+    return svg(24, 24, `${body}<rect x="8" y="8" width="8" height="8" fill="${lit === "udlr" ? GLYPH_ON : GLYPH_OFF}"/>`, label);
+  }
+  const stick = (t, cx, cy) => `<circle cx="${cx}" cy="${cy}" r="10" fill="${GLYPH_ON}"/>`
+    + `<circle cx="${cx}" cy="${cy}" r="6.6" ${ink}/>${text(cx, cy + (t.length > 1 ? 2.6 : 3.3), t, t.length > 1 ? 7 : 9)}`;
+  return {
+    a: face("A"), b: face("B"), x: face("X"), y: face("Y"),
+    l1: bumper("L1", true), r1: bumper("R1", false), l2: trigger("L2"), r2: trigger("R2"),
+    view: pill(`<rect x="9" y="7" width="8" height="7" rx="1.5" ${ink}/><rect x="13" y="10" width="8" height="7" rx="1.5" `
+      + `fill="${GLYPH_INK}"/>`, "View"),
+    menu: pill(`<path d="M9.5 8h11M9.5 12h11M9.5 16h11" ${ink}/>`, "Menu"),
+    dpad: dpad("udlr", "D-pad"), "dpad-lr": dpad("lr", "D-pad left and right"), "dpad-ud": dpad("ud", "D-pad up and down"),
+    rs: svg(24, 24, stick("R", 12, 12), "Right stick"), r3: svg(24, 24, stick("R3", 12, 12), "R3"),
+    "rs-lr": svg(36, 24, stick("R", 18, 12) + tri("1 12 5.5 8 5.5 16", GLYPH_ON) + tri("35 12 30.5 8 30.5 16", GLYPH_ON),
+      "Right stick left and right"),
+    "rs-ud": svg(24, 32, stick("R", 12, 16) + tri("12 0.5 8 4.6 16 4.6", GLYPH_ON) + tri("12 31.5 8 27.4 16 27.4", GLYPH_ON),
+      "Right stick up and down"),
+  };
+})();
+
+function padGlyph(id) {
+  return `<span class="glyph pad">${id.split("/").map((g) => GLYPHS[g]).join("")}</span>`;
+}
+
+// Everything the keys or buttons do right now, for the hints along the bottom (app.js's hints()): a button and what
+// it does (["a", "Mark"], with padGlyph's names) or ["key", key, text]. A sheet can add its own (its keys handler's
+// .hints = { pad: [...], keys: [...] }), shown while its table or its own keys have the cursor.
 function uiHints() {
   const layer = topLayer(), pad = S.pad, main = layer === document.body;
   const k = (key, text) => ["key", key, text];
   if (osk.shown()) {
-    return [["dpad", "✥", "Keys"], ["a", "A", "Type"], ["x", "X", "Space"], ["y", "Y", "Delete"], ["bumper", "LB", "Shift"],
-      ["b", "B", "Done"]];
+    return [["dpad", "Keys"], ["a", "Type"], ["x", "Space"], ["y", "Delete"], ["l1", "Shift"], ["b", "Done"]];
   }
-  const around = pad ? [["bumper", "LB/RB", "Next area"], ["select", "SELECT", "Search"], ["start", "START", "Menu"]]
+  const around = pad ? [["l1/r1", "Next area"], ["view", "Search"], ["menu", "Menu"]]
     : [k("F6", "Next area"), k("/", "Search")];
   if (main && !P.cur) {  // the lists
-    if (!S.sys) return [pad ? ["dpad", "✥", "Move"] : k("↑ ↓ ← →", "Move"), ...around];
+    if (!S.sys) return [pad ? ["dpad", "Move"] : k("↑ ↓ ← →", "Move"), ...around];
     const marked = L().items.filter((g) => S.marked.has(g.key)).length;
     const verb = S.active === "keep" ? "Move" : "Keep", act = marked ? `${verb} ${marked} marked` : verb;
     return pad
-      ? [["dpad", "✥", "Choose"], ["a", "A", "Mark"], ["x", "X", act], ["y", "Y", "Undo"], ["stick", "R3", "Game options"],
-        ...(S.query ? [["b", "B", "Clear search"]] : []), ["stick", "RS ◀ ▶", "Other list"], ...around,
-        ["stick", "RS ▲ ▼", "Scroll details"]]
+      ? [["dpad", "Choose"], ["a", "Mark"], ["x", act], ["y", "Undo"], ["r3", "Game options"],
+        ...(S.query ? [["b", "Clear search"]] : []), ["rs-lr", "Other list"], ...around, ["rs-ud", "Scroll details"]]
       : [k(S.active === "keep" ? "→" : "←", act), k("Space", "Mark"), k("Ctrl+Z", "Undo"), k("Tab", "Other list"),
         k("Shift+F10", "Game options"), ...around];
   }
@@ -528,16 +575,16 @@ function uiHints() {
   const backText = layer === $("picker") ? "Cancel" : main ? "Back to the lists" : layer === $("sheet") ? "Close"
     : layer === $("overlay-box") ? (overlayCancel ? "Cancel" : lone ? "OK" : "") : layer.id === "menu" && layer.dataset.group
       ? "Back" : "Close";
-  const backHint = backText ? [pad ? ["b", "B", backText] : k("Esc", backText)] : [];
+  const backHint = backText ? [pad ? ["b", backText] : k("Esc", backText)] : [];
   const own = layer === $("sheet") && sheetKeys?.hints && (!P.cur || P.cur.matches(".trow"))
     ? sheetKeys.hints[pad ? "pad" : "keys"] : null;
   const h = own ? [...own, ...backHint]
-    : [pad ? ["dpad", "✥", "Move"] : k("↑ ↓ ← →", "Move"), pad ? ["a", "A", what] : k("Enter", what), ...backHint];
+    : [pad ? ["dpad", "Move"] : k("↑ ↓ ← →", "Move"), pad ? ["a", what] : k("Enter", what), ...backHint];
   if (main) {
     h.push(...around);
-    if (pad && P.cur?.closest("#details")) h.push(["stick", "RS", "Scroll"]);
+    if (pad && P.cur?.closest("#details")) h.push(["rs-ud", "Scroll"]);
   }
-  if (layer === $("sheet") && pad) h.push(["bumper", "LT/RT", "Scroll"]);
+  if (layer === $("sheet") && pad) h.push(["l2/r2", "Scroll"]);
   return h;
 }
 
