@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui", "esde_collections", "collections_gui"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -1023,6 +1023,34 @@ class AppTest(unittest.TestCase):
         self.pump(lambda: not w.busy)
         self.assertEqual(w.sets, {})
         w.close()
+
+    def test_save_as_an_esde_collection(self):
+        a = self.app
+        gui, ec = sys.modules["collections_gui"], sys.modules["esde_collections"]
+        es = os.path.join(self.base, "retrodeck", "ES-DE")
+        os.makedirs(os.path.join(es, "settings"), exist_ok=True)
+        with open(os.path.join(es, "settings", "es_settings.xml"), "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0"?>\n<string name="ROMDirectory" value="" />\n')
+        w = gui.open_window(a)
+        self.assertEqual(w.scope.get(), "keep")
+        self.assertTrue(w.save_btn.instate(["disabled"]))  # no name yet
+        w.name.set("Best of SNES")
+        self.assertEqual(w.about.cget("text"), "A new collection.")
+        with mock.patch.object(sys.modules["scraper"], "es_de_running", return_value=False):
+            w.save()
+        path = ec.path_of(ec.home(self.p["roms"]), "Best of SNES")
+        lines = ec.games(path)
+        self.assertEqual(len(lines), len(a.kept))
+        self.assertTrue(all(line.startswith("%ROMPATH%/snes/") for line in lines))
+        self.assertEqual(ec.enabled(ec.home(self.p["roms"])), ["Best of SNES"])
+        # again, from the right-click menu's scope: the selected games, added to the same collection
+        a.keys.place(a.keep_tv, 0)
+        w = gui.open_window(a, scope="selected")
+        self.assertEqual(w.name.get(), "Best of SNES")  # remembered
+        self.assertTrue(w.about.cget("text").startswith(f"Already has {len(lines)}"))
+        w.save()
+        self.assertEqual(len(ec.games(path)), len(lines))  # it was in there already
+        self.assertFalse(w.win.winfo_exists())  # saving closes it
 
     def test_pad_hints_for_any_window(self):
         """Windows that don't describe their buttons get hints by the kind of widget; every style draws."""

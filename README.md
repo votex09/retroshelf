@@ -39,6 +39,10 @@ rename can be undone, and games only go for good when you delete them from the h
   does right now ("Mark", "Move 3 marked", "Keep", …). It goes away when you type or move the mouse.
 - **View → Review one at a time…** (Ctrl+R) goes through the list with each game's artwork and details:
   K (or Space) keeps, M (or Enter) moves, S skips, ← goes back, Backspace undoes.
+- **Library → Save as an ES-DE collection…** (or right-click → **Add to an ES-DE collection…**) puts the Keeping
+  list, the Moving list or the selected games into an ES-DE custom collection, new or existing ("Best of SNES",
+  "Party games" …). ES-DE then shows it next to the systems; RetroShelf turns it on in ES-DE's settings when ES-DE
+  isn't running.
 - Each system remembers its patterns, filters and flips, so it opens the way you left it.
 - Multi-file games (cue/bin, multi-disc + m3u) are treated as one game and moved together.
 - **Library → Restore a move…** puts a whole batch of moved games back, including RPCS3 / Vita3K data that went with them.
