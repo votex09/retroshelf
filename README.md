@@ -23,31 +23,28 @@ rename can be undone, and games only go for good when you delete them from the h
 - Name patterns with `*` / `?` wildcards and `!` keep rules.
 - Filter by LaunchBox rating, vote count, genre and region.
 - Played games are protected by default (play counts from ES-DE's `gamelist.xml`).
-- Double-click any game to flip it by hand, or use the keyboard or a gamepad (**☰ → Keyboard and gamepad**):
-  - → or Delete moves the selected games and ← keeps them; the cursor stays where you were, so you can work
-    down a list key by key. Ctrl+Z (or Backspace) undoes.
-  - Space marks games without moving them yet, and steps to the next one. Marked games flip together on Enter or
-    when you leave the list.
-  - Type a few letters to jump to a game, Shift+↑/↓ selects a range, Ctrl+A everything shown, and Tab switches
-    between Keeping and Moving, back where you were.
-- Any standard gamepad works, with no Steam Input or extra software: D-pad or stick up / down to move, left / right
-  to go between Keeping and Moving, A marks (Space), X flips (Enter), Y undoes, L2 / R2 page, B goes back (in the
-  lists it first unmarks the marked games). **L1 / R1** go round the parts of the window (header, filter tabs,
-  the lists, details, the buttons at the bottom), **Menu** (☰) opens the ☰ menu, **View** searches with
-  the on-screen keyboard, **R3** opens the game's menu (hide in ES-DE, LaunchBox match, collections) and the right stick
-  up / down scrolls the details. **☰ → Settings → Use a gamepad** turns it off. On a Steam Deck, Steam keeps the built-in
-  controls while it's running; other pads work.
-  Everything else in the window works from the pad too: outside the lists the D-pad moves an accent ring from control
-  to control (menus, filter tabs, settings, every tool window), A presses what it's on and B steps back; each part
-  of the window remembers where you were in it. ↑ on the first game and ↓ on the last leave the
-  list. A on a drop-down opens its choices as a list, and A in a text box opens an on-screen keyboard (A types,
-  X adds a space, Y deletes, L1 for capitals, B when done). A bar along the bottom says what each button does right
-  now, drawn as the Steam Deck's buttons (Xbox-style pads use the same positions: L1 is LB, View is Select); it goes away when you type or move the mouse.
-  With a keyboard the same ring follows the arrow keys outside the lists: F6 goes to the next part of the window,
-  Enter presses, Esc steps back and Shift+F10 (or the Menu key) opens the game's menu.
+- Double-click any game to flip it by hand, or use the keyboard or any gamepad (no Steam Input needed). Every
+  button has a key that does the same (**☰ → Keyboard and gamepad** lists them):
+
+  | | Gamepad | Keyboard |
+  |---|---|---|
+  | Choose a game / switch Keeping and Moving | D-pad ▲ ▼ / ◀ ▶ | ↑ ↓ / ← → |
+  | Mark / flip to the other list (the marked games, if any) | A / X | Space / Enter |
+  | Undo | Y | Ctrl+Z |
+  | Unmark all, else clear the search; elsewhere back | B | Esc |
+  | The game's menu (hide in ES-DE, LaunchBox match, collections) | R3 | Shift+F10 |
+  | Page / scroll | L2 / R2, right stick | PgUp / PgDn |
+  | Next part of the window (header, filters, lists, details, buttons) | L1 / R1 | F6 / Shift+F6 |
+  | Search / ☰ menu | View / Menu | / / F10 |
+
+  With a keyboard you can also type a few letters to jump to a game, and Shift+↑ ↓ or Ctrl+A select several.
+  Outside the lists the D-pad or arrow keys move a ring from control to control and A or Enter presses; each part
+  of the window remembers where you were. A in a text box opens an on-screen keyboard. The bar along the bottom
+  shows what works right there, as Steam Deck buttons or keys, whichever you used last. **☰ → Settings → Use a
+  gamepad** turns the pad off; on a Steam Deck, Steam keeps the built-in controls while it runs.
 - Each system goes back to the game you were on when you left it, after a restart too.
-- **☰ → Review one at a time…** (Ctrl+R) goes through the list with each game's artwork and details:
-  K (or Space) keeps, M (or Enter) moves, S skips, ← goes back, Backspace undoes.
+- **☰ → Review one at a time…** (Ctrl+R) goes through the list with each game's artwork and details: A / Space
+  keeps, X / Enter moves, ◀ ▶ go back and skip, Y / Ctrl+Z undoes.
 - **Hide in ES-DE** (next to Move) is the gentler choice for the Moving list's games: they stay on disk and ES-DE
   leaves them out of its menus (it marks them hidden in its gamelist, and turns off ES-DE's "Show hidden games"
   if it's on). Hidden games stay in Keeping, like played ones, and show "hidden in ES-DE"; right-click →

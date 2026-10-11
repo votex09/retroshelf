@@ -918,8 +918,6 @@ function handle(key, e = {}) {
     case "PageUp": select(list.sel - list.page); break;
     case "Home": select(0, false); break;
     case "End": select(list.items.length - 1, false); break;
-    case "ArrowRight": case "Delete": if (S.active === "keep") { list.pulse(); flip(); } break;
-    case "ArrowLeft": if (S.active === "move") { list.pulse(); flip(); } break;
     case "Enter": list.pulse(); flip(); break;
     case " ": mark(); break;
     case "Tab": setActive(S.active === "keep" ? "move" : "keep"); break;

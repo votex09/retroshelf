@@ -3,8 +3,9 @@
 //   A cursor (an accent ring, .pad-cur) sits on one control; the d-pad or the arrow keys move it to the nearest
 // control that way, A / Enter / Space presses it and B / Esc goes back: out of a text box, out of a submenu, closes
 // the popover or sheet, then back to the lists. In the lists themselves the keys are app.js's handle(). Everywhere in
-// the main window L1 / R1 (F6) go round its parts (header, filter tabs, Keeping, Moving, details, footer), View
-// searches, Menu opens ☰, and R3, the Menu key or Shift+F10 opens the game's menu. A in a text box opens an
+// the main window L1 / R1 (F6) go round its parts (header, filter tabs, Keeping, Moving, details, footer), View (/)
+// searches, Menu (F10) opens ☰, and R3, the Menu key or Shift+F10 opens the game's menu. Every button has a key
+// that does the same (settings.js's CONTROLS). A in a text box opens an
 // on-screen keyboard (osk below). The hints along the bottom always list what the buttons do right there (uiHints),
 // and a ring flies to wherever the cursor lands (glide).
 "use strict";
@@ -371,6 +372,7 @@ document.addEventListener("keydown", (e) => {
   syncCursor();
   const layer = topLayer(), dir = NAV[e.key];
   if (e.key === "Escape") { e.preventDefault(); back(); return; }
+  if (e.key === "F10" && !e.shiftKey) { e.preventDefault(); startMenu(); return; }  // (Menu on a pad)
   const navKey = dir || e.key === "Enter" || e.key === " ";
   const table = tableOf();
   if (layer === $("sheet") && sheetKeys && (!navKey || !P.cur || P.cur.matches(".trow")) && sheetKeys(e.key, e)) {
@@ -386,6 +388,11 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "ArrowUp" && !e.repeat && S.sys && L().sel === 0 && !e.shiftKey) { e.preventDefault(); move("up"); return; }
     if (e.key === "ArrowDown" && !e.repeat && S.sys && L().sel >= L().items.length - 1) { e.preventDefault(); move("down"); return; }
     if (e.key === "ArrowRight" && !e.repeat && S.active === "move") { e.preventDefault(); move("right"); return; }
+    if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && S.sys) {  // ← → go between Keeping and Moving, as on a pad
+      e.preventDefault();
+      if (!e.repeat && (e.key === "ArrowLeft") === (S.active === "move")) enterList(e.key === "ArrowLeft" ? "keep" : "move");
+      return;
+    }
     if (handle(e.key, e)) e.preventDefault();
     return;
   }
@@ -395,6 +402,12 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (layer === document.body && e.key === "F6") { e.preventDefault(); nextZone(e.shiftKey ? -1 : 1); return; }
+  if (layer === document.body && e.key === "/") { e.preventDefault(); openSearch(); return; }
+  if ((layer === $("sheet") || layer === document.body) && (e.key === "PageUp" || e.key === "PageDown")) {  // (L2 / R2)
+    e.preventDefault();
+    padScroll(e.key === "PageDown" ? 1 : -1, true);
+    return;
+  }
   if (dir) {
     e.preventDefault();
     move(dir);
@@ -564,16 +577,17 @@ function uiHints() {
     return [["dpad", "Keys"], ["a", "Type"], ["x", "Space"], ["y", "Delete"], ["l1", "Shift"], ["b", "Done"]];
   }
   const around = pad ? [["l1/r1", "Next area"], ["view", "Search"], ["menu", "Menu"]]
-    : [k("F6", "Next area"), k("/", "Search")];
+    : [k("F6", "Next area"), k("/", "Search"), k("F10", "Menu")];
   if (main && !P.cur) {  // the lists
     if (!S.sys) return [pad ? ["dpad", "Move"] : k("↑ ↓ ← →", "Move"), ...around];
     const marked = L().items.filter((g) => S.marked.has(g.key)).length;
     const verb = S.active === "keep" ? "Move" : "Keep", act = marked ? `${verb} ${marked} marked` : verb;
+    const b = marked ? "Unmark all" : S.query ? "Clear search" : "";
     return pad
       ? [["dpad-ud", "Choose"], ["dpad-lr", "Other list"], ["a", "Mark"], ["x", act], ["y", "Undo"], ["r3", "Game options"],
-        ...(marked ? [["b", "Unmark all"]] : S.query ? [["b", "Clear search"]] : []), ...around, ["rs-ud", "Scroll details"]]
-      : [k(S.active === "keep" ? "→" : "←", act), k("Space", "Mark"), k("Ctrl+Z", "Undo"), k("Tab", "Other list"),
-        k("Shift+F10", "Game options"), ...around];
+        ...(b ? [["b", b]] : []), ...around, ["rs-ud", "Scroll details"]]
+      : [k("↑ ↓", "Choose"), k("← →", "Other list"), k("Space", "Mark"), k("Enter", act), k("Ctrl+Z", "Undo"),
+        k("Shift+F10", "Game options"), ...(b ? [k("Esc", b)] : []), ...around];
   }
   const what = layer === $("picker") ? "Pick" : P.cur?.tagName === "SELECT" ? "Change"
     : P.cur?.matches(`${TEXTY}, input[type=number]`) ? "Type" : "Select";
@@ -588,9 +602,9 @@ function uiHints() {
     : [pad ? ["dpad", "Move"] : k("↑ ↓ ← →", "Move"), pad ? ["a", what] : k("Enter", what), ...backHint];
   if (main) {
     h.push(...around);
-    if (pad && P.cur?.closest("#details")) h.push(["rs-ud", "Scroll"]);
+    if (P.cur?.closest("#details")) h.push(pad ? ["rs-ud", "Scroll"] : k("PgUp PgDn", "Scroll"));
   }
-  if (layer === $("sheet") && pad) h.push(["l2/r2", "Scroll"]);
+  if (layer === $("sheet")) h.push(pad ? ["l2/r2", "Scroll"] : k("PgUp PgDn", "Scroll"));
   return h;
 }
 

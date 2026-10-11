@@ -122,31 +122,35 @@ function helpRows(rows) {
   return `<div class="help-rows">${rows.map(([k, v]) => `<span class="keys">${k.split(" / ").map((x) => `<kbd>${esc(x)}</kbd>`).join(" ")}</span><span>${esc(v)}</span>`).join("")}</div>`;
 }
 
+// Every control, its gamepad button and its key side by side: the two always do the same thing.
+const CONTROLS = [
+  ["In the lists"],
+  ["Choose a game", "dpad-ud", "↑ ↓"], ["Keeping / Moving list", "dpad-lr", "← →"], ["Mark", "a", "Space"],
+  ["Flip to the other list (the marked games, if any)", "x", "Enter"], ["Undo", "y", "Ctrl+Z"],
+  ["Unmark all, else clear the search", "b", "Esc"], ["The game's menu", "r3", "Shift+F10"], ["A page up / down", "l2/r2", "PgUp PgDn"],
+  ["Everywhere"],
+  ["Next / previous part of the window", "l1/r1", "F6 Shift+F6"], ["Search", "view", "/"], ["☰ menu", "menu", "F10"],
+  ["Move between controls", "dpad", "↑ ↓ ← →"], ["Press", "a", "Enter"], ["Back, close", "b", "Esc"],
+  ["Scroll the details or a window", "rs-ud", "PgUp PgDn"],
+  ["Review (Ctrl+R)"],
+  ["Keep / move", "a/x", "Space / Enter"], ["Back / skip", "dpad-lr", "← →"], ["Undo", "y", "Ctrl+Z"],
+];
+
 function openKeys() {
   const pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(Boolean).map((g) => g.id.replace(/\s*\(.*$/, ""));
+  const rows = CONTROLS.map(([what, pad, keys]) => pad === undefined ? `<div class="controls-head">${esc(what)}</div>`
+    : `<span>${esc(what)}</span>${padGlyph(pad)}<span class="keys">${keys.split(" / ").map((x) => `<kbd>${esc(x)}</kbd>`)
+      .join(" ")}</span>`).join("");
   sheet(`
     <div class="sheet-head"><h2>Keyboard and gamepad</h2></div>
     <div class="form help">
-      <div class="help-cols">
-        <div><div class="label">Keyboard</div>${helpRows([
-          ["↑ / ↓", "Previous / next game"], ["PgUp / PgDn", "A page up / down"], ["Home / End", "First / last game"],
-          ["→ / Del", "Move the game (Keeping list)"], ["←", "Keep the game (Moving list)"], ["Enter", "Flip it to the other list"],
-          ["Space", "Mark it; flips then act on all marked games"], ["Tab", "Switch list"], ["Ctrl+Z / Backspace", "Undo"],
-          ["/ / Ctrl+F", "Search"], ["S", "Pick a system"], ["Ctrl+R", "Review one at a time"], ["Ctrl+I", "Import ROMs"], ["F5", "Rescan"],
-          ["F6 / Shift+F6", "Next / previous part: header, filters, Keeping, Moving, details, buttons"], ["Shift+F10", "The game's menu (hide, LaunchBox match …)"],
-          ["Esc", "Close, unmark all, or clear the search"]])}
-          <p class="note">Outside the lists, the arrow keys move between controls and Enter presses them. ↑ on the first game and ↓ on the last leave the list.</p></div>
-        <div><div class="label">Gamepad</div>${helpRows([
-          ["D-pad ▲ ▼ / Stick", "Move through the list"], ["D-pad ◀ ▶", "Keeping / Moving list"], ["A", "Mark"], ["X", "Flip to the other list"], ["Y", "Undo"],
-          ["L1 / R1", "Next / previous part: header, filters, the lists, details, buttons"], ["L2 / R2", "A page up / down"],
-          ["Menu (☰)", "☰ menu"], ["View (⧉)", "Search"], ["R3", "The game's menu"], ["Right stick ▲ ▼", "Scroll the details"],
-          ["B", "Back, close; in the lists, unmark all, then clear the search"]])}
-          <p class="note">Outside the lists, the d-pad moves between controls, A presses them and A in a text box opens an on-screen keyboard. The bottom of the window always lists what the buttons do right there, and goes back to keys as soon as you use the mouse or keyboard.</p>
-          <p class="note">${S.opts.gamepad ? (pads.length ? `Connected: ${esc(pads.join(", "))}. While you use it, the bottom of the window shows what its buttons do.`
-            : "No gamepad found yet: plug one in (or press a button) and it's picked up by itself. On a Steam Deck, Steam keeps the built-in controls while it runs; other pads work.")
-            : "The gamepad is off in ☰ → Settings."}</p></div>
-      </div>
-      <p class="note">Review (Ctrl+R): K or Space keeps · M or Enter moves · S or → skips · ← back · Backspace undoes · Esc closes.</p>
+      <div class="controls">${rows}</div>
+      <p class="note">Keyboard only: type a few letters to jump to a game, Shift+↑ ↓ or Ctrl+A to select several, Home / End for the
+        first and last game, S to pick a system, Ctrl+I to import, F5 to rescan. The bar along the
+        bottom always shows what works right there, for whichever you used last.</p>
+      <p class="note">${S.opts.gamepad ? (pads.length ? `Connected: ${esc(pads.join(", "))}.`
+        : "No gamepad found yet: plug one in (or press a button). On a Steam Deck, Steam keeps the built-in controls while it runs; other pads work.")
+        : "The gamepad is off in ☰ → Settings."}</p>
     </div>
     <div class="sheet-foot"><span class="grow"></span><button class="primary" id="k-close">Close</button></div>`, "wide form-sheet");
   $("k-close").onclick = closeSheet;

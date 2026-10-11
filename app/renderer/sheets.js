@@ -370,8 +370,8 @@ function openReview() {
         <div class="r-info" id="r-info"></div>
       </div>
       <div class="sheet-foot r-foot">
-        <button class="ghost" id="r-keep">${padGlyph("a")} Keep <kbd>K</kbd></button>
-        <button class="primary" id="r-move">${padGlyph("x")} Move <kbd>M</kbd></button>
+        <button class="ghost" id="r-keep">${padGlyph("a")} Keep <kbd>Space</kbd></button>
+        <button class="primary" id="r-move">${padGlyph("x")} Move <kbd>Enter</kbd></button>
         <button class="ghost" id="r-skip">Skip <kbd>→</kbd></button>
         <span class="grow"></span>
         <button class="ghost" id="r-back">‹ Back <kbd>←</kbd></button>
@@ -381,7 +381,7 @@ function openReview() {
     </div>`, "review-sheet", null, keys);
 
   keys.hints = { pad: [["a", "Keep"], ["x", "Move"], ["dpad-lr", "Back / Skip"], ["y", "Undo"]],
-    keys: [["key", "K", "Keep"], ["key", "M", "Move"], ["key", "← →", "Back / Skip"], ["key", "⌫", "Undo"]] };
+    keys: [["key", "Space", "Keep"], ["key", "Enter", "Move"], ["key", "← →", "Back / Skip"], ["key", "Ctrl+Z", "Undo"]] };
   function keys(key, e = {}) {
     const k = key.length === 1 ? key.toLowerCase() : key;
     if (k === "k" || k === " ") decide(false);
