@@ -68,6 +68,7 @@ import padhints  # noqa: E402
 import compress  # noqa: E402
 import compress_gui  # noqa: E402
 import health_gui  # noqa: E402
+import storage_gui  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
@@ -847,6 +848,8 @@ class App:
         self.disk_bar.grid(row=0, column=9)
         for w in (self.disk_lbl, self.disk_bar):
             ui.Tooltip(w, self._disk_tip)
+            w.configure(cursor="hand2")
+            w.bind("<Button-1>", lambda e: storage_gui.open_window(self))
         imp = ttk.Button(bar, text="Import ROMs…", command=lambda: import_gui.open_window(self))
         imp.grid(row=0, column=10, padx=(16, 0))
         ui.Tooltip(imp, "Add games: archives (zip, 7z, rar), disc images and ROMs are checked, unpacked and filed "
@@ -1024,6 +1027,7 @@ class App:
         lib.add_command(label="Change ROMs folder…", command=self.browse_roms)
         lib.add_command(label="Rescan", accelerator="F5", command=self.rescan)
         lib.add_separator()
+        lib.add_command(label="Storage overview…", command=lambda: storage_gui.open_window(self))
         lib.add_command(label="Holding folder…", command=self.holding_dialog)
         lib.add_command(label="Restore a move…", command=self.restore_dialog)
         lib.add_command(label="Change holding folder…", command=self.browse_holding)
@@ -1576,7 +1580,29 @@ class App:
         except OSError:
             return ""
         return (f"Drive with your ROMs: {human(du.free)} free of {human(du.total)} "
-                f"({100 * (du.total - du.free) / du.total:.0f}% used)")
+                f"({100 * (du.total - du.free) / du.total:.0f}% used). Click for where the space goes.")
+
+    unit_key = staticmethod(unit_key)  # (for lib/storage.py, which groups files into games the same way)
+
+    def system_label(self, code):
+        """'psx — Sony PlayStation'"""
+        name, full, _ = read_systeminfo(os.path.join(self.cfg["roms_root"] or "", code))
+        full = full if name == code and full else nps.FULL_NAMES.get(code)
+        return f"{code} — {full}" if full else code
+
+    def show_game(self, key):
+        """Put the cursor on a game in whichever list has it (emptying the search box if that hides it)."""
+        for attempt in range(2):
+            for tv in (self.keep_tv, self.move_tv):
+                if tv.exists(key):
+                    self.root.focus_force()
+                    self.keys.place(tv, tv.get_children().index(key))
+                    return True
+            if attempt or not self.view_filter.get():
+                break
+            self.view_filter.set("")
+            self.refresh()
+        return False
 
     def holding_on_same_drive(self):
         """True when the holding folder (or where it will be created) shares a filesystem with roms."""

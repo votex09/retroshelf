@@ -31,6 +31,7 @@ import gamepad  # noqa: E402
 import padhints  # noqa: E402
 import compress  # noqa: E402
 import health  # noqa: E402
+import storage  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
 import discs  # noqa: E402
@@ -1624,6 +1625,43 @@ class Health(unittest.TestCase):
             with self.assertRaises(RuntimeError):  # ES-DE would write it back when it quits
                 health.fix(p, self.roms)
         self.assertTrue(os.path.getsize(gl))
+
+
+class Storage(unittest.TestCase):
+    """lib/storage.py: where the space goes."""
+
+    def test_adds_up_systems_games_and_media(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        roms = os.path.join(tmp, "retrodeck", "roms")
+        media = os.path.join(tmp, "retrodeck", "ES-DE", "downloaded_media")
+
+        def put(path, n):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(b"\0" * n)
+        put(os.path.join(roms, "snes", "Small (USA).sfc"), 1000)
+        put(os.path.join(roms, "snes", "readme.txt"), 50_000)  # not a game
+        put(os.path.join(roms, "psx", "Big (USA) (Track 1).bin"), 300_000)
+        put(os.path.join(roms, "psx", "Big (USA) (Track 2).bin"), 100_000)
+        with open(os.path.join(roms, "psx", "Big (USA).cue"), "w") as f:
+            f.write('FILE "Big (USA) (Track 1).bin" BINARY\n  TRACK 01 MODE2/2352\n'
+                    'FILE "Big (USA) (Track 2).bin" BINARY\n  TRACK 02 AUDIO\n')
+        put(os.path.join(roms, "psx", "Done (USA).chd"), 50_000)
+        put(os.path.join(roms, "ps3", "Game.ps3", "PS3_GAME", "USRDIR", "EBOOT.BIN"), 200_000)  # a folder game
+        put(os.path.join(media, "psx", "videos", "Big (USA).mp4"), 70_000)
+        os.makedirs(os.path.join(roms, "empty"))
+        found = storage.scan(roms, rs.unit_key)
+        self.assertEqual([s.name for s in found], ["psx", "ps3", "snes"])  # biggest first; empty systems left out
+        psx = found[0]
+        self.assertEqual(sorted(psx.games), ["Big (USA)", "Done (USA)"])
+        self.assertGreater(psx.games["Big (USA)"]["size"], 400_000)
+        self.assertEqual(psx.biggest(1), [("Big (USA)", psx.games["Big (USA)"]["size"])])
+        self.assertEqual(psx.media, 70_000)
+        self.assertEqual(psx.compressible, psx.games["Big (USA)"]["size"])  # the CHD one is done already
+        self.assertEqual(found[1].games["Game"]["size"], 200_000)  # keyed as the main window keys it
+        self.assertEqual(found[2].size, 1000)
+        self.assertEqual(found[2].compressible, 0)
 
 
 class SevenZip(unittest.TestCase):
