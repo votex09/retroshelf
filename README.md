@@ -31,8 +31,8 @@ rename can be undone, and games only go for good when you delete them from the h
   - Type a few letters to jump to a game, Shift+↑/↓ selects a range, Ctrl+A everything shown, and Tab switches
     between Keeping and Moving, back where you were.
 - Any standard gamepad works, with no Steam Input or extra software: D-pad or stick up / down to move, left / right
-  to go between Keeping and Moving, A marks (Space), X flips
-  (Enter), Y undoes, L2 / R2 page, B goes back. **L1 / R1** go round the parts of the window (header, filter tabs,
+  to go between Keeping and Moving, A marks (Space), X flips (Enter), Y undoes, L2 / R2 page, B goes back (in the
+  lists it first unmarks the marked games). **L1 / R1** go round the parts of the window (header, filter tabs,
   the lists, details, the buttons at the bottom), **Menu** (☰) opens the ☰ menu, **View** searches with
   the on-screen keyboard, **R3** opens the game's menu (hide in ES-DE, LaunchBox match, collections) and the right stick
   up / down scrolls the details. **☰ → Settings → Use a gamepad** turns it off. On a Steam Deck, Steam keeps the built-in

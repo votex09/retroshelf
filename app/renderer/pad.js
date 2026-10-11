@@ -571,7 +571,7 @@ function uiHints() {
     const verb = S.active === "keep" ? "Move" : "Keep", act = marked ? `${verb} ${marked} marked` : verb;
     return pad
       ? [["dpad-ud", "Choose"], ["dpad-lr", "Other list"], ["a", "Mark"], ["x", act], ["y", "Undo"], ["r3", "Game options"],
-        ...(S.query ? [["b", "Clear search"]] : []), ...around, ["rs-ud", "Scroll details"]]
+        ...(marked ? [["b", "Unmark all"]] : S.query ? [["b", "Clear search"]] : []), ...around, ["rs-ud", "Scroll details"]]
       : [k(S.active === "keep" ? "→" : "←", act), k("Space", "Mark"), k("Ctrl+Z", "Undo"), k("Tab", "Other list"),
         k("Shift+F10", "Game options"), ...around];
   }
