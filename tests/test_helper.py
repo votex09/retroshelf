@@ -138,6 +138,70 @@ print(json.dumps({"plan": plan, "moved": h.move("to_delete")}))""")
             log = json.load(f)
         self.assertEqual((log[0]["system"], log[0]["games"], len(log[0]["moves"])), ("snes", 2, 2))
 
+    def test_holding_folder_and_restore(self):
+        out = session(self.data, """
+h.startup(); s = h.open_system("snes")
+h.decide(dict(s["state"], flips={"Chrono Trigger (USA)": True, "Super Metroid (USA)": True}))
+h.move("to_delete")
+held = h.holding_list()
+chrono = [g["id"] for g in held["games"] if g["key"] == "Chrono Trigger (USA)"]
+back = h.holding_restore(chrono)
+runs = h.moves()
+undo = h.restore_moves([runs[0]["id"]])
+print(json.dumps({"held": held, "back": back, "runs": runs, "undo": undo, "after": h.holding_list(),
+                  "moves": h.moves()}))""")
+        self.assertEqual(sorted(g["key"] for g in out["held"]["games"]), ["Chrono Trigger (USA)", "Super Metroid (USA)"])
+        self.assertEqual(out["held"]["root"], os.path.join(self.tmp.name, "pruned"))
+        self.assertEqual((out["back"]["back"], out["back"]["failed"]), (1, []))
+        self.assertEqual([g["key"] for g in out["back"]["holding"]["games"]], ["Super Metroid (USA)"])
+        self.assertEqual((out["runs"][0]["files"], out["runs"][0]["left"]), (1, 1))  # Chrono left the log
+        self.assertEqual((out["undo"]["back"], out["undo"]["failed"]), (1, []))
+        self.assertEqual((out["after"]["games"], out["moves"]), ([], []))
+        self.assertEqual(sorted(os.listdir(os.path.join(self.roms, "snes"))),
+                         ["Chrono Trigger (USA).sfc", "EarthBound (USA).sfc.part", "Super Metroid (USA).zip",
+                          "readme.txt", "systeminfo.txt"])
+
+    def test_holding_delete(self):
+        out = session(self.data, """
+h.startup(); s = h.open_system("snes")
+h.decide(dict(s["state"], flips={"Super Metroid (USA)": True}))
+h.move("review_low_value")
+print(json.dumps(h.holding_delete([g["id"] for g in h.holding_list()["games"]], forget=True)))""")
+        self.assertEqual((out["deleted"], out["failed"], out["holding"]["games"]), (1, [], []))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "pruned", "review_low_value", "snes")))
+
+    def test_hide_and_priority(self):
+        out = session(self.data, """
+h.startup(); s = h.open_system("snes")
+h.decide(dict(s["state"], flips={"Chrono Trigger (USA)": True}))
+check = h.hide_check(["Chrono Trigger (USA)"])
+hid = h.hide(["Chrono Trigger (USA)"])
+prio = h.region_priority()
+d = h.set_region_priority(["Japan", "USA"])
+print(json.dumps({"check": check, "hid": hid, "prio": prio, "d": d}))""")
+        self.assertEqual(out["check"]["games"], 1)
+        self.assertEqual(out["hid"]["hidden"], 1)
+        chrono = [g for g in out["hid"]["games"] if g["key"] == "Chrono Trigger (USA)"][0]
+        self.assertTrue(chrono["hidden"])
+        self.assertFalse(chrono["move"])  # the flip that sent it to Moving is dropped; hidden games stay
+        self.assertEqual(out["hid"]["state"]["flips"], {})
+        self.assertEqual(out["prio"]["order"][0], "USA")
+        self.assertEqual(self.config()["region_priority"], "Japan, USA")
+        gl = os.path.join(self.roms, "snes", "gamelist.xml")
+        if not os.path.exists(gl):
+            gl = [os.path.join(d, f) for d, _, fs in os.walk(self.tmp.name) for f in fs if f == "gamelist.xml"][0]
+        with open(gl, encoding="utf-8") as f:
+            self.assertIn("<hidden>true</hidden>", f.read())
+
+    def test_export(self):
+        path = os.path.join(self.tmp.name, "out.txt")
+        session(self.data, f"""
+h.startup(); s = h.open_system("snes")
+h.decide(dict(s["state"], presets=["Partial downloads (.part)"]))
+print(json.dumps(h.export_moves({path!r})))""")
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "EarthBound (USA).sfc.part\n")
+
     def test_needs_a_system(self):
         with self.assertRaisesRegex(AssertionError, "No system is open"):
             session(self.data, 'h.startup(); h.decide({})')

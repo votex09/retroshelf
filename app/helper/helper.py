@@ -20,6 +20,9 @@ else:
     APP_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     sys.path.insert(0, os.path.join(APP_DIR, "lib"))
 
+import esde_collections  # noqa: E402
+import hiding  # noqa: E402
+import holding  # noqa: E402
 import launchbox as lb  # noqa: E402
 import library  # noqa: E402
 import nps  # noqa: E402
@@ -163,7 +166,7 @@ def _game_row(sc, key, d):
         "label": os.path.basename(paths[0]) if len(paths) == 1 else f"{key}  [{len(paths)} files]",
         "size": u["size"], "regions": list(sc.regions[key]),
         "rating": g["r"] if g else None, "votes": g["v"] if g else 0, "genres": g["g"] if g else [],
-        "played": key in sc.played, "hidden": key in sc.hidden,
+        "played": key in sc.played, "hidden": key in sc.hidden, "manual_match": sc.lb_kind.get(key) == "manual",
         "move": key in d.to_move, "why": d.why[key],
         "thumb": thumb[0][1] if thumb else None,
     }
@@ -311,6 +314,201 @@ def download_launchbox():
     lb.update(progress=lambda msg: event("launchbox", {"message": msg}))
     _details_cache.clear()
     return {"platforms": len(lb.platforms())}
+
+
+@method
+def rescan():
+    """Scan the open system again (files changed on disk, or a match / ES-DE setting changed)."""
+    return open_system(_need_system().system)
+
+
+@method
+def export_moves(path):
+    """Write the Moving list's file names to a text file, one per line."""
+    sc, d = _need_system(), current["decision"]
+    with open(path, "w", encoding="utf-8") as f:
+        for k in d.to_move:
+            f.writelines(os.path.basename(p) + "\n" for p in sc.units[k]["paths"])
+    return {"games": len(d.to_move)}
+
+
+# ---------- ES-DE: hiding games, picking LaunchBox matches ----------
+@method
+def hide_check(keys, hide=True):
+    """What hiding (or showing) these games would do, for the window to confirm."""
+    sc = _need_system()
+    keys = [k for k in keys if k in sc.units and (k in sc.hidden) != hide]
+    return {"games": len(keys), "es_de_running": scraper.es_de_running(),
+            "shows_hidden": bool(hiding.shows_hidden(esde_collections.home(sc.roms_root)))}
+
+
+@method
+def hide(keys, hide=True):
+    """Mark games hidden in ES-DE's gamelist (or show them again). Hidden games stay in Keeping, like played ones,
+    unless flipped by hand; a flip that sent one to Moving is dropped. -> the system opened again, with "hidden":
+    how many changed."""
+    with _state_lock:
+        sc = _need_system()
+        keys = [k for k in keys if k in sc.units and (k in sc.hidden) != hide]
+        if keys:
+            if scraper.es_de_running():
+                raise RuntimeError("Close RetroDECK / ES-DE first: it rewrites its gamelists when it quits, which "
+                                   "would undo this.")
+            es_home = esde_collections.home(sc.roms_root)
+            hiding.set_hidden(scraper.gamelist_path(sc.roms_root, sc.system),
+                              [scraper.primary_file(sc.units[k]["paths"]) for k in keys], hide)
+            if hide and hiding.shows_hidden(es_home):
+                hiding.stop_showing_hidden(es_home)
+            flips = cfg["system_state"].get(sc.system, {}).get("flips", {})
+            for k in keys:
+                if flips.get(k):
+                    flips.pop(k)
+            save_cfg()
+    result = open_system(sc.system)
+    result["hidden"] = len(keys)
+    return result
+
+
+@method
+def match_search(key, query):
+    """LaunchBox games for the "which game is this?" picker."""
+    sc = _need_system()
+    if not sc.platform:
+        raise RuntimeError("LaunchBox has no platform for this system")
+    m = lb.Matcher(sc.platform)
+    if not m.ok:
+        raise RuntimeError("Download LaunchBox data first")
+    out = []
+    for gid in m.search(query):
+        x = m.games[gid]
+        alts = [a for a in m.alts.get(gid, []) if lb.norm(a) != lb.norm(x["n"])]
+        out.append({"id": gid, "name": x["n"], "aka": alts[0] if alts else "", "rating": x["r"], "votes": x["v"],
+                    "genres": x["g"]})
+    title = rules.title_of(key)
+    return {"results": out, "current": sc.lb_links.get(key), "kind": sc.lb_kind.get(key), "title": title,
+            "same_title": sum(rules.title_of(k) == title for k in sc.units)}
+
+
+@method
+def set_match(key, gid=None, clear=False):
+    """Pick the LaunchBox game for key (gid None: not in LaunchBox; clear: back to automatic), then rescan."""
+    sc = _need_system()
+    lb.set_manual(sc.platform, rules.title_of(key), gid, clear)
+    return open_system(sc.system)
+
+
+# ---------- settings ----------
+@method
+def region_priority():
+    """Regions in the order region dupes keeps them, the ones this system has first; with game counts here."""
+    sc = _need_system()
+    saved = [p.strip() for p in cfg["region_priority"].split(",") if p.strip()]
+    low = [p.lower() for p in saved]
+    present = [r for r in sc.region_names if r != "(none)"]
+    order = [p for p in saved if p in present] + [r for r in present if r.lower() not in low]
+    order += [p for p in saved if p not in order]
+    return {"order": order, "counts": dict(sc.region_counts), "default": rules.DEFAULT_PRIORITY.split(", ")}
+
+
+@method
+def set_region_priority(order):
+    with _state_lock:
+        sc = _need_system()
+        cfg["region_priority"] = ", ".join(order)
+        save_cfg()
+        sc.dupes_key = None
+    return decide(_saved_state(sc))
+
+
+def _saved_state(sc):
+    return {**shelf.DEFAULT_STATE, **cfg["system_state"].get(sc.system, {})}
+
+
+@method
+def set_holding(path):
+    with _state_lock:
+        if not os.path.isdir(path):
+            raise FileNotFoundError(f"No folder at {path}")
+        cfg["holding_root"] = path
+        save_cfg()
+        return _overview()
+
+
+# ---------- the holding folder and the move log ----------
+def _holding_out():
+    root = shelf.holding_root(cfg)
+    games, origin = holding.holding_games(root, shelf.read_moves(MOVES))
+    games.sort(key=lambda g: g["moved"], reverse=True)
+    current["holding"] = (games, origin)
+    return {"root": root, "same_drive": shelf.on_same_drive(root, cfg["roms_root"]) if cfg["roms_root"] else False,
+            "games": [{"id": i, "dest": g["dest"], "system": g["system"], "key": g["key"], "size": g["size"],
+                       "moved": g["moved"], "files": len(g["paths"]), "installed": len(g["extra"]),
+                       "label": os.path.basename(g["paths"][0]) if len(g["paths"]) == 1 else
+                       f"{g['key']}  [{len(g['paths'])} files]"} for i, g in enumerate(games)]}
+
+
+@method
+def holding_list():
+    with _state_lock:
+        return _holding_out()
+
+
+def _picked(ids):
+    games = current.get("holding", ([], {}))[0]
+    return [games[i] for i in ids if 0 <= i < len(games)]
+
+
+@method
+def holding_restore(ids):
+    """Put these games (ids from holding_list) back where they came from."""
+    with _state_lock:
+        root = shelf.holding_root(cfg)
+        origin = current.get("holding", ([], {}))[1]
+        back, failed, done = holding.restore_games(_picked(ids), origin, cfg["roms_root"], root)
+        try:
+            shelf.write_moves(MOVES, holding.drop_from_log(shelf.read_moves(MOVES), done))
+        except OSError as e:
+            failed.append(f"move log: {e}")
+        return {"back": back, "failed": failed, "holding": _holding_out()}
+
+
+@method
+def holding_delete(ids, forget=True):
+    """Delete these games for good; forget: also remove their ES-DE artwork and gamelist entries."""
+    with _state_lock:
+        root = shelf.holding_root(cfg)
+        gone, failed, by_system = holding.delete_games(_picked(ids), root)
+        try:
+            shelf.write_moves(MOVES, holding.drop_from_log(shelf.read_moves(MOVES), gone))
+        except OSError as e:
+            failed.append(f"move log: {e}")
+        if forget:
+            for system, names in by_system.items():
+                failed += scraper.forget_games(names, system, cfg["roms_root"],
+                                               scraper.find_gamelist(cfg["roms_root"], system))[2]
+        return {"deleted": len(gone), "failed": failed, "holding": _holding_out(), "disk": disk(cfg["roms_root"])}
+
+
+@method
+def moves():
+    """Every Move run, newest first, with how much of it is still in the holding folder."""
+    out = []
+    for i, b in enumerate(shelf.read_moves(MOVES)):
+        out.append({"id": i, "time": b["time"], "system": b["system"], "dest": b["dest"], "games": b["games"],
+                    "size": b["size"], "files": len(b["moves"]), "left": sum(os.path.exists(t) for _, t in b["moves"])})
+    return out[::-1]
+
+
+@method
+def restore_moves(ids):
+    """Undo whole Move runs (ids from moves())."""
+    with _state_lock:
+        back, failed, left = holding.restore_batches(shelf.read_moves(MOVES), ids, shelf.holding_root(cfg))
+        try:
+            shelf.write_moves(MOVES, left)
+        except OSError as e:
+            failed.append(f"move log: {e}")
+        return {"back": back, "failed": failed}
 
 
 # ---------- plumbing ----------

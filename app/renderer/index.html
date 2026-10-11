@@ -24,6 +24,21 @@
       <svg viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="15"/><circle class="fill" id="space-ring" cx="18" cy="18" r="15"/></svg>
       <div><b id="free"></b><small>free</small></div>
     </div>
+    <div class="menu-wrap">
+      <button class="icon-btn" id="menu-btn" title="More">☰</button>
+      <div class="popover menu" id="menu" hidden>
+        <button data-cmd="holding">Holding folder…<small>see, restore or delete moved games</small></button>
+        <button data-cmd="moves">Restore a move…<small>undo a whole Move</small></button>
+        <hr>
+        <button data-cmd="priority">Region priority…</button>
+        <button data-cmd="export">Export move list…</button>
+        <button data-cmd="rescan">Rescan<kbd>F5</kbd></button>
+        <hr>
+        <button data-cmd="change-holding">Change holding folder…</button>
+        <button data-cmd="change-roms">Change ROMs folder…</button>
+        <button data-cmd="launchbox">Download LaunchBox data</button>
+      </div>
+    </div>
   </header>
 
   <main id="main">
@@ -34,6 +49,7 @@
         <button class="tab" data-tab="regions">Regions<span class="n"></span></button>
         <button class="tab" data-tab="patterns">Patterns<span class="n"></span></button>
         <span class="filter-info" id="filter-info"></span>
+        <button class="ghost small" id="reset-flips" hidden>Reset flips</button>
       </div>
       <div class="popover filters" id="filters" hidden>
         <div class="panel" data-panel="presets">
@@ -83,6 +99,7 @@ mario       contains “mario”
   <footer>
     <div class="hints" id="hints"></div>
     <div class="actions">
+      <button class="ghost" id="hide-btn" disabled title="Hide the Moving list's games in ES-DE instead of moving the files">Hide in ES-DE</button>
       <label class="dest">Move to
         <select id="dest"><option value="to_delete">to_delete</option><option value="review_low_value">review_low_value</option></select>
       </label>
@@ -90,9 +107,12 @@ mario       contains “mario”
     </div>
   </footer>
   <div class="toast" id="toast"></div>
+  <div class="popover ctx" id="ctx" hidden></div>
+  <div class="sheet-wrap" id="sheet-wrap" hidden><div class="sheet" id="sheet"></div></div>
   <div class="overlay" id="overlay" hidden><div class="overlay-box" id="overlay-box"></div></div>
   <script src="art.js"></script>
   <script src="list.js"></script>
   <script src="app.js"></script>
+  <script src="sheets.js"></script>
 </body>
 </html>
