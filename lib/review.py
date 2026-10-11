@@ -61,7 +61,7 @@ class ReviewWindow:
         ttk.Button(foot, text="Close  (Esc)", command=self.close, takefocus=False).pack(side="right")
         ttk.Button(foot, text="Undo  (Backspace)", command=self.undo, takefocus=False).pack(side="right", padx=(0, 6))
         ttk.Button(foot, text="‹ Back  (←)", command=lambda: self.go(-1), takefocus=False).pack(side="right", padx=(0, 6))
-        self.panel = details.DetailsPanel(body, app.field_style, padding=0)
+        self.panel = details.DetailsPanel(body, app.field_style, padding=0, art=(520, 300))  # room to see it
         self.panel.pack(fill="both", expand=True)
         app.detail_panels.append(self.panel)
 

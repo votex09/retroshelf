@@ -41,6 +41,10 @@ def zip_bytes(members):
     return buf.getvalue()
 
 
+def details_pil():
+    return sys.modules["details"].Image is not None
+
+
 class AppTest(unittest.TestCase):
     """One sandbox (app copy + LaunchBox cache) for the class; library, config and logs are reset per test."""
 
@@ -1243,6 +1247,31 @@ class AppTest(unittest.TestCase):
         self.assertFalse(motion._running)
         a.motion_var.set(True)
         a.toggle_motion()
+
+    def test_details_artwork_never_moves_the_layout(self):
+        """Pictures of any size, long captions and no picture at all take the same box: nothing beside it shifts."""
+        a, d = self.app, self.app.details
+        covers = os.path.join(os.path.dirname(self.p["roms"]), "ES-DE", "downloaded_media", "snes", "covers")
+        os.makedirs(covers, exist_ok=True)
+        sizes = {"Chrono Trigger (USA)": (220, 300), "Final_Fantasy_III_USA": (900, 300),
+                 "NBA Jam (USA) (Rev 1)": (40, 30)}
+        for stem, size in sizes.items():
+            tk.PhotoImage(width=size[0], height=size[1]).write(os.path.join(covers, stem + ".png"), format="png")
+        files = [k for k in a.keep_tv.get_children() if a.keep_tv.item(k, "text").startswith(
+            ("Chrono Trigger (USA)", "Final_Fantasy", "NBA Jam", "Star Fox"))]
+        self.assertEqual(len(files), 4)
+        seen, pictures = set(), 0
+        for k in files:
+            a.keep_tv.selection_set(k)
+            self.root.update()
+            d.pic_lbl.config(text="screenshots  ·  12 / 14  ·  finding a video…")  # longer than any real caption
+            self.root.update()
+            seen.add((d.pic.winfo_width(), d.pic.winfo_height(), d.desc.winfo_rootx(), a.details_card.winfo_height()))
+            if details_pil() and d.photo is not None:
+                pictures += 1
+                self.assertEqual((d.photo.width(), d.photo.height()), (d.img_w, d.img_h))  # filled out to the box
+        self.assertEqual(len(seen), 1, seen)
+        self.assertEqual(pictures, 3 if details_pil() else pictures)
 
     def test_rename_dialog_and_undo(self):
         a = self.app
