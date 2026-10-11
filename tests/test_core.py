@@ -1613,6 +1613,38 @@ class Health(unittest.TestCase):
         self.assertEqual(sorted(k for k, p in self.found().items()),
                          [("playlist", "Lost (USA).m3u"), ("sheet", "Gone (USA).cue")])
 
+    def test_multidisc_games_get_a_playlist(self):
+        self.put("psx/Saga (USA) (Disc 2).chd")
+        self.put("psx/Saga (USA) (Disc 1).cue", 'FILE "Saga (USA) (Disc 1).bin" BINARY\n  TRACK 01 MODE2/2352\n')
+        self.put("psx/Saga (USA) (Disc 1).bin")
+        self.put("psx/Saga (USA) (Disc 1).chd")  # a disc in two forms: the playlist names the CHD
+        self.put("psx/Saga (USA) (Disc 3).chd")
+        self.put("psx/Done (USA) (Disc 1).chd")
+        self.put("psx/Done (USA) (Disc 2).chd")
+        self.put("psx/Done (USA).m3u", "Done (USA) (Disc 1).chd\nDone (USA) (Disc 2).chd\n")
+        self.put("psx/Single (USA) (Disc 1).chd")  # one disc only: nothing to do
+        es = os.path.join(self.tmp, "retrodeck", "ES-DE")
+        os.makedirs(os.path.join(es, "settings"))
+        with open(os.path.join(es, "settings", "es_settings.xml"), "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0"?>\n')
+        (p,) = [p for p in health.scan(self.roms) if p.kind == "multidisc"]
+        self.assertEqual(p.name, "Saga (USA).m3u")
+        self.assertEqual([os.path.basename(d) for d in p.paths],
+                         ["Saga (USA) (Disc 1).chd", "Saga (USA) (Disc 2).chd", "Saga (USA) (Disc 3).chd"])
+        with self.assertRaises(RuntimeError):  # ES-DE would undo the hiding when it quits
+            health.fix(p, self.roms, es_de_running=True)
+        self.assertIn("3 discs", health.fix(p, self.roms, es_de_running=False))
+        with open(os.path.join(self.roms, "psx", "Saga (USA).m3u")) as f:
+            self.assertEqual(f.read().splitlines(), [os.path.basename(d) for d in p.paths])
+        gl = os.path.join(self.tmp, "retrodeck", "ES-DE", "gamelists", "psx", "gamelist.xml")
+        self.assertEqual(hiding.hidden(gl), {os.path.basename(d) for d in p.paths})  # ES-DE lists the game once
+        self.assertFalse(hiding.shows_hidden(es))
+        self.assertEqual([p for p in health.scan(self.roms) if p.kind in ("multidisc", "playlist")], [])
+        # the game itself isn't hidden: its playlist is what ES-DE lists
+        self.assertEqual(os.path.basename(scraper.primary_file(
+            [os.path.join(self.roms, "psx", n) for n in os.listdir(os.path.join(self.roms, "psx")) if "Saga" in n])),
+            "Saga (USA).m3u")
+
     def test_media_for_games_in_folders_and_closed_folders(self):
         self.put("dreamcast/Shen (USA)/disc.gdi", "1\n1 0 4 2352 track01.bin 0\n")
         self.put("dreamcast/Shen (USA)/track01.bin")

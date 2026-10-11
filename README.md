@@ -121,7 +121,8 @@ rename can be undone, and games only go for good when you delete them from the h
 **Library health check**
 - **Tools → Library health check…** looks through every system folder (or just the current one) for what stops
   games starting: `.cue` / `.gdi` sheets and `.m3u` playlists naming files that aren't there, and raw `.bin`
-  images with no `.cue`. It also finds what takes space for nothing: empty game files, unfinished downloads,
+  images with no `.cue`, and games on several discs with no `.m3u` playlist (one is written, and the separate
+  discs are hidden in ES-DE so the game shows once). It also finds what takes space for nothing: empty game files, unfinished downloads,
   and ES-DE artwork, videos and gamelist entries for games that are gone.
 - Whatever can be fixed is fixed in one go after you confirm: names in the wrong case (which break on Linux),
   playlists still naming discs that have since been compressed, a missing `.cue` written, leftovers deleted.
