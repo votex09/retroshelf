@@ -836,6 +836,7 @@ function handle(key, e = {}) {
   if (!$("sheet-wrap").hidden) return sheetKeys ? sheetKeys(key, e) : false;
   if (key === "F5") { rescan(); return true; }
   if (key === "r" && e.ctrlKey) { openReview(); return true; }
+  if (key === "i" && e.ctrlKey) { if (S.overview?.roms) openImport().catch(oops); return true; }
   if (!S.sys) return false;
   const list = L();
   switch (key) {
@@ -940,6 +941,8 @@ async function start() {
     S.overview = await call("startup");
     applyOptions(await call("settings"));
     if (S.opts.check_updates) rs.checkUpdates(true).catch(() => {});
+    if (S.overview.roms) call("import_waiting").then((n) => n && setTimeout(() =>
+      toast(`${plural(n, "item")} waiting in the import folder: ☰ → Import ROMs (Ctrl+I) files them.`), 1200)).catch(() => {});
     showOverview();
     summary.roms = S.overview.roms;
     summary.systems = S.overview.systems.filter((s) => s.games > 0).length;

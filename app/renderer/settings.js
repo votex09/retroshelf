@@ -132,7 +132,7 @@ function openKeys() {
           ["↑ / ↓", "Previous / next game"], ["PgUp / PgDn", "A page up / down"], ["Home / End", "First / last game"],
           ["→ / Del", "Move the game (Keeping list)"], ["←", "Keep the game (Moving list)"], ["Enter", "Flip it to the other list"],
           ["Space", "Mark it; flips then act on all marked games"], ["Tab", "Switch list"], ["Ctrl+Z / Backspace", "Undo"],
-          ["/ / Ctrl+F", "Search"], ["S", "Pick a system"], ["Ctrl+R", "Review one at a time"], ["F5", "Rescan"],
+          ["/ / Ctrl+F", "Search"], ["S", "Pick a system"], ["Ctrl+R", "Review one at a time"], ["Ctrl+I", "Import ROMs"], ["F5", "Rescan"],
           ["Esc", "Close, or clear the search"]])}</div>
         <div><div class="label">Gamepad</div>${helpRows([
           ["D-pad / Stick", "Move through the list"], ["A", "Mark"], ["X", "Flip to the other list"], ["Y", "Undo"],
