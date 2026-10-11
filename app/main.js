@@ -125,6 +125,14 @@ ipcMain.handle("desktop:status", () => {
   return { can: true, installed: text.includes(process.env.APPIMAGE) };
 });
 ipcMain.handle("desktop:install", () => {
+  if (process.platform === "win32") {  // the old app's Start menu shortcut, pointed at this app (the installer's own has the same name)
+    if (!app.isPackaged) return "only the built app can add itself";
+    const exe = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+    const lnk = path.join(app.getPath("appData"), "Microsoft", "Windows", "Start Menu", "Programs", "RetroShelf.lnk");
+    const ok = shell.writeShortcutLink(lnk, fs.existsSync(lnk) ? "replace" : "create", { target: exe, args: "",
+      cwd: path.dirname(exe), icon: exe, iconIndex: 0, description: "Prune, scrape, rename and install games for ES-DE / RetroDECK" });
+    return ok ? "" : "the Start menu shortcut couldn't be written";
+  }
   const exe = process.env.APPIMAGE;
   if (process.platform !== "linux" || !exe) return "only the AppImage can add itself";
   const icon = path.join(DESKTOP, "icons", "hicolor", "256x256", "apps", "retroshelf.png");

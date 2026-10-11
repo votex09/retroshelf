@@ -2239,15 +2239,60 @@ class Handoff(unittest.TestCase):
             self.assertEqual(get(os.path.join("cache", "launchbox", "meta.json")), {"v": 1})
             self.assertEqual(handoff.copy_data(new, new), [])
 
+    def test_new_settings_win_when_the_app_brings_them_over_itself(self):
+        import handoff
+        with tempfile.TemporaryDirectory() as d:
+            old, new = os.path.join(d, "old"), os.path.join(d, "new")
+            for folder, cfg in ((old, {"theme": "light", "roms_root": "/roms"}), (new, {"theme": "dark"})):
+                os.makedirs(folder)
+                with open(os.path.join(folder, "config.json"), "w") as f:
+                    json.dump(cfg, f)
+            handoff.copy_data(old, new, new_wins=True)
+            with open(os.path.join(new, "config.json")) as f:
+                self.assertEqual(json.load(f), {"theme": "dark", "roms_root": "/roms"})
+
+    def test_finds_the_old_app_from_its_menu_entry_and_removes_it(self):
+        import desktop, handoff
+        with tempfile.TemporaryDirectory() as d:
+            old = os.path.join(d, "my stuff", "retroshelf")
+            os.makedirs(os.path.join(old, "lib"))
+            open(os.path.join(old, "retroshelf.py"), "w").close()
+            entry = os.path.join(d, "applications", "retroshelf.desktop")
+            os.makedirs(os.path.dirname(entry))
+            with mock.patch.object(desktop, "entry_path", lambda: entry), \
+                    mock.patch.object(handoff, "is_windows", lambda: False):
+                self.assertIsNone(handoff.find_old(home=d))  # no entry, nothing in the usual places
+                with open(entry, "w") as f:
+                    f.write(f'[Desktop Entry]\nExec="/usr/bin/python3" "{old}/retroshelf.py"\nPath={old}\n')
+                self.assertEqual(handoff.find_old(home=d), old)
+                with self.assertRaises(ValueError):  # never a folder holding the new app's data or the ROMs
+                    handoff.remove_old(old, keep=(os.path.join(old, "roms"),))
+                with self.assertRaises(ValueError):
+                    handoff.remove_old(d)  # not the old app
+                handoff.remove_old(old)
+                self.assertFalse(os.path.exists(old))
+                self.assertFalse(os.path.exists(entry))  # it only started the old app
+                with open(entry, "w") as f:  # an entry that starts the new app is no sign of the old one
+                    f.write('[Desktop Entry]\nExec="/home/deck/RetroShelf.AppImage" %U\n')
+                self.assertIsNone(handoff.old_entry())
+                os.makedirs(os.path.join(d, "retroshelf", "lib"))
+                open(os.path.join(d, "retroshelf", "retroshelf.py"), "w").close()
+                self.assertEqual(handoff.find_old(home=d), os.path.join(d, "retroshelf"))
+
 
 class YouTube(unittest.TestCase):
     PAGE = ('{"adSlotRenderer":{"videoId":"AAAAAAAAAAA"}} {"channelRenderer":{"channelId":"x"}} '
-            '{"videoRenderer":{"videoId":"dQw4w9WgXcQ","title":{}}} {"videoRenderer":{"videoId":"BBBBBBBBBBB"}}')
+            '{"videoRenderer":{"videoId":"dQw4w9WgXcQ","title":{},"lengthText":{"accessibility":{},"simpleText":"3:33"}}} '
+            '{"videoRenderer":{"videoId":"BBBBBBBBBBB","lengthText":{"simpleText":"1:00:00"}}}')
 
     def test_first_video_skips_ads(self):
         import youtube
         self.assertEqual(youtube.first_video(self.PAGE), "dQw4w9WgXcQ")
         self.assertIsNone(youtube.first_video("<html>no results</html>"))
+        self.assertEqual(youtube.top_video(self.PAGE), ("dQw4w9WgXcQ", 213))
+        self.assertEqual(youtube.top_video('{"videoRenderer":{"videoId":"dQw4w9WgXcQ"}} '
+                                           '{"videoRenderer":{"videoId":"BBBBBBBBBBB","lengthText":{"simpleText":"9:00"}}}'),
+                         ("dQw4w9WgXcQ", None))  # never another video's length
 
     def test_find_remembers(self):
         import youtube
@@ -2257,23 +2302,27 @@ class YouTube(unittest.TestCase):
             def fetch(url):
                 asked.append(url)
                 return self.PAGE
-            self.assertEqual(youtube.find("Super Mario World", "SNES", cache, fetch), "dQw4w9WgXcQ")
-            self.assertEqual(youtube.find("Super Mario World", "SNES", cache, fetch), "dQw4w9WgXcQ")
+            self.assertEqual(youtube.find("Super Mario World", "SNES", cache, fetch), {"id": "dQw4w9WgXcQ", "secs": 213})
+            self.assertEqual(youtube.find("Super Mario World", "SNES", cache, fetch), {"id": "dQw4w9WgXcQ", "secs": 213})
             self.assertEqual(len(asked), 1)
             self.assertIn("Super+Mario+World+SNES+gameplay", asked[0])
             self.assertIsNone(youtube.find("Nothing", "", cache, lambda url, data=None: '{"itemSectionRenderer":{}}'))
             self.assertTrue(youtube.embed("dQw4w9WgXcQ").startswith(youtube.EMBED + "dQw4w9WgXcQ?"))
+            self.assertNotIn("start=", youtube.embed("dQw4w9WgXcQ"))
+            self.assertIn("&start=106", youtube.embed("dQw4w9WgXcQ", 213))  # halfway in, like the Tk app
 
     def test_old_misses_are_searched_again(self):
-        """Older versions saved None for every search that failed: those games get searched again."""
+        """Older versions saved None for every search that failed, or just the id (no length to start halfway):
+        those games get searched again."""
         import youtube
         with tempfile.TemporaryDirectory() as cache:
             with open(os.path.join(cache, "youtube.json"), "w") as f:
-                json.dump({"Chrono Trigger SNES gameplay": None}, f)
-            self.assertEqual(youtube.find("Chrono Trigger", "SNES", cache, lambda url, data=None: self.PAGE),
-                             "dQw4w9WgXcQ")
+                json.dump({"Chrono Trigger SNES gameplay": None, "Ecco SMS gameplay": "AAAAAAAAAAA"}, f)
+            for title, console in (("Chrono Trigger", "SNES"), ("Ecco", "SMS")):
+                self.assertEqual(youtube.find(title, console, cache, lambda url, data=None: self.PAGE),
+                                 {"id": "dQw4w9WgXcQ", "secs": 213})
             with open(os.path.join(cache, "youtube.json")) as f:
-                self.assertEqual(json.load(f), {"Chrono Trigger SNES gameplay": "dQw4w9WgXcQ"})
+                self.assertEqual(json.load(f)["Chrono Trigger SNES gameplay"], {"id": "dQw4w9WgXcQ", "secs": 213})
 
     def test_cookie_notice_falls_back_to_the_api(self):
         """A cookie notice instead of results (YouTube in Europe): the API is asked; neither working is an error."""
@@ -2286,7 +2335,7 @@ class YouTube(unittest.TestCase):
                 return "<html><form action='https://consent.youtube.com/save'></form></html>"
             return '{"contents":{"twoColumnSearchResultsRenderer":{}},"x":{"contentId":"CCCCCCCCCCC",' \
                    '"contentType":"LOCKUP_CONTENT_TYPE_VIDEO"}}'
-        self.assertEqual(youtube.search("Ecco SMS gameplay", fetch), "CCCCCCCCCCC")
+        self.assertEqual(youtube.search("Ecco SMS gameplay", fetch), ("CCCCCCCCCCC", None))
         self.assertEqual(asked[1][0], youtube.SEARCH_API)
         self.assertEqual(asked[1][1]["query"], "Ecco SMS gameplay")
         with self.assertRaises(OSError):

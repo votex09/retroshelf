@@ -393,6 +393,38 @@ helper.use_system_certificates()
 print(json.dumps(os.environ.get("SSL_CERT_FILE")))""")
         self.assertEqual(out, bundle if sys.platform == "linux" else None)
 
+    def test_switching_from_the_old_app(self):
+        """Found once by its app-menu entry: data comes over (this app's settings kept), then it's removed."""
+        if sys.platform == "win32":
+            self.skipTest("HOME isn't where Windows looks")
+        with open(os.path.join(self.data, "config.json"), "w", encoding="utf-8") as f:
+            json.dump({"roms_root": self.roms, "theme": "dark"}, f)
+        home = os.path.join(self.tmp.name, "home")
+        old = os.path.join(home, "retroshelf")
+        os.makedirs(os.path.join(old, "lib"))
+        open(os.path.join(old, "retroshelf.py"), "w").close()
+        with open(os.path.join(old, "matches.json"), "w") as f:
+            json.dump({"snes": {"x": 1}}, f)
+        with open(os.path.join(old, "config.json"), "w") as f:
+            json.dump({"theme": "light", "esde_bases": ["/old"]}, f)
+        out = session(self.data, f"""
+import os, handoff
+os.environ["HOME"] = {home!r}
+os.environ.pop("XDG_DATA_HOME", None)
+found = h.old_app()
+copied = h.adopt_old(found["folder"])
+theme = helper.cfg["theme"]
+h.retire_old(found["folder"], remove=True)
+print(json.dumps([found, sorted(copied), theme, os.path.exists({old!r}), h.old_app()]))""")
+        found, copied, theme, exists, again = out
+        self.assertEqual(found, {"folder": old, "data": True, "menu": False, "git": False})
+        self.assertEqual(copied, ["config.json", "matches.json"])
+        self.assertEqual(theme, "dark")  # this app's setting stays
+        self.assertEqual(self.config()["esde_bases"], ["/old"])  # what it didn't have comes over
+        self.assertFalse(exists)
+        self.assertIsNone(again)
+        self.assertTrue(self.config()["old_app_done"])
+
     def test_browse_folders_for_the_gamepad(self):
         out = session(self.data, f"""
 print(json.dumps([h.browse({json.dumps(self.roms)}), h.browse({json.dumps(os.path.join(self.roms, "snes"))}, files=True),
