@@ -355,6 +355,10 @@ body.kbd .pad-cur, body.pad .pad-cur {
 body.kbd .trow.pad-cur, body.pad .trow.pad-cur, body.kbd .menu .pad-cur, body.pad .menu .pad-cur,
 body.kbd .ctx .pad-cur, body.pad .ctx .pad-cur, body.kbd .browse-list .pad-cur, body.pad .browse-list .pad-cur, body.kbd .systems-list .pad-cur, body.pad .systems-list .pad-cur { outline-offset: -2px; box-shadow: none; }
 body.still .pad-cur { transition: none; }
+.focus-glide {  /* pad.js glide(): the ring that flies to where the cursor lands */
+  position: fixed; z-index: 95; pointer-events: none; opacity: 0; border-radius: 12px;
+  border: 2px solid var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), 0 0 22px rgba(87, 200, 255, .45);
+}
 
 /* ---------- menu, right-click menu ---------- */
 .menu-wrap { position: relative; }
