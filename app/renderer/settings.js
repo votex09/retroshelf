@@ -129,7 +129,7 @@ const CONTROLS = [
   ["Flip to the other list (the marked games, if any)", "x", "Enter"], ["Undo", "y", "Ctrl+Z"],
   ["Unmark all, else clear the search", "b", "Esc"], ["The game's menu", "r3", "Shift+F10"], ["A page up / down", "l2/r2", "PgUp PgDn"],
   ["Everywhere"],
-  ["Next / previous part of the window", "l1/r1", "F6 Shift+F6"], ["Search", "view", "/"], ["☰ menu", "menu", "F10"],
+  ["Next / previous part of the window (in a window too)", "l1/r1", "F6 Shift+F6"], ["Search", "view", "/"], ["☰ menu", "menu", "F10"],
   ["Move between controls", "dpad", "↑ ↓ ← →"], ["Press", "a", "Enter"], ["Back, close", "b", "Esc"],
   ["Scroll the details or a window", "rs-ud", "PgUp PgDn"],
   ["In a window's table (NoPayStation, the stores, Storage)"],
@@ -137,6 +137,7 @@ const CONTROLS = [
   ["NoPayStation: add to the queue / take off", "a/y", "Space / Backspace"],
   ["Review (Ctrl+R)"],
   ["Keep / move", "a/x", "Space / Enter"], ["Back / skip", "dpad-lr", "← →"], ["Undo", "y", "Ctrl+Z"],
+  ["Scroll the details", "l2/r2", "PgUp PgDn"], ["Close", "b", "Esc"],
 ];
 
 function openKeys() {

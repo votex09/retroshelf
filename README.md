@@ -41,12 +41,15 @@ rename can be undone, and games only go for good when you delete them from the h
   Outside the lists the D-pad or arrow keys move a ring from control to control and A or Enter presses; each part
   of the window remembers where you were. In a window's table the row under the ring is the picked one; L2 / R2
   (PgUp / PgDn) page through it, Home / End jump to its ends, and ▲ past the first row or ▼ past the last leaves
-  it. A in a text box opens an on-screen keyboard. The bar along the bottom
+  it. In every window L1 / R1 (F6 / Shift+F6) go round its parts too (the filters, the table, the panel beside it,
+  the buttons along the bottom). Folders and files are picked in RetroShelf's own browser, which a pad can work.
+  A in a text box opens an on-screen keyboard. The bar along the bottom
   shows what works right there, as Steam Deck buttons or keys, whichever you used last. **☰ → Settings → Use a
   gamepad** turns the pad off; on a Steam Deck, Steam keeps the built-in controls while it runs.
 - Each system goes back to the game you were on when you left it, after a restart too.
 - **☰ → Review one at a time…** (Ctrl+R) goes through the list with each game's artwork and details: A / Space
-  keeps, X / Enter moves, ◀ ▶ go back and skip, Y / Ctrl+Z undoes.
+  keeps, X / Enter moves, ◀ ▶ go back and skip, Y / Ctrl+Z undoes, L2 / R2 or the right stick (PgUp / PgDn) scroll
+  the details and B / Esc closes.
 - **Hide in ES-DE** (next to Move) is the gentler choice for the Moving list's games: they stay on disk and ES-DE
   leaves them out of its menus (it marks them hidden in its gamelist, and turns off ES-DE's "Show hidden games"
   if it's on). Hidden games stay in Keeping, like played ones, and show "hidden in ES-DE"; right-click →
