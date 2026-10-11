@@ -267,13 +267,13 @@ async function openNps(system) {
   $("n-keep").onchange = (e) => call("nps_options", { keep_pkg: e.target.checked }).catch(oops);
   $("n-scrape").onchange = (e) => call("nps_options", { scrape: e.target.checked }).catch(oops);
   $("n-dir-btn").onclick = async () => {
-    const path = await rs.pickFolder($("n-dir").title, "Where packages are downloaded");
+    const path = await pickFolder($("n-dir").title, "Where packages are downloaded");
     if (!path) return;
     await call("nps_options", { folder: path });
     $("n-dir").textContent = $("n-dir").title = path;
   };
   if ($("n-emu")) $("n-emu").onclick = async () => {
-    const path = await rs.pickFolder(info.emulator.path === "not found" ? S.overview?.roms : info.emulator.path, `Folder with ${info.emulator.exe}`);
+    const path = await pickFolder(info.emulator.path === "not found" ? S.overview?.roms : info.emulator.path, `Folder with ${info.emulator.exe}`);
     if (!path) return;
     try {
       const fresh = await call("nps_set_emulator", { system: info.system, path });
@@ -500,7 +500,7 @@ async function openStore(store) {
     try { showWaiting((await call("store_stop_waiting", { store })).waiting); rows(); } catch (e) { oops(e); }
   };
   if ($("w-dir-btn")) $("w-dir-btn").onclick = async () => {
-    const path = await rs.pickFolder($("w-dir").title, "Where your browser saves downloads");
+    const path = await pickFolder($("w-dir").title, "Where your browser saves downloads");
     if (!path) return;
     $("w-dir").textContent = await call("store_set_downloads", { path });
     $("w-dir").title = path;

@@ -54,6 +54,7 @@ const oops = (e) => { console.error(e); toast(e.message || String(e), { error: t
 
 // A box over the window. buttons: [[label, fn, primary?]]; none: it can't be closed (busy).
 function overlay(html, buttons = []) {
+  $("overlay-box").className = "overlay-box";
   $("overlay-box").innerHTML = html + (buttons.length ? `<div class="btns"></div>` : "");
   const btns = $("overlay-box").querySelector(".btns");
   buttons.forEach(([label, fn, primary]) => {
@@ -81,6 +82,10 @@ function confirmBox({ title = "", message = "", detail = "", ok = "OK", cancel =
     if (warning) $("overlay-box").querySelector(".primary").classList.add("danger");
   });
 }
+// Folders and files: the desktop's own dialog, or RetroShelf's while a gamepad is in use (pad.js: browseBox).
+const pickFolder = (start, title) => (S.pad ? browseBox({ start, title }) : rs.pickFolder(start, title));
+const pickFiles = (start, title) => (S.pad ? browseBox({ start, title, files: true }) : rs.pickFiles(start, title));
+const saveFile = (opts) => (S.pad ? browseBox({ title: `${opts.title}: pick a folder`, save: opts.name }) : rs.saveFile(opts));
 const busy = (text) => overlay(`<div class="spinner"></div><h2>${esc(text)}</h2>`);
 
 function rollNumber(el, to, fmt = (v) => Math.round(v).toLocaleString()) {
@@ -616,7 +621,7 @@ function toggleSystems() {
 }
 
 async function pickRoms() {
-  const folder = await rs.pickFolder(S.overview?.roms);
+  const folder = await pickFolder(S.overview?.roms);
   if (!folder) return false;
   S.overview = await call("set_roms", { path: folder });
   showOverview();
@@ -788,14 +793,14 @@ async function rescan() {
 
 async function exportMoves() {
   await flushDecide();
-  const path = await rs.saveFile({ title: "Export move list", name: `${S.sys.system}_move.txt` });
+  const path = await saveFile({ title: "Export move list", name: `${S.sys.system}_move.txt` });
   if (!path) return;
   const r = await call("export_moves", { path });
   toast(`Saved ${plural(r.games, "game")} to ${path}`);
 }
 
 async function changeHolding() {
-  const folder = await rs.pickFolder(S.overview.holding, "Holding folder for moved games");
+  const folder = await pickFolder(S.overview.holding, "Holding folder for moved games");
   if (!folder) return;
   S.overview = await call("set_holding", { path: folder });
   toast(`Moved games go to ${S.overview.holding}`);

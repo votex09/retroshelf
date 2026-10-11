@@ -196,7 +196,7 @@ async function openImport() {
   pickRows($("i-table"), I.sel, Number, () => { fill(); syncSystem(); });
   $("i-open").onclick = () => rs.openFolder(I.inbox).then((err) => err && toast(`Couldn't open ${I.inbox}: ${err}`, { error: true }));
   $("i-change").onclick = async () => {
-    const path = await rs.pickFolder(I.inbox, "Import folder");
+    const path = await pickFolder(I.inbox, "Import folder");
     if (!path) return;
     try {
       const r = await call("import_set_inbox", { path });
@@ -205,12 +205,12 @@ async function openImport() {
     } catch (e) { oops(e); }
   };
   $("i-files").onclick = async () => {
-    const paths = await rs.pickFiles(info.home, "Add games");
+    const paths = await pickFiles(info.home, "Add games");
     if (!paths.length) return;
     try { await scan(await call("import_add", { paths })); } catch (e) { oops(e); }
   };
   $("i-folder").onclick = async () => {
-    const path = await rs.pickFolder(info.home, "Add a folder of games");
+    const path = await pickFolder(info.home, "Add a folder of games");
     if (!path) return;
     try {
       const p = await call("import_folder", { path });

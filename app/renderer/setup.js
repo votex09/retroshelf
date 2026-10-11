@@ -64,7 +64,7 @@ async function openSetup() {
       const target = () => { const c = picked(); $("u-target").textContent = c ? `Your games will go in:  ${c.games}` : ""; };
       document.querySelectorAll('input[name="u-place"]').forEach((r) => (r.onchange = async () => {
         if (r.value === "custom") {
-          const folder = await rs.pickFolder(custom?.folder || info.home, "Where should your games go?");
+          const folder = await pickFolder(custom?.folder || info.home, "Where should your games go?");
           if (folder) {
             custom = { kind: "custom", ...(await call("setup_target", { folder })) };
             $("u-custom").textContent = custom.folder;

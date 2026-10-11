@@ -379,6 +379,20 @@ print(json.dumps([h.youtube_video("Super Mario World", "SNES"), h.youtube_video(
                                   "page": "https://www.youtube.com/results?search_query=Zzz+gameplay"})
         self.assertTrue(os.path.exists(os.path.join(self.data, "cache", "youtube.json")))
 
+    def test_browse_folders_for_the_gamepad(self):
+        out = session(self.data, f"""
+print(json.dumps([h.browse({json.dumps(self.roms)}), h.browse({json.dumps(os.path.join(self.roms, "snes"))}, files=True),
+                  h.browse({json.dumps(os.path.join(self.roms, "gone", "deeper"))})]))""")
+        folders, snes, gone = out
+        self.assertEqual(folders["path"], self.roms)
+        self.assertEqual(folders["parent"], os.path.dirname(self.roms))
+        self.assertEqual([e["name"] for e in folders["entries"]], ["_hidden", "empty", "snes"])  # folders only
+        self.assertTrue(all(e["dir"] for e in folders["entries"]))
+        self.assertEqual(folders["places"][0]["label"], "Home")
+        names = [e["name"] for e in snes["entries"]]
+        self.assertIn("Chrono Trigger (USA).sfc", names)
+        self.assertEqual(gone["path"], self.roms)  # a folder that's gone: the nearest one there is
+
     def test_needs_a_system(self):
         with self.assertRaisesRegex(AssertionError, "No system is open"):
             session(self.data, 'h.startup(); h.decide({})')
