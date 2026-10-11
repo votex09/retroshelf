@@ -14,7 +14,29 @@ const OPTION_LABELS = [
   ["play_videos", "Play gameplay videos", "ES-DE's clips start by themselves after a moment in the details panel (▶ always plays one)"],
   ["gamepad", "Use a gamepad", "a Steam Deck's or Xbox-style pad moves through the lists"],
   ["animations", "Animations", "lists slide, numbers roll and the focus ring glides"],
+  ["check_updates", "Check for updates when RetroShelf starts", "new versions download by themselves and go in when you restart"],
 ];
+
+// The header's update button: a new version is out (portable copies) or ready to go in (the rest).
+let lastUpdate = null;
+function updateText(u) {
+  return {
+    checking: "Checking for updates…", latest: "You have the latest RetroShelf.",
+    available: `RetroShelf ${u.version} is out. This copy can't update itself: download the new one.`,
+    downloading: `Downloading RetroShelf ${u.version}${u.percent ? ` (${u.percent}%)` : ""}…`,
+    ready: `RetroShelf ${u.version} is ready: it goes in when RetroShelf restarts.`,
+    error: `Couldn't check for updates: ${u.message}`,
+  }[u.state] || "";
+}
+function showUpdate(u) {
+  lastUpdate = u;
+  const b = $("update-btn");
+  b.hidden = !["available", "ready"].includes(u.state);
+  b.textContent = u.state === "ready" ? "⬆ Restart to update" : "⬆ New version";
+  b.title = updateText(u);
+  b.onclick = () => (u.state === "ready" ? rs.installUpdate() : rs.openUrl(u.url));
+  if ($("o-update")) $("o-update").textContent = updateText(u);
+}
 
 async function openSettings() {
   if (S.sys) await flushDecide();
@@ -33,6 +55,11 @@ async function openSettings() {
       <div class="label">Window</div>
       ${OPTION_LABELS.map(([k, label, sub]) => `<label class="check opt"><input type="checkbox" data-opt="${k}"${info[k] ? " checked" : ""}>
         <span>${esc(label)}<small>${esc(sub)}</small></span></label>`).join("")}
+      <div class="label">RetroShelf</div>
+      <div class="row-btns"><button class="ghost" id="o-check">Check for updates</button>
+        <button class="ghost" id="o-menu" hidden>Add to app menu</button>
+        <button class="ghost" id="o-old">Bring settings over from the old RetroShelf…</button></div>
+      <p class="dim" id="o-update"></p>
     </div>
     <div class="sheet-foot"><button class="ghost" id="o-keys">Keyboard and gamepad</button><span class="grow"></span><button class="primary" id="o-close">Close</button></div>`,
   "small form-sheet");
@@ -54,6 +81,36 @@ async function openSettings() {
       if (b.dataset.opt === "play_videos" && !b.checked) stopVideo();
     };
   }
+  if (lastUpdate) $("o-update").textContent = updateText(lastUpdate);
+  $("o-check").onclick = async () => {
+    $("o-update").textContent = "Checking for updates…";
+    try { showUpdate(await rs.checkUpdates()); } catch (e) { $("o-update").textContent = e.message; }
+  };
+  rs.desktopStatus().then((d) => {
+    if (!d.can || !$("o-menu")) return;
+    $("o-menu").hidden = false;
+    $("o-menu").textContent = d.installed ? "In the app menu ✓" : "Add to app menu";
+    $("o-menu").onclick = async () => {
+      const err = await rs.addToMenu();
+      if (err) { toast(err, { error: true }); return; }
+      $("o-menu").textContent = "In the app menu ✓";
+      toast("RetroShelf is in your app menu");
+    };
+  });
+  $("o-old").onclick = async () => {
+    const folder = await rs.pickFolder(null, "The old RetroShelf's folder (with retroshelf.py in it)");
+    if (!folder) return;
+    try {
+      const r = await call("import_old", { folder });
+      closeSheet();
+      S.overview = r.overview;
+      S.sys = null;
+      showOverview();
+      toast(`Brought over ${r.copied.join(", ")}`);
+      const last = S.overview.systems.find((x) => x.code === S.overview.system && x.games > 0);
+      if (last) await openSystem(last.code); else toggleSystems();
+    } catch (e) { oops(e); }
+  };
   $("o-keys").onclick = () => { closeSheet(); openKeys(); };
   $("o-close").onclick = closeSheet;
 }

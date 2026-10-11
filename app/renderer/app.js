@@ -17,7 +17,7 @@ const S = {
   marked: new Set(),
   undo: [],
   pad: false,       // a gamepad was used: show its buttons in the hints
-  opts: { play_videos: true, gamepad: true, animations: true, show_details: true },  // ☰ → Settings (settings.js)
+  opts: { play_videos: true, gamepad: true, animations: true, show_details: true, check_updates: true },  // ☰ → Settings (settings.js)
 };
 
 // ---------- small things ----------
@@ -877,7 +877,8 @@ function pollPads(now) {
 
 // ---------- start ----------
 async function start() {
-  rs.version().then((v) => ($("version").textContent = `v${v} preview`));
+  rs.version().then((v) => ($("version").textContent = `v${v}`));
+  rs.onUpdate(showUpdate);
   rs.onHelperExit((info) => overlay(`<h2>RetroShelf's helper stopped</h2>
     <p>Nothing can load or change until RetroShelf is restarted.</p><p class="error">${esc(info.error || info.stderr || "")}</p>`));
   rs.onHelperEvent((name, data) => {
@@ -911,6 +912,7 @@ async function start() {
     Object.assign(summary, { python: hello.python, frozen: hello.frozen });
     S.overview = await call("startup");
     applyOptions(await call("settings"));
+    if (S.opts.check_updates) rs.checkUpdates().catch(() => {});
     showOverview();
     summary.roms = S.overview.roms;
     summary.systems = S.overview.systems.filter((s) => s.games > 0).length;

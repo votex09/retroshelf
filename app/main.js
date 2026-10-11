@@ -6,7 +6,7 @@ const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } = require("
 const fs = require("fs");
 const path = require("path");
 const { Helper } = require("./helper");
-const { checkForUpdates } = require("./updates");
+const { Updates } = require("./updates");
 
 const smoke = process.argv.includes("--smoke");
 
@@ -112,6 +112,35 @@ ipcMain.handle("open-url", (_e, url) => {  // web pages only, in the user's brow
 });
 ipcMain.handle("app:version", () => app.getVersion());
 
+// ---------- updates (updates.js) ----------
+const updates = new Updates(app, (state) => win?.webContents.send("update", state));
+ipcMain.handle("update:check", () => updates.check());
+ipcMain.handle("update:install", () => updates.install());
+
+// ---------- the app menu entry (Linux AppImage: it has no installer to add one) ----------
+const DESKTOP = path.join(process.env.XDG_DATA_HOME || path.join(app.getPath("home"), ".local", "share"));
+const desktopFile = path.join(DESKTOP, "applications", "retroshelf.desktop");
+ipcMain.handle("desktop:status", () => {
+  if (process.platform !== "linux" || !process.env.APPIMAGE) return { can: false };
+  let text = "";
+  try { text = fs.readFileSync(desktopFile, "utf8"); } catch {}
+  return { can: true, installed: text.includes(process.env.APPIMAGE) };
+});
+ipcMain.handle("desktop:install", () => {
+  const exe = process.env.APPIMAGE;
+  if (process.platform !== "linux" || !exe) return "only the AppImage can add itself";
+  const icon = path.join(DESKTOP, "icons", "hicolor", "256x256", "apps", "retroshelf.png");
+  fs.mkdirSync(path.dirname(icon), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, "renderer", "icon-256.png"), icon);
+  fs.mkdirSync(path.dirname(desktopFile), { recursive: true });
+  const quote = (a) => `"${a.replace(/["`$\\]/g, (c) => "\\" + c)}"`;
+  fs.writeFileSync(desktopFile, ["[Desktop Entry]", "Type=Application", "Name=RetroShelf", "GenericName=ROM library manager",
+    "Comment=Prune, scrape, rename and install games for ES-DE / RetroDECK", `Exec=${quote(exe)} %U`, `Icon=${icon}`,
+    "Terminal=false", "Categories=Game;", "Keywords=ROM;ES-DE;RetroDECK;emulation;LaunchBox;NoPayStation;",
+    "StartupWMClass=RetroShelf", ""].join("\n"));
+  return "";
+});
+
 // ---------- --smoke: used by CI on the built app ----------
 function fail(why) {
   console.error(`SMOKE FAILED: ${why}`);
@@ -139,7 +168,6 @@ if (!app.requestSingleInstanceLock()) {
     protocol.handle("rsmedia", serveMedia);
     startHelper();
     createWindow();
-    checkForUpdates(app);
   });
   app.on("before-quit", () => { app.isQuitting = true; if (helper) helper.stop(); });
   app.on("window-all-closed", () => app.quit());
