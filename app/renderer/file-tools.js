@@ -320,17 +320,15 @@ async function openSources() {
       <aside class="nps-side">
         <div class="nps-pick"><div class="nps-media" id="c-media" hidden></div><div id="c-pick"></div></div>
         <button class="ghost" id="c-addq">Add to queue</button>
-        <div class="nps-qhead"><b id="c-qhead">Queue</b><span class="muted" id="c-qsize"></span></div>
+        <div class="nps-qhead"><b id="c-qhead">Queue</b><span class="muted" id="c-qsize"></span><span class="grow"></span><button class="ghost small" id="c-remove">Remove</button></div>
         <div class="table nps-queue" id="c-queue"></div>
-        <div class="nps-qbtns"><button class="ghost small" id="c-remove">Remove</button></div>
         <div class="progress-bar"><div id="c-bar"></div></div><div class="progress-text" id="c-status"></div>
-        <button class="primary" id="c-start">Copy to library</button>
       </aside>
     </div>
     <div class="sheet-foot">
       <button class="ghost small" id="c-add">Add source…</button><button class="ghost small" id="c-forget">Remove source</button>
       <button class="ghost small" id="c-refresh">Look again</button><span class="muted small-text" id="c-age"></span>
-      <span class="grow"></span><button class="ghost" id="c-close">Close</button></div>`,
+      <span class="grow"></span><button class="ghost" id="c-close">Close</button><button class="primary" id="c-start">Copy to library</button></div>`,
   "stores-sheet nps", () => {
     C.art.stop();
     C.job?.stop();
