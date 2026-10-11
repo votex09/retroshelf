@@ -7,12 +7,14 @@ often a third to a half smaller.
     convert(job, tool, ...)        -> writes a hidden temporary file next to the game, checks it, renames it in place
     finish(job, folder, ...)       -> points .m3u playlists, the ES-DE gamelist and media at the new file, then moves
                                       the originals to the holding folder (or deletes them, when asked)
+    run(jobs, tool, folder, ...)   -> the Compress games window's work: convert + finish one game after another
 
 Nothing is replaced until the new file has been written and checked."""
-import os, re, shutil, subprocess, threading, time
+import datetime, os, re, shutil, subprocess, threading, time
 
 import romimport
 import scraper
+from frontend import human_size as human
 from fsutil import NO_WINDOW, is_windows
 
 RETRODECK = "net.retrodeck.retrodeck"
@@ -479,4 +481,73 @@ def free_space(folder):
         return shutil.disk_usage(folder).free
     except OSError:
         return None
+
+
+# ---------- the Compress games window's work (both apps) ----------
+def describe(job):
+    """'cue + 2 bin', 'iso', 'folder (gdi)'"""
+    if any(os.path.isdir(p) for p in job.parts):
+        return f"folder ({os.path.splitext(job.src)[1][1:].lower()})"
+    exts = [os.path.splitext(p)[1][1:].lower() for p in job.parts]
+    first, rest = exts[0], exts[1:]
+    if not rest:
+        return first
+    counts = {}
+    for e in rest:
+        counts[e] = counts.get(e, 0) + 1
+    return " + ".join([first] + [f"{n} {e}" if n > 1 else e for e, n in counts.items()])
+
+
+def run(jobs, tool, folder, paths, gamelist, media_dir, holding, verify=True, row=lambda key, text, tag: None,
+        progress=lambda text, fraction: None, cancelled=lambda: False):
+    """Compress [(game key, Job)] one after another, stopping when cancelled() or the drive fills up. paths: game key
+    -> its files (for its playlists); holding: where the originals go (None: deleted). row(key, text, tag) says how
+    each game went (tag "done", "failed" or ""); progress(text, fraction of the whole run).
+    -> {"keys": games compressed, "saved": bytes, "moves": [[original, where it went]], "problems": [...]}"""
+    total = len(jobs)
+    done_keys, saved, moves, problems = [], 0, [], []
+    running = scraper.es_de_running()
+    try:
+        for n, (key, job) in enumerate(jobs):
+            if cancelled():
+                break
+            name = os.path.basename(job.out)
+            row(key, "Compressing …", "")
+            free = free_space(folder)
+            if free is not None and free < job.size + 64 * 1024 ** 2:
+                row(key, f"Not enough free space ({human(free)} free)", "failed")
+                problems.append(f"{name}: not enough free space on the drive ({human(free)} free, up to "
+                                f"{human(job.size)} needed)")
+                break
+
+            def report(stage, fraction, written, n=n, name=name):
+                word = "Checking" if stage == "check" else "Compressing"
+                detail = f"{fraction * 100:.0f}%" if fraction is not None else (
+                    f"{human(written)} written" if written else "")
+                part = (fraction or 0) * (0.5 if verify else 1) + (0.5 if stage == "check" else 0)
+                progress(f"{word} {name}  {detail}".rstrip(), (n + min(part, 1)) / total)
+            try:
+                new_size = convert(job, tool, report, cancelled, verify=verify)
+            except InterruptedError:
+                row(key, "Stopped", "")
+                break
+            except Exception as e:
+                row(key, str(e)[:200], "failed")
+                problems.append(f"{name}: {str(e)[:200]}")
+                continue
+            m, probs = finish(job, folder, playlists_for(job, paths[key]), gamelist, media_dir, holding, running)
+            moves += m
+            problems += [f"{name}: {p}" for p in probs]
+            saved += max(0, job.size - new_size)
+            done_keys.append(key)
+            row(key, f"Done · {human(new_size)} (saved {human(max(0, job.size - new_size))})", "done")
+    except Exception as e:  # something unexpected: say so rather than leave the window spinning
+        problems.append(str(e)[:200])
+    return {"keys": done_keys, "saved": saved, "moves": moves, "problems": problems}
+
+
+def log_entry(system, games, moves):
+    """The move log (moves.json) entry for a run's originals, so Restore a move can put them back."""
+    return {"time": datetime.datetime.now().isoformat(timespec="seconds"), "system": system, "dest": "to_delete",
+            "games": games, "size": sum(_size(t) for _, t in moves), "moves": moves, "why": "compressed"}
 

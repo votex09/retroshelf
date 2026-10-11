@@ -92,6 +92,11 @@ ipcMain.handle("pick-folder", async (_e, start, title) => {
     properties: ["openDirectory", "createDirectory"] });
   return r.canceled ? null : r.filePaths[0];
 });
+ipcMain.handle("pick-files", async (_e, start, title) => {
+  const r = await dialog.showOpenDialog(win, { title: title || "Add games", defaultPath: start || undefined,
+    properties: ["openFile", "multiSelections"] });
+  return r.canceled ? [] : r.filePaths;
+});
 ipcMain.handle("save-file", async (_e, opts) => {
   const r = await dialog.showSaveDialog(win, { title: opts.title, defaultPath: opts.name,
     filters: [{ name: "Text", extensions: ["txt"] }] });
