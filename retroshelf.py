@@ -672,6 +672,7 @@ class App:
             tv.tag_configure("odd", background=c["stripe"])
             tv.tag_configure("manual", foreground=c["manual"])
             tv.tag_configure("hidden", foreground=c["muted"])
+            tv.empty.configure(bg=base, fg=c["muted"])
         menu_colors = dict(background=c["field"], foreground=c["fg"], activebackground=c["sel"],
                            activeforeground="#ffffff", disabledforeground=c["muted"], selectcolor=c["fg"])
         for k, v in menu_colors.items():
@@ -1135,7 +1136,8 @@ class App:
         tv.configure(yscrollcommand=sb.set)
         tv.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
-        tv.empty = ttk.Label(inner, style="Muted.TLabel", justify="center", anchor="center")  # shown when no rows
+        # shown when no rows; a plain Label, so its fade in recolours just itself (a ttk style would redraw them all)
+        tv.empty = tk.Label(inner, justify="center", anchor="center", font="SunValleyBodyFont", bd=0)
         tv.hover = None
         tv.glow = motion.RowGlow(tv)
         tv.bind("<Motion>", lambda e: self._hover(tv, tv.identify_row(e.y)))
@@ -1601,8 +1603,9 @@ class App:
             self.disk_bar.grid_remove()
             return
         used = 100 * (du.total - du.free) / du.total if du.total else 0
-        self.disk_lbl.config(text=f"{human(du.free)} free",
-                             style="Move.TLabel" if used > 90 else "Muted.TLabel")
+        self.disk_lbl.config(style="Move.TLabel" if used > 90 else "Muted.TLabel")
+        old, self.disk_free = getattr(self, "disk_free", 0), du.free  # it counts up to the figure
+        motion.count(self.disk_lbl, "count", old, du.free, lambda v: f"{human(round(v))} free", ms=420)
         self.disk_bar.grid()
         motion.progress(self.disk_bar, "disk", used)
 
@@ -2005,10 +2008,17 @@ class App:
                                 "or double-click a game on the left." if tv is self.move_tv else
                                 "Nothing left to keep\n\nEvery game here is set to move." if self.units else
                                 "No games in this folder")
+                if not tv.empty.winfo_manager():  # appearing: fade in
+                    bg, muted = tv.empty.cget("bg"), self.colors["muted"]
+                    motion.tween(tv.empty, "fade", 300, lambda p, e=tv.empty, bg=bg, muted=muted: e.configure(
+                        fg=motion.mix(e, bg, muted, p)))
                 tv.empty.place(relx=0.5, rely=0.45, anchor="center")
         n, size = len(self.to_move), sum(self.units[k]["size"] for k in self.to_move)
-        self.move_btn.config(text=f"Move {n:,} game{'s' if n != 1 else ''}  ·  {human(size)}" if n else "Move files",
-                             state="normal" if n else "disabled")
+        self.move_btn.config(state="normal" if n else "disabled")
+        old, self.move_counted = getattr(self, "move_counted", None), (n, size)
+        motion.count(self.move_btn, "count", old, (n, size), lambda v: (
+            f"Move {round(v[0]):,} game{'s' if round(v[0]) != 1 else ''}  ·  {human(round(v[1]))}"
+            if round(v[0]) else "Move files"))
         self.hide_btn.config(state="normal" if n else "disabled")
         self.render_status()
         if not self.keep_tv.selection() and not self.move_tv.selection():
