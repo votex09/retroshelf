@@ -1278,6 +1278,43 @@ class AppTest(unittest.TestCase):
         a._ring_mouse(type("E", (), {"x_root": -500, "y_root": -500})())  # the mouse moves: the ring goes
         self.assertIsNone(ring.target)
 
+    def test_smooth_wheel_scrolling(self):
+        """The wheel glides lists and text boxes to where it is going (a few frames, not one jump); flicks add up; at an
+        end it stops; with animations off it jumps."""
+        motion = sys.modules["motion"]
+        top = tk.Toplevel(self.root)
+        tv = ttk.Treeview(top, height=5, show="tree")
+        for i in range(60):
+            tv.insert("", "end", text=f"row {i}")
+        text = tk.Text(top, height=5)
+        text.insert("1.0", "\n".join(f"line {i}" for i in range(200)))
+        tv.pack()
+        text.pack()
+        self.root.update()
+        seen = []
+        tv.configure(yscrollcommand=lambda a, b: seen.append(float(a)))
+        tv.event_generate("<MouseWheel>", delta=-120)
+        tv.event_generate("<MouseWheel>", delta=-120)  # a flick: two notches add up into one glide
+        self.pump(lambda: not motion.running(tv, "wheel"))
+        self.assertEqual(round(tv.yview()[0] * 60), 2 * motion.WHEEL_ROWS)
+        self.assertGreater(len(set(seen)), 2)  # it went there in steps
+        tv.event_generate("<MouseWheel>", delta=-120 * 50)  # far past the end: stops there, nothing left over
+        self.pump(lambda: not motion.running(tv, "wheel"))
+        self.assertEqual(tv.yview()[1], 1.0)
+        self.assertNotIn(str(tv), motion._wheel_left)
+        text.event_generate("<MouseWheel>", delta=-120)
+        self.pump(lambda: not motion.running(text, "wheel"))
+        self.assertGreater(text.yview()[0], 0)
+        motion.ENABLED = False
+        try:
+            tv.yview_moveto(0)
+            tv.event_generate("<MouseWheel>", delta=-120)
+            self.assertFalse(motion.running(tv, "wheel"))
+            self.assertEqual(round(tv.yview()[0] * 60), motion.WHEEL_ROWS)
+        finally:
+            motion.ENABLED = True
+            top.destroy()
+
     def test_details_artwork_never_moves_the_layout(self):
         """Pictures of any size, long captions and no picture at all take the same box: nothing beside it shifts."""
         a, d = self.app, self.app.details

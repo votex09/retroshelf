@@ -66,8 +66,8 @@ rename can be undone, and games only go for good when you delete them from the h
   (Tab, arrows, F6; moving the mouse puts it away), tooltips fade in, the list counts roll
   to their new numbers, artwork and details fade in (not while you're flicking down a list, so browsing stays
   instant), notifications slide in and out, the gamepad's button bar rises into view, and Review slides each game's
-  name in as its progress bar glides along.
-  **View → Animations** turns them off.
+  name in as its progress bar glides along. The mouse wheel scrolls every list and text box smoothly, easing to a stop
+  (quick flicks add up into one longer glide). **View → Animations** turns them off.
 
 **Storage overview**
 - **Library → Storage overview…** (or click the free-space figure at the top) shows how much each system takes:
