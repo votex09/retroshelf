@@ -33,6 +33,7 @@ import compress  # noqa: E402
 import health  # noqa: E402
 import storage  # noqa: E402
 import dupes  # noqa: E402
+import esde_collections  # noqa: E402
 import sevenzip  # noqa: E402
 import sandbox  # noqa: E402
 import discs  # noqa: E402
@@ -1723,6 +1724,50 @@ class Dupes(unittest.TestCase):
         self.assertIn("./Game (USA).chd", text)
         self.assertIn("<playcount>9</playcount>", text)
         self.assertEqual(dupes.find(self.roms, rs.unit_key), [])
+
+
+class EsdeCollections(unittest.TestCase):
+    """lib/esde_collections.py: ES-DE custom collections, written the way ES-DE writes them."""
+
+    def test_save_add_replace_and_enable(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        roms = os.path.join(tmp, "retrodeck", "roms")
+        es = os.path.join(tmp, "retrodeck", "ES-DE")
+        os.makedirs(os.path.join(es, "settings"))
+        os.makedirs(roms)
+        self.assertEqual(esde_collections.home(roms), os.path.realpath(es))
+        snes = os.path.join(roms, "snes", "Mario (USA).sfc")
+        psx = os.path.join(roms, "psx", "Spyro (USA).m3u")
+        outside = os.path.join(tmp, "elsewhere", "Game.zip")
+        self.assertEqual(esde_collections.save(es, "Best of: 1994?", [snes, psx], roms), 2)  # odd characters dropped
+        self.assertEqual(list(esde_collections.names(es)), ["Best of 1994"])
+        path = esde_collections.path_of(es, "Best of 1994")
+        self.assertEqual(os.path.basename(path), "custom-Best of 1994.cfg")
+        self.assertEqual(esde_collections.games(path), ["%ROMPATH%/snes/Mario (USA).sfc", "%ROMPATH%/psx/Spyro (USA).m3u"])
+        self.assertEqual(esde_collections.save(es, "Best of 1994", [snes, outside], roms), 1)  # Mario's in already
+        self.assertEqual(esde_collections.games(path)[-1], outside.replace(os.sep, "/"))
+        esde_collections.save(es, "Best of 1994", [psx], roms, replace=True)
+        self.assertEqual(esde_collections.games(path), ["%ROMPATH%/psx/Spyro (USA).m3u"])
+        with self.assertRaises(ValueError):
+            esde_collections.save(es, "???", [snes], roms)
+        # shown in ES-DE: added to CollectionSystemsCustom, keeping what's there; written once only
+        settings = os.path.join(es, "settings", "es_settings.xml")
+        self.assertFalse(esde_collections.enable(es, "Best of 1994"))  # ES-DE never started: nothing to change
+        with open(settings, "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0"?>\n<bool name="ShowHiddenFiles" value="true" />\n'
+                    '<string name="CollectionSystemsCustom" value="Party &amp; friends" />\n')
+        self.assertTrue(esde_collections.enable(es, "Best of 1994"))
+        self.assertFalse(esde_collections.enable(es, "Best of 1994"))
+        self.assertEqual(esde_collections.enabled(es), ["Party & friends", "Best of 1994"])
+        with open(settings, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn('value="Party &amp; friends,Best of 1994"', text)
+        self.assertIn("ShowHiddenFiles", text)
+        with open(settings, "w", encoding="utf-8") as f:  # no such setting yet
+            f.write('<?xml version="1.0"?>\n<bool name="ShowHiddenFiles" value="true" />\n')
+        self.assertTrue(esde_collections.enable(es, "Best of 1994"))
+        self.assertEqual(esde_collections.enabled(es), ["Best of 1994"])
 
 
 class SevenZip(unittest.TestCase):

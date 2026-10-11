@@ -70,6 +70,7 @@ import compress_gui  # noqa: E402
 import health_gui  # noqa: E402
 import storage_gui  # noqa: E402
 import dupes_gui  # noqa: E402
+import collections_gui  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
@@ -1034,6 +1035,7 @@ class App:
         lib.add_command(label="Change holding folder…", command=self.browse_holding)
         lib.add_separator()
         lib.add_command(label="Export move list…", command=self.export)
+        lib.add_command(label="Save as an ES-DE collection…", command=lambda: collections_gui.open_window(self))
         mb.add_cascade(label="Library", menu=lib)
         tools = self.tools_menu = tk.Menu(mb, tearoff=0)
         tools.add_command(label=setup_gui.title() + "…", command=lambda: setup_gui.open_window(self))
@@ -2688,6 +2690,9 @@ class App:
         menu.add_command(label="Set LaunchBox match…", state=state, command=lambda: self.match_dialog(row))
         menu.add_command(label="Clear hand-picked match", command=lambda: self._set_match(row, None, clear=True),
                          state="normal" if self.lb_kind.get(row) == "manual" else "disabled")
+        menu.add_separator()
+        menu.add_command(label="Add to an ES-DE collection…",
+                         command=lambda: collections_gui.open_window(self, scope="selected"))
         menu.tk_popup(e.x_root, e.y_root)
 
     def _set_match(self, key, gid, clear=False):
