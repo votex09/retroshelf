@@ -1565,7 +1565,12 @@ class Health(unittest.TestCase):
                       "<game><path>./Deleted (USA).cue</path><name>Deleted</name></game>\n</gameList>\n",
                       base=os.path.join(self.tmp, "retrodeck"))
         f = self.found()
-        self.assertEqual(f[("sheet", "Case (USA).cue")].fix, "Fix the names")
+        # names in the wrong case only break where the file system minds case (Linux; not Windows or macOS)
+        minds_case = not os.path.exists(os.path.join(self.roms, "psx", "case (usa).bin"))
+        if minds_case:
+            self.assertEqual(f[("sheet", "Case (USA).cue")].fix, "Fix the names")
+        else:
+            self.assertNotIn(("sheet", "Case (USA).cue"), f)
         self.assertEqual(f[("sheet", "Moved (USA).cue")].data, {"Old Name.bin": "Moved (USA).bin"})
         self.assertIsNone(f[("sheet", "Gone (USA).cue")].fix)
         self.assertIn("Track 2", f[("sheet", "Gone (USA).cue")].detail)
@@ -1589,7 +1594,7 @@ class Health(unittest.TestCase):
             if p.fix:
                 health.fix(p, self.roms, es_de_running=False)
         with open(os.path.join(self.roms, "psx", "Case (USA).cue")) as fh:
-            self.assertIn('"Case (USA).bin"', fh.read())
+            self.assertIn('"Case (USA).bin"' if minds_case else '"case (usa).bin"', fh.read())
         with open(os.path.join(self.roms, "psx", "Multi (USA).m3u")) as fh:
             self.assertEqual(fh.read(), "Multi (USA) (Disc 1).chd\nMulti (USA) (Disc 2).chd\n")
         self.assertTrue(os.path.isfile(os.path.join(self.roms, "psx", "Lone (USA).cue")))
