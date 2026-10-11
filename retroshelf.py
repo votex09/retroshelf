@@ -71,6 +71,8 @@ import health_gui  # noqa: E402
 import storage_gui  # noqa: E402
 import dupes_gui  # noqa: E402
 import collections_gui  # noqa: E402
+import esde_collections  # noqa: E402
+import hiding  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
@@ -110,7 +112,8 @@ PATTERN_HELP = [
 PATTERN_NOTES = (
     "Patterns are checked against the game name and each of its file names (with extension), so .nds, .zip "
     "or .cue work. Case is ignored unless you untick Ignore case.\n"
-    "Priority, highest first: double-click flips  ›  Protect played games  ›  ! keep rules  ›  everything else "
+    "Priority, highest first: double-click flips  ›  Protect played games  ›  games hidden in ES-DE  ›  ! keep "
+    "rules  ›  everything else "
     "that moves a game (presets, patterns, ratings, genres, regions)."
 )
 CONFIG = os.path.join(APP_DIR, "config.json")
@@ -574,6 +577,7 @@ class App:
         self._lb_details = {}    # platform -> LaunchBox details (descriptions etc.), loaded on first use
         self.lb_kind = {}        # key -> "exact" | "fuzzy" | "manual" (manual may also mean "no match")
         self.played = set()
+        self.hidden = set()      # keys ES-DE hides (gamelist <hidden>), kept like played games
         self.preset_hits = {}
         self.manual = {}
         self.after_id = None
@@ -652,6 +656,7 @@ class App:
         for tv in (self.keep_tv, self.move_tv):
             tv.tag_configure("odd", background=c["stripe"])
             tv.tag_configure("manual", foreground=c["manual"])
+            tv.tag_configure("hidden", foreground=c["muted"])
             tv.tag_configure("hover", background=c["hover"])  # configured last, so it wins over "odd"
         menu_colors = dict(background=c["field"], foreground=c["fg"], activebackground=c["sel"],
                            activeforeground="#ffffff", disabledforeground=c["muted"], selectcolor=c["fg"])
@@ -993,6 +998,10 @@ class App:
         foot.pack(side="bottom", fill="x")
         self.move_btn = ttk.Button(foot, text="Move files", style="Accent.TButton", command=self.execute)
         self.move_btn.pack(side="right")
+        self.hide_btn = ttk.Button(foot, text="Hide in ES-DE", command=lambda: self.hide_games(list(self.to_move)))
+        self.hide_btn.pack(side="right", padx=(0, 6))
+        ui.Tooltip(self.hide_btn, "Instead of moving them: ES-DE leaves the Moving list's games out of its menus, "
+                                  "and the files stay where they are. Right-click a game to show it again.")
         ttk.Button(foot, text="Change…", command=self.browse_holding).pack(side="right", padx=(0, 16))
         self.hold_lbl = ttk.Label(foot, style="Muted.TLabel")
         self.hold_lbl.pack(side="right", padx=(0, 6))
@@ -1635,7 +1644,7 @@ class App:
         self.dupes_key = None  # region dupes are computed in refresh(), since they depend on the region filter
         self.preset_hits["Partial downloads (.part)"] = {k for k in keys if k.lower().endswith(PARTIAL_EXT)}
 
-        self.played = set()
+        self.played, self.hidden = set(), set()
         gl = find_gamelist(self.cfg["roms_root"], self.system)
         if gl:
             try:
@@ -1646,6 +1655,7 @@ class App:
             except (OSError, ET.ParseError, ValueError):
                 pass
         self.played &= self.units.keys()
+        self.hidden = {self.file_to_unit.get(fn, unit_key(fn)) for fn in hiding.hidden(gl)} & self.units.keys()
         self.played_cb.config(text=f"Protect played games ({len(self.played)})")
 
         self.ratings, self.lb_kind, self.lb_ids = {}, {}, {}
@@ -1824,6 +1834,7 @@ class App:
                     if (keep_only and not rs & sel_regions) or (not keep_only and rs <= sel_regions):
                         reasons.append("region")
                 keeper = "played" if protect and key in self.played else None
+                keeper = keeper or ("hidden in ES-DE" if key in self.hidden else None)
                 keeper = keeper or next((p for p, rx in keeps if any(rx.match(n) for n in names)), None)
                 hit = bool(reasons) and keeper is None
                 why = keeper if (reasons and keeper) else ", ".join(reasons)
@@ -1879,8 +1890,9 @@ class App:
             for i, k in enumerate(shown):
                 g = self.ratings.get(k)
                 rating = "—" if not g or g["r"] is None else f"{ui.stars(g['r'])}  {g['r']:.1f}"
-                tags = (("odd",) if i % 2 else ()) + (("manual",) if k in self.manual else ())
-                tv.insert("", "end", iid=k, text=self._label(k),
+                tags = (("odd",) if i % 2 else ()) + (("manual",) if k in self.manual else ()) + \
+                    (("hidden",) if k in self.hidden else ())
+                tv.insert("", "end", iid=k, text=self._label(k) + ("   · hidden in ES-DE" if k in self.hidden else ""),
                           values=(self.why[k], ", ".join(self.regions[k]), rating, ", ".join(g["g"]) if g else "",
                                   human(self.units[k]["size"])),
                           tags=tags)
@@ -1905,6 +1917,7 @@ class App:
         n, size = len(self.to_move), sum(self.units[k]["size"] for k in self.to_move)
         self.move_btn.config(text=f"Move {n:,} game{'s' if n != 1 else ''}  ·  {human(size)}" if n else "Move files",
                              state="normal" if n else "disabled")
+        self.hide_btn.config(state="normal" if n else "disabled")
         self.render_status()
         if not self.keep_tv.selection() and not self.move_tv.selection():
             self._details_idle()
@@ -2677,6 +2690,42 @@ class App:
             ttk.Label(foot, text="Nothing logged yet.", style="Muted.TLabel").pack(side="left")
         win.bind("<Escape>", lambda e: win.destroy())
 
+    # ---------- hiding in ES-DE ----------
+    def hide_games(self, keys, hide=True):
+        """Mark games hidden in ES-DE's gamelist (or show them again). Hidden games stay in Keeping, like played
+        ones, unless flipped by hand."""
+        keys = [k for k in keys if k in self.units and (k in self.hidden) != hide]
+        if not keys:
+            return
+        if scraper.es_de_running():
+            messagebox.showinfo("ES-DE is running", "Close RetroDECK / ES-DE first: it rewrites its gamelists when "
+                                                    "it quits, which would undo this.")
+            return
+        es_home = esde_collections.home(self.cfg["roms_root"])
+        shows = hiding.shows_hidden(es_home)
+        n = len(keys)
+        what = f"{n:,} game{'s' if n != 1 else ''}"
+        if hide:
+            note = ("\n\nES-DE is set to show hidden games, so that's turned off too (ES-DE: Other settings → Show "
+                    "hidden games)." if shows else "")
+            if not messagebox.askyesno("Hide in ES-DE", f"Hide {what} in ES-DE? The files stay where they are; "
+                                                         f"ES-DE just leaves them out of its menus.{note}"):
+                return
+        files = [scraper.primary_file(self.units[k]["paths"]) for k in keys]
+        try:
+            hiding.set_hidden(self.gamelist_path(), files, hide)
+            if hide and shows:
+                hiding.stop_showing_hidden(es_home)
+        except (OSError, ET.ParseError) as e:
+            messagebox.showerror("Couldn't change ES-DE's gamelist", str(e))
+            return
+        for k in keys:  # a flip made to send them to the Moving list is done with
+            if self.manual.get(k):
+                self.manual.pop(k)
+        self.rescan()
+        self.toast(f"Hid {what} in ES-DE. Right-click to show {'it' if n == 1 else 'them'} again." if hide else
+                   f"{what[0].upper() + what[1:]} shown in ES-DE again.")
+
     # ---------- manual LaunchBox match ----------
     def _row_menu(self, tv, e):
         row = tv.identify_row(e.y)
@@ -2691,6 +2740,11 @@ class App:
         menu.add_command(label="Clear hand-picked match", command=lambda: self._set_match(row, None, clear=True),
                          state="normal" if self.lb_kind.get(row) == "manual" else "disabled")
         menu.add_separator()
+        sel = [k for k in tv.selection() if k in self.units]
+        menu.add_command(label="Hide in ES-DE", command=lambda: self.hide_games(sel),
+                         state="normal" if any(k not in self.hidden for k in sel) else "disabled")
+        menu.add_command(label="Show in ES-DE again", command=lambda: self.hide_games(sel, hide=False),
+                         state="normal" if any(k in self.hidden for k in sel) else "disabled")
         menu.add_command(label="Add to an ES-DE collection…",
                          command=lambda: collections_gui.open_window(self, scope="selected"))
         menu.tk_popup(e.x_root, e.y_root)

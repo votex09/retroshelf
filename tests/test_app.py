@@ -18,7 +18,7 @@ if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
 
 LIB_MODULES = ["sv_ttk", "launchbox", "nps", "nps_gui", "scraper", "desktop", "details", "ui", "updater", "fsutil",
                "homebrew", "homebrew_gui", "downloads", "catalog_gui", "itch", "itch_gui", "pdroms",
-               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui", "esde_collections", "collections_gui"]
+               "pdroms_gui", "mamedev", "mamedev_gui", "frontend", "setup_gui", "sevenzip", "romimport", "import_gui", "dialogs", "listkeys", "review", "video", "gamepad", "padhints", "compress", "compress_gui", "health", "health_gui", "storage", "storage_gui", "dupes", "dupes_gui", "esde_collections", "collections_gui", "hiding"]
 SNES_N = len(sandbox.SNES_GAMES)
 SPORTS = "Sports"
 
@@ -1051,6 +1051,39 @@ class AppTest(unittest.TestCase):
         w.save()
         self.assertEqual(len(ec.games(path)), len(lines))  # it was in there already
         self.assertFalse(w.win.winfo_exists())  # saving closes it
+
+    def test_hide_in_esde(self):
+        a = self.app
+        hd = sys.modules["hiding"]
+        es = os.path.join(self.base, "retrodeck", "ES-DE")
+        os.makedirs(os.path.join(es, "settings"), exist_ok=True)
+        with open(os.path.join(es, "settings", "es_settings.xml"), "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0"?>\n<string name="ROMDirectory" value="" />\n')
+        self.preset("Sports")
+        sports = list(a.to_move)
+        self.assertTrue(sports)
+        self.assertEqual(str(a.hide_btn.cget("state")), "normal")
+        with mock.patch.object(sys.modules["scraper"], "es_de_running", return_value=False):
+            a.hide_games(list(a.to_move))
+        self.assertNoErrors()
+        hidden = hd.hidden(a.gamelist_path())
+        self.assertEqual(len(hidden), len(sports))
+        self.assertEqual(a.hidden, set(sports))
+        self.assertEqual(a.to_move, [])  # hidden games stay in Keeping, like played ones
+        self.assertEqual({a.why[k] for k in sports}, {"hidden in ES-DE"})
+        self.assertIn("hidden in ES-DE", a.keep_tv.item(sports[0], "text"))
+        self.assertIn("hidden", a.keep_tv.item(sports[0], "tags"))
+        self.assertFalse(hd.shows_hidden(es))  # ES-DE told to leave hidden games out
+        self.assertEqual(str(a.hide_btn.cget("state")), "disabled")
+        # show one again: back to where the filters put it
+        with mock.patch.object(sys.modules["scraper"], "es_de_running", return_value=False):
+            a.hide_games([sports[0]], hide=False)
+        self.assertNotIn(sports[0], a.hidden)
+        self.assertEqual(a.to_move, [sports[0]])
+        # while ES-DE runs nothing is changed
+        with mock.patch.object(sys.modules["scraper"], "es_de_running", return_value=True):
+            a.hide_games([sports[0]])
+        self.assertNotIn(sports[0], a.hidden)
 
     def test_pad_hints_for_any_window(self):
         """Windows that don't describe their buttons get hints by the kind of widget; every style draws."""
