@@ -31,6 +31,7 @@ HELP = [
     ("Ctrl+Z  Backspace", "Undo the last flip"),
     ("Letters", "Jump to the first game whose name starts with what you type"),
     ("Ctrl+R", "Review the list one game at a time"),
+    ("F6  Shift+F6", "Go to the lists, the search box, the filter tabs, and round again"),
     ("Double-click", "Flip a game"),
 ]
 

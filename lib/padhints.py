@@ -19,18 +19,19 @@ TAG = "pad"
 # button -> what the pad has printed on it: (text or shape, colour); shoulders and triggers are just text
 STYLES = {
     "xbox": {"a": ("A", "#6cc04a"), "b": ("B", "#ec4f45"), "x": ("X", "#4a95e6"), "y": ("Y", "#f2c418"),
-             "lb": "LB", "rb": "RB", "lt": "LT", "rt": "RT", "start": "menu"},
+             "lb": "LB", "rb": "RB", "lt": "LT", "rt": "RT", "start": "menu", "select": "view"},
     "playstation": {"a": ("cross", "#8fb3ec"), "b": ("circle", "#f07272"), "x": ("triangle", "#41cba5"),
-                    "y": ("square", "#e594cf"), "lb": "L1", "rb": "R1", "lt": "L2", "rt": "R2", "start": "menu"},
+                    "y": ("square", "#e594cf"), "lb": "L1", "rb": "R1", "lt": "L2", "rt": "R2", "start": "menu",
+                    "select": "create"},
     # the kernel reports Nintendo pads by position: the bottom button (B on the pad) is the one others call A
     "nintendo": {"a": ("B", "#f0f0f0"), "b": ("A", "#f0f0f0"), "x": ("X", "#f0f0f0"), "y": ("Y", "#f0f0f0"),
-                 "lb": "L", "rb": "R", "lt": "ZL", "rt": "ZR", "start": "plus"},
+                 "lb": "L", "rb": "R", "lt": "ZL", "rt": "ZR", "start": "plus", "select": "minus"},
 }
 PLAYSTATION = re.compile(r"sony|playstation|dualshock|dualsense|\bps[345]\b|^wireless controller$", re.I)
 NINTENDO = re.compile(r"nintendo|switch|pro controller|joy-?con", re.I)
 
 # the keys a window has to bind for Start / B to mean something there
-COMMON = [("start", "<Control-r>", "Review"), ("b", "<Escape>", "Close")]
+COMMON = [("start", "<Control-r>", "Review"), ("select", "<F6>", "Lists · search · filters"), ("b", "<Escape>", "Close")]
 
 
 def style_for(name):
@@ -84,8 +85,16 @@ def generic(root, path):
         out += [("dpad:ud", "Browse"), ("x", "Choose")]
     elif kind == "TCombobox":
         out.append(("dpad:ud", "Open the list"))
-    elif kind in ("TEntry", "Entry", "TSpinbox", "Spinbox"):
+    elif kind in ("TEntry", "Entry"):
+        try:
+            typable = str(call(path, "cget", "-state")) not in ("readonly", "disabled") and not disabled
+        except tk.TclError:
+            typable = False
+        if typable:
+            out.append(("a", "Keyboard"))  # the on-screen one (lib/osk.py)
         out.append(("dpad:lr", "Move the cursor"))
+    elif kind in ("TSpinbox", "Spinbox"):
+        out.append(("dpad:ud", "Change"))
     elif kind in ("TScale", "Scale"):
         out.append(("dpad:lr", "Adjust"))
     elif kind == "TNotebook":
@@ -142,7 +151,7 @@ class Glyphs:
         face = STYLES[style].get(button)
         if button in ("a", "b", "x", "y"):
             return self.face(x, cy, *face, chip=chip)
-        if button == "start":
+        if button in ("start", "select"):
             return self.start(x, cy, face, chip, ink)
         return self.shoulder(x, cy, face or button.upper(), chip, ink, trigger=button in ("lt", "rt"))
 
@@ -187,6 +196,17 @@ class Glyphs:
         if mark == "plus":
             self.c.create_line(mx - k, cy, mx + k, cy, fill=ink, width=w + 1, tags=TAG)
             self.c.create_line(mx, cy - k, mx, cy + k, fill=ink, width=w + 1, tags=TAG)
+        elif mark == "minus":
+            self.c.create_line(mx - k, cy, mx + k, cy, fill=ink, width=w + 1, tags=TAG)
+        elif mark == "view":  # two overlapping windows
+            q = k * 0.75
+            self.c.create_rectangle(mx - k, cy - k * 0.8, mx - k + 2 * q, cy - k * 0.8 + 1.5 * q, outline=ink,
+                                    width=w, tags=TAG)
+            self.c.create_rectangle(mx + k - 2 * q, cy + k * 0.8 - 1.5 * q, mx + k, cy + k * 0.8, outline=ink,
+                                    fill=chip, width=w, tags=TAG)
+        elif mark == "create":  # three short upright strokes
+            for dx in (-k * 0.6, 0, k * 0.6):
+                self.c.create_line(mx + dx, cy - k * 0.7, mx + dx, cy + k * 0.7, fill=ink, width=w, tags=TAG)
         else:  # ☰
             for dy in (-k * 0.7, 0, k * 0.7):
                 self.c.create_line(mx - k, cy + dy, mx + k, cy + dy, fill=ink, width=w, tags=TAG)

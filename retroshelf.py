@@ -73,6 +73,7 @@ import dupes_gui  # noqa: E402
 import collections_gui  # noqa: E402
 import esde_collections  # noqa: E402
 import hiding  # noqa: E402
+import osk  # noqa: E402
 import details  # noqa: E402
 from fsutil import held_rel, is_windows, write_json  # noqa: E402
 import ui  # noqa: E402
@@ -597,6 +598,7 @@ class App:
         self.gamepads = gamepad.Gamepads(root, lambda name: self.toast(
             f"Gamepad: {name}. Help → Keyboard and gamepad lists the buttons."))
         self.gamepads.enabled = bool(self.cfg["gamepad"])
+        self.gamepads.on_type = lambda entry: osk.open_keyboard(root, entry)  # A in a text box: a keyboard
         # while the pad is what's in use, the window with the keyboard shows its buttons (lib/padhints.py)
         self.pad_hints = padhints.Hints(root, lambda: self.colors)
         self.gamepads.watchers.append(self.pad_hints.update)
@@ -1028,6 +1030,9 @@ class App:
         self.root.bind("<Control-r>", lambda e: self.review())
         self.root.bind("<F5>", lambda e: self.rescan())
         self.root.bind("<Control-f>", lambda e: (self.search_entry.focus_set(), "break")[1])
+        # F6 / Shift+F6 (a pad's View / Select button): the lists, the search box, the filter tabs, round again
+        self.root.bind("<F6>", lambda e: (self.cycle_focus(), "break")[1])
+        self.root.bind("<Shift-F6>", lambda e: (self.cycle_focus(back=True), "break")[1])
 
     def _build_menu(self):
         """Things you do now and then live in the menu bar, so the window can give its height to the tables."""
@@ -1359,9 +1364,13 @@ class App:
                                     state="normal" if system in nps.CONSOLES else "disabled")
         self.tools_menu.entryconfig(self._menu_item(self.tools_menu, "Compress"),
                                     state="normal" if compress.supported(system, self.exts) else "disabled")
+        cursor = self.cfg["system_state"].get(system, {}).get("cursor")  # (before the rescan's refresh saves anew)
+        for tv in (self.keep_tv, self.move_tv):
+            tv.focus("")  # the last system's row isn't a place in this one
         self.restore_state()
         self._refresh_platform_choices()
         self.rescan()
+        self._restore_cursor(cursor)
 
     def _refresh_platform_choices(self):
         plats = lb.platforms()
@@ -1722,7 +1731,65 @@ class App:
             "regions": [self.region_names[i] for i in self.region_lb.curselection()],
             "region_mode": self.region_mode.get(),
             "flips": self.manual,
+            "cursor": self._cursor(),
         }
+
+    def _area(self, w):
+        """0 the lists, 1 the search box, 2 the filter tabs (and what's on them), None elsewhere."""
+        while w is not None:
+            if w in (self.keep_tv, self.move_tv):
+                return 0
+            if w is self.search_entry:
+                return 1
+            if w is self.filter_tabs:
+                return 2
+            w = w.master
+        return None
+
+    def cycle_focus(self, back=False):
+        """Move the keyboard to the next part of the window: the lists → search → filters → the lists."""
+        try:
+            here = self._area(self.root.focus_get())
+        except (KeyError, tk.TclError):
+            here = None
+        if here == 0:
+            self._last_list = self.root.focus_get()
+        nxt = 0 if here is None else (here + (-1 if back else 1)) % 3
+        if nxt == 0:
+            tv = getattr(self, "_last_list", None) or self.keep_tv
+            if tv.get_children():
+                self.keys.place(tv, tv.last)
+            else:
+                tv.focus_set()
+        elif nxt == 1:
+            self.search_entry.focus_set()
+            self.search_entry.icursor("end")
+        else:
+            self.filter_tabs.focus_set()
+
+    def _cursor(self):
+        """Where the cursor is: {"list": "keep" | "move", "key": game}, the list with the keyboard first."""
+        lists = (("keep", self.keep_tv), ("move", self.move_tv))
+        try:
+            has = self.root.focus_get()
+        except (KeyError, tk.TclError):
+            has = None
+        for name, tv in sorted(lists, key=lambda t: t[1] is not has):
+            if tv.focus() and tv.exists(tv.focus()):
+                return {"list": name, "key": tv.focus()}
+        prev = self.cfg["system_state"].get(getattr(self, "system", None), {}).get("cursor")
+        return prev if isinstance(prev, dict) else None
+
+    def _restore_cursor(self, cursor):
+        """Back on the game you were on when you last left this system (if it's still listed)."""
+        if not isinstance(cursor, dict):
+            return
+        key = cursor.get("key")
+        order = (self.keep_tv, self.move_tv) if cursor.get("list") != "move" else (self.move_tv, self.keep_tv)
+        for tv in order:  # the game may have changed lists since (filters, flips)
+            if key and tv.exists(key):
+                self.keys.place(tv, tv.get_children().index(key))
+                return
 
     def save_state(self):
         """Patterns, filters and flips are kept per system in config.json, so each one opens as it was left."""
