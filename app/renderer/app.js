@@ -993,7 +993,7 @@ async function start() {
     summary.error = e.message;
   }
   rs.ready(summary);
-  if (old && S.overview?.roms) setTimeout(() => offerRemoveOld(old), 800);
+  if (old && !old.failed && S.overview?.roms) setTimeout(() => offerRemoveOld(old), 800);
 }
 
 // The old (Tk) RetroShelf, found by its app-menu entry: its settings come over and the entry opens this app, without
@@ -1001,7 +1001,13 @@ async function start() {
 async function switchFromOld() {
   const old = await call("old_app").catch(() => null);
   if (!old) return null;
-  old.brought = old.data ? await call("adopt_old", { folder: old.folder }).catch(() => []) : [];
+  old.brought = [];
+  if (old.data) {
+    try { old.brought = await call("adopt_old", { folder: old.folder }); } catch (e) {
+      console.error(e);
+      old.failed = true;  // its data didn't come over: don't offer to delete it
+    }
+  }
   old.menuMoved = old.menu && !(await rs.addToMenu().catch((e) => e.message));
   return old;
 }
