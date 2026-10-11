@@ -2,6 +2,7 @@
 
 Everything here is quick (well under half a second) and can be switched off (View → Animations); with ENABLED
 False every effect jumps straight to its end state, so nothing depends on an animation having run."""
+import math
 import time
 import tkinter as tk
 
@@ -286,3 +287,77 @@ def fly(root, text, src, dst, bg, fg, font, delay=0, ms=420):
         lbl.after(delay, go)
     else:
         go()
+
+
+WHEEL_ROWS = 3       # a notch of the wheel: rows in a list…
+WHEEL_PIXELS = 60    # …or pixels in a text box
+WHEEL_TAU_MS = 60    # how quickly a glide catches up with the wheel: it eases out, mostly done in ~3x this
+_wheel_left = {}     # widget path -> how far it still has to go (rows or pixels, signed)
+
+
+def smooth_scroll(root):
+    """Wheel scrolling in every list (Treeview, Listbox) and text box glides to where it is going instead of jumping
+    there, easing out, and quick flicks add up into one longer glide. Lists move a row at a time (Tk can't scroll them
+    by the pixel), text by the pixel. Set once for the whole app: it replaces Tk's class bindings, so dialogs get it
+    too."""
+    system = root.tk.call("tk", "windowingsystem")
+    per_notch = 1 if system == "aqua" else 120  # what one notch of the wheel reports as its delta
+    for cls, unit in (("Treeview", "units"), ("Listbox", "units"), ("Text", "pixels")):
+        root.bind_class(cls, "<MouseWheel>", lambda e, u=unit: _wheel(e.widget, -e.delta / per_notch, u))
+        if system == "x11":  # X11 wheels come through as buttons 4 and 5
+            root.bind_class(cls, "<Button-4>", lambda e, u=unit: _wheel(e.widget, -1, u))
+            root.bind_class(cls, "<Button-5>", lambda e, u=unit: _wheel(e.widget, 1, u))
+
+
+def _wheel(w, notches, unit):
+    key = str(w)
+    left = _wheel_left.get(key, 0.0)
+    if left * notches < 0:  # turned the other way: drop what was left of the last glide
+        left = 0.0
+        cancel(w, "wheel")
+    left += notches * (WHEEL_PIXELS if unit == "pixels" else WHEEL_ROWS)
+    _wheel_left[key] = left
+    if not ENABLED:
+        if int(left):
+            _scroll(w, key, int(left), unit)
+        return "break"
+    if running(w, "wheel"):
+        return "break"  # the glide under way picks up the extra distance
+    state = {"last": time.perf_counter(), "due": 0.0}  # due: movement owed but not yet a whole row / pixel
+
+    def frame():
+        now = time.perf_counter()
+        left = _wheel_left.get(key, 0.0)
+        state["due"] += left * (1 - math.exp(-(now - state["last"]) * 1000 / WHEEL_TAU_MS))
+        state["last"] = now
+        n = int(state["due"])
+        if abs(left - n) < 0.5:  # close enough: land
+            n = round(left)
+        if n:
+            if not _scroll(w, key, n, unit):
+                _running.pop((key, "wheel"), None)  # at an end
+                return
+            state["due"] -= n
+        if abs(_wheel_left.get(key, 0.0)) < 0.5:
+            _running.pop((key, "wheel"), None)  # arrived (a touchpad's part-notch stays for its next nudge)
+            return
+        _running[(key, "wheel")] = w.after(FRAME_MS, frame)
+
+    _running[(key, "wheel")] = w.after(0, frame)
+    return "break"
+
+
+def _scroll(w, key, n, unit):
+    """Scroll w by n rows / pixels and take them off what it has left; False when it couldn't move (at an end, or
+    gone), which also forgets the rest."""
+    try:
+        before = w.yview()
+        w.yview_scroll(n, unit)
+        moved = w.yview() != before
+    except Exception:
+        moved = False
+    if moved:
+        _wheel_left[key] = _wheel_left.get(key, 0.0) - n
+    else:
+        _wheel_left.pop(key, None)
+    return moved

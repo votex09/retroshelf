@@ -572,6 +572,7 @@ class App:
         details.PLAY_VIDEOS = bool(self.cfg["play_videos"])
         details.STREAM_VIDEOS = bool(self.cfg["stream_videos"])
         motion.ENABLED = bool(self.cfg["animations"])
+        motion.smooth_scroll(root)
 
         self.units = {}          # key -> {"paths": [abs path], "size": int}
         self.file_to_unit = {}
