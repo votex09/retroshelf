@@ -254,7 +254,7 @@ const onRow = () => Boolean(P.cur?.matches(".trow") && topLayer() !== document.b
 
 // A sheet moved its own selection (its arrow keys): a cursor on its table goes along.
 function followSelection(table) {
-  const on = table?.querySelector(".trow.on");
+  const on = (table || (topLayer() === $("sheet") && !P.cur ? $("sheet") : null))?.querySelector(".trow.on");  // (no cursor yet: onto it)
   if (on) setCursor(on); else syncCursor();
 }
 const tableOf = () => (P.cur?.matches(".trow") ? P.cur.closest("[id]") : null);
