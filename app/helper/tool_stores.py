@@ -7,6 +7,7 @@ The stores: one window for all four, a "store" naming its source in lib/catalog.
 browser are filed by a Downloads watcher per store, which the window polls with store_watch."""
 import base64, os, shutil, threading, time, urllib.request
 
+import artwork
 import catalog
 import downloads
 import homebrew as hb
@@ -90,7 +91,7 @@ def nps_info(system=None):
     console, kinds = nps.CONSOLES[system]
     _lib(system, fresh=True)  # look at what's here afresh each time the window opens
     emulator = nps.SYSTEM_EMULATOR.get(system)
-    return {"system": system, "console": console, "kinds": list(kinds), "regions": nps_queue.REGION_CHOICES,
+    return {"system": system, "console": console, "console_name": nps.FULL_NAMES[system], "kinds": list(kinds), "regions": nps_queue.REGION_CHOICES,
             "systems": [[s, nps.FULL_NAMES[s]] for s in nps.CONSOLES], "note": nps_queue.INSTALL_NOTES[console],
             "problem": nps.firmware_problem(system, roms), "age": _list_date(system), "mine": system in ("ps3", "psvita"),
             "dir": nps_queue.default_dir(cfg), "keep_pkg": cfg.get("nps_keep_pkg", False),
@@ -134,6 +135,14 @@ def nps_rows(system, kind, region="All regions", query="", mine=False, hide_have
     shown, status = nps_queue.shown_rows(rows, kind, lib.owned_ids, lambda r: queued.get(_key(r)) or lib.status(r),
                                          region, query, mine, hide_have, (sort, desc))
     return {"rows": [_nps_out(r, status[id(r)], lib) for r in shown[:limit]], "shown": len(shown), "total": len(rows)}
+
+
+@method
+def nps_art(system, name, region=""):
+    """A NoPayStation game's box art and a screenshot (lib/artwork.py) -> {"art": [image urls, the window loads them
+    with store_shot], "problem"}."""
+    platform = lb.resolve_platform(system, nps.FULL_NAMES.get(system), ctx["cfg"]["platform_overrides"])
+    return artwork.find(platform, name, (nps.REGIONS.get(region, region),) if region else ())
 
 
 @method

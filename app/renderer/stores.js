@@ -31,7 +31,8 @@ const NPS_OWNED = ["Installed", "Have as ROM", "Have (other region)"];
 async function openNps(system) {
   const info = await call("nps_info", { system });
   const N = { info, kind: info.kinds[0], loaded: new Set(), list: null, sel: new Set(), anchor: null, sort: "name", desc: false,
-    queue: [], states: new Map(), qsel: new Set(), qanchor: null, job: null, installed: false, timer: null, seq: 0 };
+    queue: [], states: new Map(), qsel: new Set(), qanchor: null, job: null, installed: false, timer: null, seq: 0,
+    art: { key: null, seq: 0, timer: null } };
   sheet(`
     <div class="sheet-head"><div class="head-row"><h2>NoPayStation  ·  ${esc(info.console)}</h2><span class="grow"></span>
       <span class="muted small-text" id="n-age"></span><button class="ghost small" id="n-refresh">Refresh lists</button></div>
@@ -47,7 +48,7 @@ async function openNps(system) {
     <div class="nps-body">
       <div class="nps-main"><div class="results-line" id="n-res"></div><div class="table nps-rows" id="n-table"></div></div>
       <aside class="nps-side">
-        <div class="nps-pick" id="n-pick"></div>
+        <div class="nps-pick"><div class="nps-media" id="n-media" hidden></div><div id="n-pick"></div></div>
         <button class="ghost" id="n-add">Add to queue</button>
         <div class="nps-qhead"><b id="n-qhead">Queue</b><span class="muted" id="n-qsize"></span></div>
         <div class="table nps-queue" id="n-queue"></div>
@@ -66,6 +67,7 @@ async function openNps(system) {
     </div>`,
   "stores-sheet nps", () => {
     N.job?.stop();
+    clearTimeout(N.art.timer);
     if (N.installed && S.sys?.system === info.system) rescanQuietly();
   }, npsKeys);
   const status = (text) => { if ($("n-status")) $("n-status").textContent = text; };
@@ -120,6 +122,49 @@ async function openNps(system) {
       : rows.length ? `<h3>${rows.length} picked</h3><p class="muted">${npsSize(rows.reduce((n, x) => n + x.size, 0))}</p>`
         : `<p class="muted">Pick a game to see it here. Double-click, Space or Enter adds it to the queue; Ctrl or Shift-click picks several.</p>`;
     $("n-add").disabled = !rows.length;
+    if ((row?.key ?? null) !== N.art.key) showArt(row);
+  }
+
+  // ----- the picked game's box art, screenshot (LaunchBox) and gameplay video (YouTube) -----
+  async function showArt(row) {
+    const A = N.art, seq = ++A.seq;
+    clearTimeout(A.timer);
+    A.key = row?.key ?? null;
+    const box = $("n-media");
+    box.hidden = !row;
+    if (!row) { box.innerHTML = ""; return; }
+    box.innerHTML = `<div class="nps-shot muted">Loading artwork …</div>`;
+    let r;
+    try { r = await call("nps_art", { system: info.system, name: row.name, region: row.region }); } catch (e) { r = { art: [], problem: e.message }; }
+    if (seq !== A.seq || !$("n-media")) return;
+    const pics = (await Promise.all(r.art.map((url) => call("store_shot", { url }).catch(() => null)))).filter(Boolean);
+    if (seq !== A.seq || !$("n-media")) return;
+    A.pics = pics;
+    box.innerHTML = `<div class="nps-shot muted" id="n-shot"></div><div class="nps-thumbs">` +
+      pics.map((_, i) => `<button class="ghost small" data-pic="${i}">${i ? "Screen" : "Box"}</button>`).join("") +
+      `<button class="ghost small" id="n-video">▶ Video</button></div>`;
+    picture(0, r.problem);
+    box.querySelectorAll("[data-pic]").forEach((b) => { b.onclick = () => { clearTimeout(A.timer); picture(+b.dataset.pic); }; });
+    $("n-video").onclick = () => video(row, seq);
+    if (S.opts.play_videos) A.timer = setTimeout(() => video(row, seq), 2500);
+  }
+  function picture(i, problem) {
+    const pics = N.art.pics || [];
+    $("n-shot").innerHTML = pics[i] ? `<img src="${esc(pics[i])}" alt="">` : esc(problem || "No artwork");
+    mark(`[data-pic="${i}"]`);
+  }
+  function mark(sel) { $("n-media").querySelectorAll(".nps-thumbs button").forEach((b) => b.classList.toggle("on", b.matches(sel))); }
+  async function video(row, seq) {
+    if (seq !== N.art.seq || !$("n-shot")) return;
+    clearTimeout(N.art.timer);
+    $("n-video").textContent = "▶ Finding a video …";
+    let r;
+    try { r = await call("youtube_video", { title: row.name.split("  ·  ")[0], console: info.console_name }); } catch { r = null; }
+    if (seq !== N.art.seq || !$("n-shot")) return;
+    $("n-video").textContent = "▶ Video";
+    if (!r?.embed) { $("n-video").textContent = r ? "No video found" : "YouTube didn't answer"; return; }
+    $("n-shot").innerHTML = `<iframe src="${esc(r.embed)}" title="Gameplay video" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
+    mark("#n-video");
   }
 
   // ----- the queue -----
