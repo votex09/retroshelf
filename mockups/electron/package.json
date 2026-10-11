@@ -1,0 +1,13 @@
+{
+  "name": "retroshelf-electron-mockup",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Mock-up of RetroShelf's main window in Electron (sample data, no backend)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "33.4.11"
+  }
+}

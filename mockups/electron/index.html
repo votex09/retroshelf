@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'">
+  <title>RetroShelf (Electron mock-up)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="../../assets/icon-64.png" alt=""><span>RetroShelf</span></div>
+    <button class="system" id="system"><span class="system-tag" id="system-tag">SNES</span><span id="system-name"></span><span class="chev">▾</span></button>
+    <label class="search"><span>⌕</span><input id="search" placeholder="Search games" spellcheck="false"></label>
+    <div class="space" title="Free space on the ROMs drive">
+      <svg viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="15"/><circle class="fill" id="space-ring" cx="18" cy="18" r="15"/></svg>
+      <div><b id="free"></b><small id="roms"></small></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="lists">
+      <div class="chips" id="chips"></div>
+      <div class="columns">
+        <div class="column" data-list="keep">
+          <div class="col-head"><span class="dot keep"></span>Keeping <b class="count" id="keep-count"></b><span class="size" id="keep-size"></span></div>
+          <div class="list" id="keep"><div class="ring"></div></div>
+        </div>
+        <div class="column" data-list="move">
+          <div class="col-head"><span class="dot move"></span>Moving <b class="count" id="move-count"></b><span class="size" id="move-size"></span></div>
+          <div class="list" id="move"><div class="ring"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="details" id="details">
+      <div class="backdrop" id="backdrop"></div>
+      <div class="details-body" id="details-body">
+        <img class="cover" id="cover" alt="">
+        <h1 id="title"></h1>
+        <div class="meta" id="meta"></div>
+        <div class="rating"><span class="stars" id="stars"></span><span id="rating-text"></span></div>
+        <div class="genres" id="genres"></div>
+        <p class="desc" id="desc"></p>
+        <div class="video"><span class="play">▶</span><div><b>Gameplay video</b><small>ES-DE clip · plays here with sound</small></div></div>
+        <div class="file" id="file"></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <div class="hints" id="hints"></div>
+    <div class="actions">
+      <button class="ghost">Hide in ES-DE</button>
+      <button class="primary" id="move-btn"></button>
+    </div>
+  </footer>
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

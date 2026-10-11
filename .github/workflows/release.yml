@@ -1,6 +1,7 @@
 # Every change to the app that lands on main is tested and published as a release, versioned by date
 # (v2026.10.09, then v2026.10.09.2 for a second one that day). Zip copies of RetroShelf update from these releases.
-# Changes that only touch docs, tests or CI don't make a release; "Run workflow" on the Actions tab forces one.
+# Changes that only touch docs, tests, CI or the new Electron app (app/, built by app.yml) don't make a release;
+# "Run workflow" on the Actions tab forces one.
 # Pull requests run the tests only.
 name: Release
 
@@ -11,6 +12,8 @@ on:
       - "**.md"
       - "docs/**"
       - "tests/**"
+      - "app/**"
+      - "mockups/**"
       - ".claude/**"
       - ".github/**"
   pull_request:

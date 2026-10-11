@@ -3,3 +3,5 @@ tests/ export-ignore
 .github/ export-ignore
 .claude/ export-ignore
 *.bat text eol=crlf
+app/ export-ignore
+mockups/ export-ignore
