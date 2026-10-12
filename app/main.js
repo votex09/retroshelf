@@ -65,6 +65,11 @@ function createWindow() {
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (e) => e.preventDefault());
+  win.on("close", (e) => {  // an import going on: the window asks what to do first (file-tools.js)
+    if (!jobRunning || closeOK || smoke) return;
+    e.preventDefault();
+    win.webContents.send("app:close-asked");
+  });
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
 }
 
@@ -113,7 +118,12 @@ ipcMain.handle("app:version", () => app.getVersion());
 // ---------- updates (updates.js) ----------
 const updates = new Updates(app, (state) => win?.webContents.send("update", state));
 ipcMain.handle("update:check", (_e, auto) => updates.check(Boolean(auto)));
-ipcMain.handle("update:install", () => updates.install());
+ipcMain.handle("update:install", () => { closeOK = true; return updates.install(); });
+
+// An import or a copy from a source going on in the background: closing the window asks first.
+let jobRunning = false, closeOK = false;
+ipcMain.on("app:busy", (_e, on) => { jobRunning = Boolean(on); });
+ipcMain.on("app:quit", () => { closeOK = true; app.quit(); });
 
 // ---------- the app menu entry (Linux AppImage: it has no installer to add one) ----------
 const DESKTOP = path.join(process.env.XDG_DATA_HOME || path.join(app.getPath("home"), ".local", "share"));

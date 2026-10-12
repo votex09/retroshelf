@@ -129,7 +129,7 @@ async function openCompress() {
 // ---------- Import ROMs ----------
 // Importing and copying from a source go on when the window closes: one at a time, shown in the main window's footer
 // (#bg-job, which opens the window again) until it's done. The window picks it back up when it opens.
-const BG = { kind: null, job: null, message: "", done: 0, total: 0, view: null };
+const BG = { kind: null, job: null, message: "", done: 0, total: 0, view: null, quitAfter: false };
 const SRC_Q = { queue: [], states: new Map(), qsel: new Set() };  // the Sources queue, kept while the window's closed
 function bgStart(kind, method, params, finish) {
   Object.assign(BG, { kind, message: "", done: 0, total: 0 });
@@ -144,6 +144,7 @@ function bgStart(kind, method, params, finish) {
   job.done.then(async (r) => {
     BG.job = BG.kind = null;
     bgShow();
+    if (BG.quitAfter) { rs.quit(); return; }
     if (finish(r)) {  // games went in: new system folders show up, and the open system's new games
       S.overview = await call("startup");
       if (S.sys && r.systems.includes(S.sys.system)) await rescanQuietly();
@@ -151,6 +152,7 @@ function bgStart(kind, method, params, finish) {
   }, (e) => {
     BG.job = BG.kind = null;
     bgShow();
+    if (BG.quitAfter) { rs.quit(); return; }
     if (!BG.view) toast(`${kind === "sources" ? "Copying" : "Importing"} failed: ${e.message}`, { error: true });
   }).catch(oops);
   bgShow();
@@ -159,8 +161,10 @@ function bgStart(kind, method, params, finish) {
 function bgShow() {
   const b = $("bg-job");
   b.hidden = !BG.job;
+  rs.setBusy(Boolean(BG.job));
   if (!BG.job) return;
-  const text = BG.message || (BG.kind === "sources" ? "Adding games to your library …" : "Importing …");
+  const text = (BG.quitAfter ? "Quits when done · " : "") +
+    (BG.message || (BG.kind === "sources" ? "Adding games to your library …" : "Importing …"));
   b.querySelector(".bg-text").textContent = text;
   b.title = `${text}\nOpen Import ROMs`;
   b.querySelector(".progress-bar > span").style.width = `${BG.total ? (100 * BG.done) / BG.total : 0}%`;
@@ -169,6 +173,20 @@ $("bg-job").onclick = () => {
   try { localStorage.setItem("import-page", BG.kind === "sources" ? "sources" : "folder"); } catch { /* fine */ }
   openImport().catch(oops);
 };
+// Closing the window while it works: keep going, quit once it's done, or stop it (losing only the game it's on).
+rs.onCloseAsked(() => {
+  if (!BG.job) { rs.quit(); return; }
+  const copy = BG.kind === "sources";
+  overlay(`<h2>${copy ? "Games are still being copied into your library" : "An import is still going"}</h2>
+    <p>${esc(BG.message)}</p>
+    <p class="lines">${copy ? "Stopping now leaves out the game being copied. The ones already copied stay in your library; the rest of the queue isn't copied."
+    : "Stopping now leaves the game being imported where it was. The ones already imported stay in your library; the rest aren't imported."}</p>`, [
+    ["Keep going", closeOverlay],
+    ["Quit when it's done", () => { closeOverlay(); BG.quitAfter = true; bgShow(); toast("RetroShelf closes when it's done"); }, true],
+    ["Stop and quit", () => { closeOverlay(); BG.quitAfter = true; BG.job.stop(); bgShow(); }],
+  ]);
+  overlayCancel = closeOverlay;
+});
 const bgBusy = (kind) => {  // the other page's job is still going
   if (!BG.job || BG.kind === kind) return false;
   toast(BG.kind === "sources" ? "Wait for the copying from the source to finish" : "Wait for the import to finish", { error: true });
