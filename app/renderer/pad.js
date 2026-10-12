@@ -38,7 +38,7 @@ function focusables(layer = topLayer()) {
   return [...layer.querySelectorAll(FOCUSABLE)].filter((el) => shownEl(el)
     && !(el.tagName === "INPUT" && el.closest(".trow"))  // (a table row's tick box: the row is what's pressed)
     && !(main && (el.closest(".popover, #sheet-wrap, #overlay") || el.parentElement.closest(".list")))
-    && !el.closest("#osk"));
+    && !el.closest("#osk, .closing"));  // (.closing: a closed window's ghost, still fading out)
 }
 
 const LAYERS = "#picker, #overlay-box, #sheet, #ctx, #menu, #systems-pop, #filters";
@@ -141,7 +141,8 @@ function setCursor(el, { focus = true } = {}) {
   } else if (document.activeElement && document.activeElement !== el && document.activeElement !== document.body) {
     document.activeElement.blur();
   }
-  box(el).scrollIntoView({ block: "nearest", inline: "nearest" });
+  // (instant: tables scroll smoothly for the wheel, but glide() measures the row right after this)
+  box(el).scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
   if (from) glide(from, rectOf(el));
   hints();
   if (pickRow(el)) { el.click(); syncCursor(); }  // (it may redraw: the cursor finds the row again)
