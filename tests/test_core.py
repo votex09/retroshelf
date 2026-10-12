@@ -1512,6 +1512,44 @@ class Compress(unittest.TestCase):
                 compress.convert(job, self.tool, cancelled=lambda: time.monotonic() - t0 > 0.5)
         self.assertEqual(sorted(os.listdir(os.path.dirname(cue))), ["Alpha (USA) (Track 1).bin", "Alpha (USA).cue"])
 
+    @unittest.skipIf(os.name == "nt", "uses shell scripts as stand-ins for flatpak and RetroDECK's chdman")
+    def test_retrodeck_chdman_in_its_components_folder(self):
+        # RetroDECK 0.10 keeps chdman in components/mame/bin, off the PATH, with its libraries set by the launcher
+        comps, bin_dir = os.path.join(self.tmp, "app", "components"), os.path.join(self.tmp, "bin")
+        mame, seen = os.path.join(comps, "mame"), os.path.join(self.tmp, "seen")
+        os.makedirs(os.path.join(mame, "bin"))
+        os.makedirs(bin_dir)
+        with open(os.path.join(mame, "component_launcher.sh"), "w") as f:
+            f.write('#!/bin/bash\nexport LD_LIBRARY_PATH="$rd_shared_libs/org.freedesktop.Platform/24.08/:'
+                    '${DEFAULT_LD_LIBRARY_PATH}"\nexec "$component_path/bin/chdman" "$@"\n')
+        scripts = {
+            os.path.join(mame, "bin", "chdman"):
+                f'#!/bin/sh\necho "$LD_LIBRARY_PATH" > {seen}\nexec {sys.executable} {FAKE_TOOL} "$@"\n',
+            # flatpak run [--opts] --command=X app args: runs X with --env set, as the sandbox would
+            os.path.join(bin_dir, "flatpak"):
+                '#!/bin/sh\n[ "$1" = info ] && exit 0\nshift\n'
+                'while case "$1" in --*) true;; *) false;; esac; do\n'
+                '  case "$1" in --command=*) cmd="${1#--command=}";; --env=*) export "${1#--env=}";; esac; shift\n'
+                'done\nshift\nexec "$cmd" "$@"\n',
+        }
+        for path, text in scripts.items():
+            with open(path, "w") as f:
+                f.write(text)
+            os.chmod(path, 0o755)
+        with mock.patch.dict(os.environ, {"PATH": bin_dir + os.pathsep + "/usr/bin:/bin"}), \
+                mock.patch.object(compress, "RD_COMPONENTS", comps), \
+                mock.patch.object(shutil, "which", lambda n: os.path.join(bin_dir, n) if n == "flatpak" else None):
+            tool = compress.find_tool("chdman")
+            self.assertEqual((tool.where, tool.command), ("RetroDECK", os.path.join(mame, "bin", "chdman")))
+            self.assertEqual(tool.libs, comps + "/shared-libs/org.freedesktop.Platform/24.08/")
+            self.cue("psx", "Alpha (USA)")
+            (_, (job,), _), = compress.plan("psx", self.units("psx"))
+            compress.convert(job, tool)
+        with open(job.out, "rb") as f:
+            self.assertEqual(f.read(8), b"MComprHD")
+        with open(seen) as f:
+            self.assertEqual(f.read().strip(), tool.libs)
+
     @unittest.skipUnless(shutil.which("chdman"), "chdman isn't installed")
     def test_real_chdman(self):
         stem = "Real (USA)"
