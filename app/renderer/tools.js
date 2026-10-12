@@ -131,16 +131,21 @@ async function scrapeGames(keys) {
   const text = !info.es_de_running;  // (ES-DE rewrites gamelist.xml when it quits: images only until it's closed)
   const media = info.media.filter((m) => m.default).map((m) => m.type);
   const what = one || plural(useClose ? exact.length + fuzzy.length : exact.length, "game");
-  toast(`Scraping ${what} …`);
-  try {
-    const r = await runJob("scrape", { keys, text, media, close: useClose }, () => {}).done;
-    toast(`Scraped ${what}: ${r.text} text fields, ${plural(r.images, "image")}` +
-      `${r.skipped ? ` (${r.skipped} already there)` : ""}${r.failed ? `, ${r.failed} failed` : ""}.` +
-      (text ? "" : " Text was left alone because ES-DE is running."), { error: Boolean(r.failed) });
-    await rescanQuietly();
-  } catch (e) {
-    toast(`Scraping failed: ${e.message}`, { error: true });
-  }
+  const sys = S.sys.system;
+  const job = bgRun({ kind: `scrape:${sys}`, label: `Scraping ${what} …`, window: "Scrape metadata",  // (the Scrape window shows it)
+    open: async () => {
+      if (S.sys?.system !== sys) { await flushDecide(); loadSystem(await call("open_system", { system: sys })); }
+      await openScrape();
+    },
+    method: "scrape", params: { keys, text, media, close: useClose },
+    stopNote: "Stopping now keeps what's been filled in so far.",
+    finish: async (r) => {
+      toast(`Scraped ${what}: ${r.text} text fields, ${plural(r.images, "image")}` +
+        `${r.skipped ? ` (${r.skipped} already there)` : ""}${r.failed ? `, ${r.failed} failed` : ""}.` +
+        (text ? "" : " Text was left alone because ES-DE is running."), { error: Boolean(r.failed) });
+      if (S.sys?.system === sys) await rescanQuietly();
+    } });
+  toast(job.started ? `Scraping ${what} …` : `Scraping ${what} once the job that's running is done`);
 }
 
 // ---------- Rename files ----------
