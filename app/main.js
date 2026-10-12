@@ -2,7 +2,7 @@
 //   npm install && npm start        run from a checkout (uses python3 for the helper)
 //   npm run dist                    build an AppImage (Linux) or installer + portable .exe (Windows) into dist/
 //   electron . --smoke              start, check the window and the helper work together, print SMOKE OK, quit
-const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, safeStorage, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { Helper } = require("./helper");
@@ -114,6 +114,13 @@ ipcMain.handle("open-url", (_e, url) => {  // web pages only, in the user's brow
   return shell.openExternal(url).then(() => "", (e) => e.message);
 });
 ipcMain.handle("app:version", () => app.getVersion());
+// A web source's password, kept in the settings encrypted with the system's keyring (tool_sources.py). null: this
+// system can't encrypt, so it isn't kept.
+ipcMain.handle("secret:encrypt", (_e, text) =>
+  (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(String(text)).toString("base64") : null));
+ipcMain.handle("secret:decrypt", (_e, data) => {
+  try { return safeStorage.decryptString(Buffer.from(String(data), "base64")); } catch { return ""; }
+});
 
 // ---------- updates (updates.js) ----------
 const updates = new Updates(app, (state) => win?.webContents.send("update", state));
