@@ -585,6 +585,31 @@ print(json.dumps({{"info": info, "scanned": scanned, "reopened": reopened, "done
         self.assertTrue(os.path.exists(os.path.join(nas, "Ico (USA).7z")))  # added from elsewhere: copied, not moved
 
 
+class WebSourceLogin(unittest.TestCase):
+    """Adding a web source again to fix it, with the password box left empty, keeps the password kept for it."""
+
+    def test_keep_password(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            roms, data = os.path.join(tmp, "roms"), os.path.join(tmp, "data")
+            make_roms(roms)
+            os.makedirs(data)
+            with open(os.path.join(data, "config.json"), "w", encoding="utf-8") as f:
+                json.dump({"roms_root": roms}, f)
+            out = session(data, """
+from unittest import mock
+import sources
+mock.patch.object(sources, "problem", return_value=None).start()
+h.startup()
+url = "https://box/roms"
+logins = lambda r: [x["login"] for x in r["sources"]]
+first = logins(h.source_add(url, "ky", "pw", "SECRET"))
+again = logins(h.source_add(url + "/", "ky", "pw", None, True))
+other = logins(h.source_add(url, "bob", "", None, True))
+print(json.dumps([first, again, other]))""")
+        self.assertEqual(out, [[{"user": "ky", "secret": "SECRET"}], [{"user": "ky", "secret": "SECRET"}],
+                               [{"user": "bob", "secret": None}]])
+
+
 class Stores(unittest.TestCase):
     """Tools → NoPayStation and the homebrew stores, with every download faked (no network)."""
     FAKE_WEB = """
