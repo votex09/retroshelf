@@ -24,6 +24,7 @@ import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import scraper  # noqa: E402
 import sources  # noqa: E402
+import websource  # noqa: E402
 import autoscrape  # noqa: E402
 import updater  # noqa: E402
 import dialogs  # noqa: E402
@@ -2489,6 +2490,122 @@ class Sources(unittest.TestCase):
             self.assertTrue(row.status.startswith("Imported"), row.status)
             self.assertTrue(os.path.exists(os.path.join(roms, "gba", "Pocket Hero (USA).gba")))
             self.assertTrue(os.path.exists(os.path.join(src, "Misc", "Pocket Hero (USA).zip")))
+
+
+class WebSources(unittest.TestCase):
+    """A web server's folder listing as a source: its pages read for games (a .cue with its tracks, an archive with
+    its parts), behind a login, and games downloaded then imported."""
+
+    def test_listings(self):
+        nginx = """<pre><a href="../">../</a>
+<a href="snes/">snes/</a>              01-Jan-2024 10:00       -
+<a href="Tetris%20(World).gb">Tetris (World).gb</a>   01-Jan-2024 10:00     32768
+</pre>"""
+        self.assertEqual(websource.parse_listing(nginx, "http://h/roms/"),
+                         [("snes", True, 0), ("Tetris (World).gb", False, 32768)])
+        apache = """<tr><td><a href="?C=N;O=D">Name</a></td></tr><tr><td><a href="/">Parent Directory</a></td></tr>
+<tr><td><a href="Game%201.7z">Game 1.7z</a></td><td>2024-01-01 10:00</td><td>1.5M</td></tr>"""
+        self.assertEqual(websource.parse_listing(apache, "http://h/roms/"), [("Game 1.7z", False, 1572864)])
+        caddy = """<td><a href="./Mario%20(USA).sfc"><span>Mario (USA).sfc</span></a></td>
+<td class="size" data-size="524288">512 KiB</td><td><time>1 year ago</time></td>"""
+        self.assertEqual(websource.parse_listing(caddy, "http://h/roms/"), [("Mario (USA).sfc", False, 524288)])
+        elsewhere = """<a href="1942.zip">1942.zip</a><a href="http://other/x.zip">x</a><a href="../../etc/">e</a>"""
+        self.assertEqual(websource.parse_listing(elsewhere, "http://h/roms/"), [("1942.zip", False, 0)])
+        self.assertEqual(websource.normalize(" HTTPS://Box:8080/roms "), "https://box:8080/roms/")
+        for bad in ("ftp://box/roms", "https://me:pw@box/roms"):
+            with self.assertRaises(ValueError):
+                websource.normalize(bad)
+
+    def test_scan_and_copy(self):
+        import http.server, threading
+        with tempfile.TemporaryDirectory() as tmp:
+            site, roms = os.path.join(tmp, "site"), os.path.join(tmp, "roms")
+            for d in ("roms/snes", "roms/Sony - PlayStation/Crash (USA)", "roms/Misc"):
+                os.makedirs(os.path.join(site, *d.split("/")))
+            os.makedirs(os.path.join(roms, "snes"))
+            files = {"roms/snes/Chrono Quest (USA).sfc": b"S" * 64,
+                     "roms/Sony - PlayStation/Crash (USA)/Crash (USA).cue":
+                         b'FILE "Crash (USA).bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n',
+                     "roms/Sony - PlayStation/Crash (USA)/Crash (USA).bin": b"\0" * 2352 * 4,
+                     "roms/Misc/readme.txt": b"hi"}
+            for path, data in files.items():
+                with open(os.path.join(site, *path.split("/")), "wb") as f:
+                    f.write(data)
+            with zipfile.ZipFile(os.path.join(site, "roms", "Misc", "Pocket Hero (USA).zip"), "w") as z:
+                z.writestr("Pocket Hero (USA).gba", b"A" * 10)
+
+            class Handler(http.server.SimpleHTTPRequestHandler):
+                def __init__(self, *a, **k):
+                    super().__init__(*a, directory=site, **k)
+
+                def log_message(self, *a):
+                    pass
+
+                def do_GET(self):
+                    if self.headers.get("Authorization") != "Basic " + __import__("base64").b64encode(b"ky:pw").decode():
+                        self.send_response(401)
+                        self.send_header("WWW-Authenticate", 'Basic realm="roms"')
+                        self.end_headers()
+                        return
+                    super().do_GET()
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+            url = f"http://127.0.0.1:{server.server_address[1]}/roms"
+            self.assertIn("user name and password", sources.problem(url, roms))
+            self.assertIsNone(sources.problem(url, roms, ("ky", "pw")))
+            with mock.patch.object(sources, "CACHE", os.path.join(tmp, "cache", "sources")):
+                listing = sources.scan(websource.normalize(url), roms, login=("ky", "pw"))
+                got = {g["key"]: (g["system"], g["how"], g["files"]) for g in listing["games"]}
+                self.assertEqual(got, {
+                    "snes/Chrono Quest (USA).sfc": ("snes", "folder", ["snes/Chrono Quest (USA).sfc"]),
+                    "Sony - PlayStation/Crash (USA)/Crash (USA).cue": ("psx", "folder name", [
+                        "Sony - PlayStation/Crash (USA)/Crash (USA).cue", "Sony - PlayStation/Crash (USA)/Crash (USA).bin"]),
+                    "Misc/Pocket Hero (USA).zip": (None, "", ["Misc/Pocket Hero (USA).zip"])})
+                games = {g["key"]: g for g in listing["games"]}
+                for key, system in (("snes/Chrono Quest (USA).sfc", "snes"), ("Misc/Pocket Hero (USA).zip", None),
+                                    ("Sony - PlayStation/Crash (USA)/Crash (USA).cue", "psx")):
+                    row = sources.copy(websource.normalize(url), key, roms, system, game=games[key], login=("ky", "pw"))
+                    self.assertTrue(row.status.startswith("Imported"), (key, row.status))
+                self.assertFalse(os.path.exists(os.path.join(tmp, "cache", "downloads")))
+            self.assertTrue(os.path.exists(os.path.join(roms, "snes", "Chrono Quest (USA).sfc")))
+            self.assertTrue(os.path.exists(os.path.join(roms, "gba", "Pocket Hero (USA).gba")))
+            self.assertEqual(sorted(os.listdir(os.path.join(roms, "psx"))), ["Crash (USA).bin", "Crash (USA).cue"])
+            self.assertTrue(os.path.exists(os.path.join(site, "roms", "snes", "Chrono Quest (USA).sfc")))
+
+
+    def test_login_stays_with_the_source(self):
+        """A redirect to another server doesn't take the login along."""
+        import http.server, threading
+        seen = []
+
+        class Elsewhere(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                seen.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b'<a href="x.gb">x.gb</a>')
+
+        other = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Elsewhere)
+
+        class Source(Elsewhere):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{other.server_address[1]}/roms/")
+                self.end_headers()
+        source = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Source)
+        for server in (other, source):
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+        site = websource.Site(f"http://127.0.0.1:{source.server_address[1]}/roms/", "ky", "pw")
+        site.listing()
+        self.assertEqual(seen, [None])
 
 
 class AutoScrape(unittest.TestCase):

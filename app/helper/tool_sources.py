@@ -1,6 +1,10 @@
-"""Import ROMs → Sources: folders to copy games from, such as a home server's share (lib/sources.py). The window
-lists a source like a store and copies the games the user queues into the ROMs folder as a job ("progress" events
-carry each game's state by its key)."""
+"""Import ROMs → Sources: folders to copy games from, such as a home server's share, or a web server's folder
+listing (lib/sources.py, lib/websource.py). The window lists a source like a store and copies the games the user
+queues into the ROMs folder as a job ("progress" events carry each game's state by its key).
+
+A web source's login is kept in the settings as cfg["source_logins"][address] = {"user", "secret"}: the password is
+encrypted by the window (Electron's safeStorage) and only ever reaches here as plain text for the open source, kept
+in memory."""
 import os, re
 
 import artwork
@@ -8,10 +12,12 @@ import launchbox as lb
 import romimport
 import sources
 import tool_files
+import websource
 from rpc import ctx, event, method, stopped
 
 sources.CACHE = os.path.join(ctx["data_dir"], "cache", "sources")
-_src = {"path": None, "games": [], "titles": {}}  # the open source: its games, and what the library has
+_src = {"path": None, "games": [], "titles": {}, "login": None}  # the open source: its games, what the library
+# has, and its (user, password) for a web source
 
 
 def _roms():
@@ -22,7 +28,10 @@ def _roms():
 
 
 def _saved():
-    return [{"path": p, "label": sources.label(p), "here": os.path.isdir(p)} for p in ctx["cfg"].get("sources", [])]
+    logins = ctx["cfg"].get("source_logins", {})
+    return [{"path": p, "label": sources.label(p), "web": websource.is_url(p),
+             "here": websource.is_url(p) or os.path.isdir(p), "login": logins.get(p)}
+            for p in ctx["cfg"].get("sources", [])]
 
 
 @method
@@ -32,11 +41,22 @@ def source_list():
 
 
 @method
-def source_add(path):
-    problem = sources.problem(path, _roms())
+def source_add(path, user="", password="", secret=None):
+    """Save a folder, or a web address (with a login: password to check it now, secret to keep)."""
+    web = websource.is_url(path)
+    path = websource.normalize(path) if web else path
+    problem = sources.problem(path, _roms(), (user, password) if web and user else None)
     if problem:
         raise ValueError(problem)
-    path = os.path.normpath(path)
+    if web:
+        logins = ctx["cfg"].setdefault("source_logins", {})
+        if user:
+            logins[path] = {"user": user, "secret": secret}
+            _src.update(path=None)  # (opened again with the new login)
+        else:
+            logins.pop(path, None)
+    else:
+        path = os.path.normpath(path)
     saved = ctx["cfg"].setdefault("sources", [])
     if path not in saved:
         saved.append(path)
@@ -49,6 +69,7 @@ def source_add(path):
 def source_remove(path):
     """Forget a source (its files are untouched)."""
     ctx["cfg"]["sources"] = [p for p in ctx["cfg"].get("sources", []) if p != path]
+    ctx["cfg"].get("source_logins", {}).pop(path, None)
     if ctx["cfg"].get("source_last") == path:
         ctx["cfg"]["source_last"] = None
     ctx["save_cfg"]()
@@ -61,16 +82,20 @@ def _mark():
 
 
 @method
-def source_open(job, path, refresh=False):
-    """Open a source: its saved list, or a fresh look through it (the first time, or refresh) -> {systems, total}."""
-    if not os.path.isdir(path):
+def source_open(job, path, refresh=False, password=None):
+    """Open a source: its saved list, or a fresh look through it (the first time, or refresh) -> {systems, total}.
+    password: a web source's, decrypted by the window."""
+    web = websource.is_url(path)
+    if not web and not os.path.isdir(path):
         raise FileNotFoundError(f"Can't reach {path}: is the share mounted?")
+    user = (ctx["cfg"].get("source_logins", {}).get(path) or {}).get("user") if web else None
+    login = (user, password or "") if user else None
     listing = None if refresh else sources.cached(path)
     if listing is None:
         stop = stopped(job)
         listing = sources.scan(path, _roms(), lambda m: event("progress", {"job": job, "message": m, "done": 0, "total": 0}),
-                               stop)
-    _src.update(path=path, games=listing["games"])
+                               stop, login)
+    _src.update(path=path, games=listing["games"], login=login)
     _mark()
     if ctx["cfg"].get("source_last") != path:
         ctx["cfg"]["source_last"] = path
@@ -113,7 +138,7 @@ def source_art(key):
 def source_copy(job, keys):
     """Copy the queued games (keys) into the ROMs folder, one at a time -> {"states", "copied", "systems",
     "stopped"}."""
-    roms, path, stop = _roms(), _src["path"], stopped(job)
+    roms, path, login, stop = _roms(), _src["path"], _src["login"], stopped(job)
     games = {g["key"]: g for g in _src["games"]}
     states, done = {}, []
     for k, key in enumerate(keys):
@@ -125,7 +150,8 @@ def source_copy(job, keys):
                                "done": round((k + (fraction or 0)) * 1000), "total": len(keys) * 1000})
         step(f"Copying {games.get(key, {}).get('name', key)} …")
         try:
-            row = sources.copy(path, key, roms, (games.get(key) or {}).get("system"), step, stop)
+            row = sources.copy(path, key, roms, (games.get(key) or {}).get("system"), step, stop, games.get(key),
+                               login)
             st = row.status
         except Exception as e:  # shown in the queue
             st = str(e)[:200] or type(e).__name__

@@ -449,10 +449,12 @@ body.still .table { scroll-behavior: auto; }
 /* ---------- collection form, Review ---------- */
 .form { flex: 1; overflow-y: auto; padding: 4px 22px; display: flex; flex-direction: column; gap: 4px; }
 .form .label { margin-top: 12px; font-weight: 600; }
-.form input[type=text] { height: 36px; padding: 0 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); outline: 0; }
-.form input[type=text]:focus { border-color: var(--accent); }
+.form input[type=text], .form input[type=password] { height: 36px; padding: 0 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); outline: 0; }
+.form input[type=text]:focus, .form input[type=password]:focus { border-color: var(--accent); }
 .form input[type=radio] { accent-color: var(--accent); margin: 0; }
 .form p { margin: 2px 0 6px; font-size: 13px; }
+.overlay-box .src-add { padding: 0; overflow: visible; min-width: min(520px, 80vw); }
+.src-add input + input { margin-top: 6px; }
 .sheet.form-sheet { height: auto; }
 .review-sheet { width: min(1100px, calc(100vw - 48px)); height: calc(100vh - 48px); }
 .review { display: flex; flex-direction: column; height: 100%; padding-top: 18px; }

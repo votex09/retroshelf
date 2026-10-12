@@ -138,6 +138,7 @@ async function openCompress() {
 // Importing and copying from a source are background jobs (jobs.js): they go on when the window closes, and the
 // window picks them back up when it opens.
 const SRC_Q = { queue: [], states: new Map(), qsel: new Set() };  // the Sources queue, kept while the window's closed
+const SRC_PW = new Map();  // web sources' passwords given this time (for one this system can't keep encrypted)
 async function gamesAdded(r) {  // new system folders show up, and the open system's new games
   S.overview = await call("startup");
   if (S.sys && r.systems.includes(S.sys.system)) await rescanQuietly();
@@ -330,7 +331,7 @@ async function openSources() {
     <div class="src-layout">
       <div class="src-left">
         <div class="sheet-head">${importTabs("sources")}
-          <p>Copy games from another folder, like a home server's share mounted here. They're filed like imports; the source is never changed.</p></div>
+          <p>Copy games from another folder, like a home server's share mounted here, or from a web server's folder listing. They're filed like imports; the source is never changed.</p></div>
         <div class="sheet-tools">
           <select id="c-source"></select><select id="c-system"><option value="">All systems</option></select>
           <button class="ghost small" id="c-add">Add source…</button><button class="ghost small" id="c-forget">Remove source</button>
@@ -376,7 +377,7 @@ async function openSources() {
     status(refresh ? "Looking through the source again …" : "Opening the source …");
     $("c-refresh").disabled = true;
     try {
-      const r = await runJob("source_open", { path, refresh }, (p) => status(p.message)).done;
+      const r = await runJob("source_open", { path, refresh, password: await password(path) }, (p) => status(p.message)).done;
       if (path !== C.path || !$("c-table")) return;
       const keep = $("c-system").value;
       $("c-system").innerHTML = `<option value="">All systems</option>` + r.systems.map(([c, l]) => `<option value="${esc(c)}"${c === keep ? " selected" : ""}>${esc(l)}</option>`).join("");
@@ -403,7 +404,7 @@ async function openSources() {
       (!r ? `<div class="none">${C.path ? "Opening …" : "Add a source to see its games."}</div>`
         : r.rows.length ? r.rows.map((x) => `<div class="trow${x.key === C.sel ? " on" : ""}" data-key="${esc(x.key)}">
         <span class="nm" title="${esc(x.key)}">${esc(x.name)}</span><span class="dim nm">${esc(x.label)}</span>
-        <span class="num">${human(x.size)}</span><span class="dim ${stateClass(x.status)}">${esc(x.status)}</span></div>`).join("")
+        <span class="num">${x.size ? human(x.size) : ""}</span><span class="dim ${stateClass(x.status)}">${esc(x.status)}</span></div>`).join("")
           : `<div class="none">Nothing matches.</div>`);
     $("c-res").textContent = r ? `${r.shown.toLocaleString()} of ${r.total.toLocaleString()} games` +
       (r.rows.length < r.shown ? ` (the first ${r.rows.length.toLocaleString()} shown: search to narrow it down)` : "") : "";
@@ -412,7 +413,7 @@ async function openSources() {
   const stateClass = (st) => (st === "Done" || st === "In library" ? "st-ok" : st.startsWith("Failed") ? "st-bad" : st ? "st-have" : "");
   function showPick() {
     const row = C.list?.rows.find((x) => x.key === C.sel) || null;
-    $("c-pick").innerHTML = row ? `<h3>${esc(row.name)}</h3><p class="muted" title="${esc(row.key)}">${esc(row.label)}  ·  ${human(row.size)}</p>${row.status ? `<p class="${stateClass(row.status)}">${esc(row.status)}</p>` : ""}`
+    $("c-pick").innerHTML = row ? `<h3>${esc(row.name)}</h3><p class="muted" title="${esc(row.key)}">${esc(row.label)}${row.size ? `  ·  ${human(row.size)}` : ""}</p>${row.status ? `<p class="${stateClass(row.status)}">${esc(row.status)}</p>` : ""}`
       : `<p class="muted">Pick a game to see it here. Space or Enter adds it to the queue.</p>`;
     $("c-addq").disabled = !row;
     C.art.show(row);
@@ -442,7 +443,7 @@ async function openSources() {
   function fillQueue() {
     if (!$("c-queue")) return;
     $("c-queue").innerHTML = Q.queue.length ? Q.queue.map((q) => `<div class="trow${Q.qsel.has(q.key) ? " on" : ""}" data-key="${esc(q.key)}">
-      <span class="nm" title="${esc(q.key)}">${esc(q.name)}</span><span class="num">${human(q.size)}</span>
+      <span class="nm" title="${esc(q.key)}">${esc(q.name)}</span><span class="num">${q.size ? human(q.size) : ""}</span>
       <span class="dim ${stateClass(Q.states.get(q.key) || "")}" data-state>${esc(Q.states.get(q.key) || "")}</span></div>`).join("")
       : `<div class="none">Nothing queued yet.</div>`;
     const pending = Q.queue.filter((q) => Q.states.get(q.key) === "Queued");
@@ -540,14 +541,53 @@ async function openSources() {
     fillQueue();
   });
   $("c-source").onchange = (e) => open(e.target.value || null);
-  $("c-add").onclick = async () => {
+  async function password(path) {  // a web source's, kept encrypted in the settings (or only for now: SRC_PW)
+    const login = C.saved.sources.find((x) => x.path === path)?.login;
+    if (!login?.user) return null;
+    return SRC_PW.get(path) ?? (login.secret ? await rs.decrypt(login.secret) : "");
+  }
+  async function addFolder() {
     const path = await pickFolder(C.path || C.saved.home, "A folder to copy games from (a mounted network share works too)");
     if (!path) return;
     try {
       C.saved = await call("source_add", { path });
       open(C.saved.last);
     } catch (e) { overlay(`<h2>Can't use that folder</h2><p>${esc(e.message)}</p>`, [["OK", closeOverlay, true]]); }
+  }
+  // Add source: a web address (with a login if the server asks for one), or a folder
+  $("c-add").onclick = () => {
+    overlay(`<h2>Add a source</h2>
+      <p class="lines">A web server's folder listing (most home servers and NAS web shares show one), or a folder on this computer.</p>
+      <div class="form src-add">
+        <div class="label">Web address</div>
+        <input type="text" id="s-url" spellcheck="false" placeholder="https://myserver.local/roms/">
+        <div class="label">User name and password, if the server asks for them</div>
+        <input type="text" id="s-user" spellcheck="false" autocomplete="off" placeholder="User name">
+        <input type="password" id="s-pass" autocomplete="off" placeholder="Password">
+        <p class="st-bad" id="s-err"></p>
+      </div>`, [["Cancel", closeOverlay], ["Pick a folder instead…", () => { closeOverlay(); addFolder(); }], ["Add", addWeb, true]]);
+    overlayCancel = closeOverlay;
+    const web = C.saved.sources.find((x) => x.path === C.path && x.web);  // (filled in from the open one, to fix its login)
+    if (web) { $("s-url").value = web.path; $("s-user").value = web.login?.user || ""; }
+    $("s-url").focus();
   };
+  async function addWeb() {
+    const url = $("s-url").value.trim(), user = $("s-user").value.trim(), pass = $("s-pass").value;
+    if (!url) { $("s-err").textContent = "Type the address of the folder listing, like https://myserver.local/roms/"; return; }
+    const btn = $("overlay-box").querySelector(".btns .primary");
+    btn.disabled = true;
+    $("s-err").textContent = "Looking at it …";
+    try {
+      const secret = user && pass ? await rs.encrypt(pass) : null;
+      C.saved = await call("source_add", { path: url, user, password: pass, secret });
+      if (user) SRC_PW.set(C.saved.last, pass); else SRC_PW.delete(C.saved.last);
+      closeOverlay();
+      if (user && pass && !secret) toast("This system can't keep the password safely, so it's only kept until RetroShelf closes");
+      open(C.saved.last, true);
+    } catch (e) {
+      if ($("s-err")) { $("s-err").textContent = e.message; btn.disabled = false; }
+    }
+  }
   $("c-forget").onclick = async () => {
     if (!C.path || !await confirmBox({ title: "Remove source", ok: "Remove", message: `Stop listing ${C.path} as a source?`,
       detail: "Nothing in it is deleted; you can add it again any time." })) return;

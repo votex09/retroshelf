@@ -102,6 +102,11 @@ rename can be undone, and games only go for good when you delete them from the h
   queue them (A / Space) and **Add to Library** (or press Menu / F10). They're unpacked and filed like imports; the
   source is only read.
   Games you already have (same title, any region) say **In library**. **Look again** re-reads the folder.
+  A source can also be a web address (`http://` or `https://`): a web server's folder listing, the page nginx,
+  Apache, Caddy, lighttpd, a NAS's web share or `python -m http.server` show for a folder. Its folders are read
+  for games, and the ones you queue are downloaded and then imported. If the server asks for a user name and
+  password, give them when adding it; the password is kept encrypted with your system's keyring (when there's no
+  keyring it's only kept until RetroShelf closes).
 - Importing and copying keep going when you close the window (B / Esc), like compressing and scraping: see
   **Background jobs** below.
 - Imported and copied games are scraped with LaunchBox right away (artwork and text they don't have yet) while

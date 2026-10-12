@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld("retroshelf", {
   openFolder: (folder) => ipcRenderer.invoke("open-folder", folder),
   openUrl: (url) => ipcRenderer.invoke("open-url", url),
   version: () => ipcRenderer.invoke("app:version"),
+  encrypt: (text) => ipcRenderer.invoke("secret:encrypt", text),
+  decrypt: (data) => ipcRenderer.invoke("secret:decrypt", data),
   checkUpdates: (auto) => ipcRenderer.invoke("update:check", auto),
   installUpdate: () => ipcRenderer.invoke("update:install"),
   onUpdate: (fn) => ipcRenderer.on("update", (_e, state) => fn(state)),
