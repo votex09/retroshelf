@@ -8,7 +8,7 @@ import nps
 import renaming
 import scraper
 from rules import unit_key
-from rpc import ctx, method
+from rpc import ctx, method, need_free
 
 
 def _log():
@@ -67,6 +67,7 @@ def rename_apply(template, keys=None, fix_titles=True):
     cfg = ctx["cfg"]
     with ctx["state_lock"]:
         sc, rows = _plan(keys, template, fix_titles)
+        need_free(sc.system)
         pairs = [(r["old"], r["new"]) for r in rows if r["status"] == "rename"]
         cfg.setdefault("rename_templates", {})[sc.system] = template
         ctx["save_cfg"]()
@@ -101,7 +102,9 @@ def rename_undo(ids):
     """Put old names back for these runs (ids from rename_runs); the renderer rescans afterwards."""
     cfg = ctx["cfg"]
     with ctx["state_lock"]:
-        back, failed, left = renaming.undo_batches(renaming.read_log(_log()), ids, cfg["roms_root"], _platform_of)
+        batches = renaming.read_log(_log())
+        need_free(*{batches[i]["system"] for i in ids if 0 <= i < len(batches)})
+        back, failed, left = renaming.undo_batches(batches, ids, cfg["roms_root"], _platform_of)
         try:
             renaming.write_log(_log(), left)
         except OSError as e:

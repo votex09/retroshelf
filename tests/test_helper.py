@@ -142,6 +142,29 @@ print(json.dumps({"plan": plan, "moved": h.move("to_delete")}))""")
             log = json.load(f)
         self.assertEqual((log[0]["system"], log[0]["games"], len(log[0]["moves"])), ("snes", 2, 2))
 
+    def test_busy_system_cant_be_changed(self):
+        # while Compress or Scrape works on a system in the background, nothing else may rewrite its files or gamelist
+        out = session(self.data, """
+import rpc
+h.startup(); s = h.open_system("snes")
+h.decide(dict(s["state"], flips={"Chrono Trigger (USA)": True}))
+said = []
+with rpc.working_on("j1", "snes", "Scraping Nintendo SNES"):
+    for name, call in [("plan", lambda: h.move_plan("to_delete")), ("move", lambda: h.move("to_delete")),
+                       ("hide", lambda: h.hide(["Super Metroid (USA)"])), ("rename", lambda: h.rename_apply("{title}"))]:
+        try:
+            call()
+            said.append(name + ": done")
+        except RuntimeError as e:
+            said.append(name + ": " + str(e))
+with rpc.working_on("j2", "psx", "Compressing PlayStation games"):
+    said.append(h.move_plan("to_delete")["games"])
+print(json.dumps(said))""")
+        self.assertEqual(out[:4], [f"{n}: Scraping Nintendo SNES is still going. Wait for it to finish, or stop it from the bar at "
+                                   "the bottom." for n in ("plan", "move", "hide", "rename")])
+        self.assertEqual(out[4], 1)  # another system's job doesn't stop this one
+        self.assertTrue(os.path.exists(os.path.join(self.roms, "snes", "Chrono Trigger (USA).sfc")))
+
     def test_holding_folder_and_restore(self):
         out = session(self.data, """
 h.startup(); s = h.open_system("snes")

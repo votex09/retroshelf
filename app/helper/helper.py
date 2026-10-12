@@ -309,6 +309,7 @@ def details(key):
 def move_plan(dest="to_delete"):
     """What Move would do, for the window to confirm."""
     sc, d = _need_system(), current["decision"]
+    rpc.need_free(sc.system)
     dest_dir = os.path.join(shelf.holding_root(cfg), dest, sc.system)
     return {"games": len(d.to_move), "files": sum(len(sc.units[k]["paths"]) for k in d.to_move),
             "size": sum(sc.units[k]["size"] for k in d.to_move), "dest_dir": dest_dir,
@@ -323,6 +324,7 @@ def move(dest="to_delete"):
         raise ValueError(f"Unknown destination {dest!r}")
     with _state_lock:
         sc, d = _need_system(), current["decision"]
+        rpc.need_free(sc.system)
         keys = list(d.to_move)
         dest_dir = os.path.join(shelf.holding_root(cfg), dest, sc.system)
         size = sum(sc.units[k]["size"] for k in keys)
@@ -336,11 +338,18 @@ def move(dest="to_delete"):
 
 
 @method
-def download_launchbox():
-    """Download LaunchBox's database (about 110 MB, once); progress arrives as "launchbox" events."""
-    lb.update(progress=lambda msg: event("launchbox", {"message": msg}))
+def download_launchbox(job=None):
+    """Download LaunchBox's database (about 110 MB, once); progress arrives as "launchbox" events (and "progress" ones
+    for job, which can be stopped: nothing changes then)."""
+    report, stop = (rpc.progress(job), rpc.stopped(job)) if job else (lambda m: None, lambda: False)
+
+    def say(msg):
+        event("launchbox", {"message": msg})
+        report(msg)
+    if not lb.update(progress=say, stop=stop):
+        return {"stopped": True}
     _details_cache.clear()
-    return {"platforms": len(lb.platforms())}
+    return {"platforms": len(lb.platforms()), "stopped": False}
 
 
 @method
@@ -364,6 +373,7 @@ def export_moves(path):
 def hide_check(keys, hide=True):
     """What hiding (or showing) these games would do, for the window to confirm."""
     sc = _need_system()
+    rpc.need_free(sc.system)
     keys = [k for k in keys if k in sc.units and (k in sc.hidden) != hide]
     return {"games": len(keys), "es_de_running": scraper.es_de_running(),
             "shows_hidden": bool(hiding.shows_hidden(esde_collections.home(sc.roms_root)))}
@@ -376,6 +386,7 @@ def hide(keys, hide=True):
     how many changed."""
     with _state_lock:
         sc = _need_system()
+        rpc.need_free(sc.system)
         keys = [k for k in keys if k in sc.units and (k in sc.hidden) != hide]
         if keys:
             if scraper.es_de_running():
@@ -529,6 +540,7 @@ def holding_restore(ids):
     with _state_lock:
         root = shelf.holding_root(cfg)
         origin = current.get("holding", ([], {}))[1]
+        rpc.need_free(*{g["system"] for g in _picked(ids)})
         back, failed, done = holding.restore_games(_picked(ids), origin, cfg["roms_root"], root)
         try:
             shelf.write_moves(MOVES, holding.drop_from_log(shelf.read_moves(MOVES), done))
@@ -542,6 +554,8 @@ def holding_delete(ids, forget=True):
     """Delete these games for good; forget: also remove their ES-DE artwork and gamelist entries."""
     with _state_lock:
         root = shelf.holding_root(cfg)
+        if forget:  # (their gamelist entries go)
+            rpc.need_free(*{g["system"] for g in _picked(ids)})
         gone, failed, by_system = holding.delete_games(_picked(ids), root)
         try:
             shelf.write_moves(MOVES, holding.drop_from_log(shelf.read_moves(MOVES), gone))
@@ -568,7 +582,9 @@ def moves():
 def restore_moves(ids):
     """Undo whole Move runs (ids from moves())."""
     with _state_lock:
-        back, failed, left = holding.restore_batches(shelf.read_moves(MOVES), ids, shelf.holding_root(cfg))
+        batches = shelf.read_moves(MOVES)
+        rpc.need_free(*{batches[i].get("system") for i in ids if 0 <= i < len(batches)})
+        back, failed, left = holding.restore_batches(batches, ids, shelf.holding_root(cfg))
         try:
             shelf.write_moves(MOVES, left)
         except OSError as e:

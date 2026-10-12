@@ -1,7 +1,7 @@
 """Tools → Scrape metadata: fill ES-DE's gamelist text and download artwork from LaunchBox for the open system."""
 import launchbox as lb
 import scraper
-from rpc import ctx, method, progress, stopped
+from rpc import ctx, method, progress, stopped, working_on
 
 
 @method
@@ -23,6 +23,8 @@ def scrape(job, keys, text=True, media=(), close=False, overwrite=False):
     links = sc.lb_ids if close else sc.lb_links
     jobs = [(scraper.primary_file(sc.units[k]["paths"]), links[k], sc.regions[k]) for k in keys if k in links]
     report, stop = progress(job), stopped(job)
-    stats = scraper.scrape(jobs, sc.platform, sc.system, sc.roms_root, scraper.gamelist_path(sc.roms_root, sc.system),
-                           text, list(media), lambda m, d, t: report(m, d, t), stop, overwrite)
+    with working_on(job, sc.system, f"Scraping {ctx['current']['fullname'] or sc.system}"):
+        stats = scraper.scrape(jobs, sc.platform, sc.system, sc.roms_root,
+                               scraper.gamelist_path(sc.roms_root, sc.system), text, list(media),
+                               lambda m, d, t: report(m, d, t), stop, overwrite)
     return {**stats, "unmatched": len(keys) - len(jobs), "stopped": stop()}
