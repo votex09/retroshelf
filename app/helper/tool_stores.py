@@ -21,7 +21,7 @@ import pdroms
 import scraper
 import shelf
 from fsutil import is_windows
-from rpc import ctx, event, method, stopped
+from rpc import ctx, event, method, need_free, stopped
 
 # their lists are kept in the data folder, like LaunchBox's
 for _module, _name in ((nps, "nps"), (hb, "homebrew"), (itch, "itch"), (pdroms, "pdroms"), (mamedev, "mamedev")):
@@ -176,6 +176,7 @@ def nps_run(job, system, keys, others=()):
     """Download and install these queued rows (keys, in queue order). others: the statuses of the rest of the queue,
     for the summary. "progress" events: {job, key, state, message, done, total} as rows move along."""
     cfg, roms = ctx["cfg"], _roms()
+    need_free(system)  # (jobs run one at a time anyway; this keeps it so if that changes)
     pending = _resolve(system, keys)
     folder = nps_queue.default_dir(cfg)
     os.makedirs(folder, exist_ok=True)
@@ -373,6 +374,7 @@ def store_install(job, store, code, key):
     or {stopped: True}."""
     s = _store(store)
     src, roms = s["src"], _roms()
+    need_free(code)
     e = _entry(s, code, key)
     if not catalog.can_install(src, e, roms):
         raise PermissionError(f"{src.title(e)} can't be installed from here")

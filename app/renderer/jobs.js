@@ -4,11 +4,12 @@
 // Closing RetroShelf while one runs asks first. (Uses app.js: runJob, toast, overlay …)
 "use strict";
 
-const JOBS = { cur: null, queue: [], quitAfter: false };
+const JOBS = { cur: null, queue: [], side: [], quitAfter: false };  // side: read-only looks, run alongside the queue
 
 // A job: { kind, label: what the footer says until progress comes, window: the window it opens ("Compress games"),
 //   open(): opens it, method, params, progress(p): every progress event, finish(r): when it's done (also with the
-//   window closed), stopNote: what stopping it on quitting loses }.
+//   window closed), stopNote: what stopping it on quitting loses, alongside: true for a job that only looks (a
+//   health check …): it starts straight away instead of waiting its turn }.
 // -> the entry: done (a promise of the answer), stop(), and while it's going message / count / total; set view(p) to
 // hear its progress while a window shows it. A job stopped before its turn rejects with e.cancelled.
 function bgRun(job) {
@@ -22,6 +23,12 @@ function bgRun(job) {
     bgShow();
   };
   e.done.catch(() => {});  // (whoever follows it hears the failure; nobody has to)
+  if (e.alongside) {
+    JOBS.side.push(e);
+    bgStart(e);
+    bgShow();
+    return e;
+  }
   JOBS.queue.push(e);
   if (JOBS.cur) e.message = `Waiting for ${JOBS.cur.label.replace(/ …$/, "")} to finish …`;
   bgNext();
@@ -30,16 +37,20 @@ function bgRun(job) {
 }
 
 // The running or waiting job of this kind (a window opening again picks it up), or null.
-const bgFind = (kind) => [JOBS.cur, ...JOBS.queue].find((e) => e?.kind === kind) || null;
+const bgFind = (kind) => [JOBS.cur, ...JOBS.queue, ...JOBS.side].find((e) => e?.kind === kind) || null;
+const bgAll = () => [JOBS.cur, ...JOBS.queue, ...JOBS.side].filter(Boolean);
 
 function bgNext() {
   if (JOBS.cur) return;
   const e = JOBS.queue.shift();
   if (!e) {
-    if (JOBS.quitAfter) rs.quit();
+    if (JOBS.quitAfter && !JOBS.side.length) rs.quit();
     return;
   }
   JOBS.cur = e;
+  bgStart(e);
+}
+function bgStart(e) {
   e.started = true;
   e.message = "";
   e.job = runJob(e.method, e.params, (p) => {
@@ -62,31 +73,32 @@ function bgNext() {
 }
 function bgDone(e) {
   if (JOBS.cur === e) JOBS.cur = null;
+  JOBS.side = JOBS.side.filter((x) => x !== e);
   bgShow();
   setTimeout(bgNext, 0);  // (after the one that finished has had its say)
 }
 
 function bgShow() {
-  const b = $("bg-job"), e = JOBS.cur || JOBS.queue[0];
+  const b = $("bg-job"), all = bgAll(), e = all[0];
   b.hidden = !e;
   rs.setBusy(Boolean(e));
   if (!e) return;
-  const waiting = JOBS.queue.length - (JOBS.cur ? 0 : 1);
+  const waiting = JOBS.queue.filter((x) => x !== e).length, going = all.length - 1 - waiting;
   const text = (JOBS.quitAfter ? "Quits when done · " : "") + (e.message || e.label) +
-    (waiting ? `  ·  ${waiting} more waiting` : "");
+    (going ? `  ·  ${going} more going` : "") + (waiting ? `  ·  ${waiting} waiting` : "");
   b.querySelector(".bg-text").textContent = text;
   b.title = `${text}\nOpen ${e.window}`;
   b.querySelector(".progress-bar > span").style.width = `${e.total ? (100 * e.count) / e.total : 0}%`;
 }
 $("bg-job").onclick = () => {
-  const e = JOBS.cur || JOBS.queue[0];
+  const e = bgAll()[0];
   if (e) Promise.resolve().then(e.open).catch(oops);
 };
 
 // Closing the window while one works: keep going, quit once everything's done, or stop (losing only what's half done).
 rs.onCloseAsked(() => {
-  const e = JOBS.cur;
-  if (!e && !JOBS.queue.length) { rs.quit(); return; }  // (nothing going: never stuck open)
+  const e = JOBS.cur || JOBS.side[0];
+  if (!bgAll().length) { rs.quit(); return; }  // (nothing going: never stuck open)
   const waiting = JOBS.queue.length;
   overlay(`<h2>${esc(e ? `${e.window} is still going` : "Jobs are waiting their turn")}</h2>
     ${e?.message ? `<p>${esc(e.message)}</p>` : ""}
@@ -97,7 +109,9 @@ rs.onCloseAsked(() => {
       closeOverlay();
       JOBS.quitAfter = true;
       for (const q of [...JOBS.queue]) q.stop();
-      if (JOBS.cur) JOBS.cur.stop(); else rs.quit();
+      const going = [JOBS.cur, ...JOBS.side].filter(Boolean);
+      for (const x of going) x.stop();
+      if (!going.length) rs.quit();
       bgShow();
     }],
   ]);
