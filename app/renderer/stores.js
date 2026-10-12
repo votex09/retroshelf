@@ -299,6 +299,8 @@ async function openNps(system) {
       keys: [["key", "↑ ↓", "Choose"], ["key", "Space", "Pick"], ["key", "Backspace", "Take off the queue"]] }
     : { pad: [["dpad", "Choose"], ["a", "Add to queue"], ["y", "Take off the queue"]],
       keys: [["key", "↑ ↓", "Choose"], ["key", "Space", "Add to queue"], ["key", "Backspace", "Take off the queue"]] });
+  npsKeys.start = () => $("n-start").click();  // Menu (F10): Start / Stop
+  npsKeys.startText = () => $("n-start").textContent;
   function npsKeys(key) {
     const queue = inQueue(P.cur);
     if (key === "Enter" || (key === " " && !queue)) { enqueue([...N.sel]).catch(oops); return true; }

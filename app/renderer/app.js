@@ -533,7 +533,7 @@ async function downloadLaunchbox() {
 
 // ---------- filters ----------
 function tabs() {
-  document.querySelectorAll(".tab").forEach((t, i) => {
+  document.querySelectorAll("#filterbar .tab").forEach((t, i) => {
     t.querySelector(".n").textContent = S.tabs[i] || "";
     t.classList.toggle("on", S.tabs[i] > 0);
   });
@@ -548,7 +548,7 @@ function openPanel(name) {
   pop.dataset.panel = name;
   pop.hidden = false;
   document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("show", p.dataset.panel === name));
-  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("open", t.dataset.tab === name));
+  document.querySelectorAll("#filterbar .tab").forEach((t) => t.classList.toggle("open", t.dataset.tab === name));
 }
 
 function closePopovers() {
@@ -557,7 +557,7 @@ function closePopovers() {
   $("systems-pop").hidden = true;
   $("menu").hidden = true;
   $("ctx").hidden = true;
-  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("open"));
+  document.querySelectorAll("#filterbar .tab").forEach((t) => t.classList.remove("open"));
 }
 
 function fillFilters() {

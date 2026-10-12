@@ -151,10 +151,10 @@ def import_info():
         os.makedirs(inbox, exist_ok=True)
     except OSError:
         pass
-    if not _imp["busy"]:  # a half-finished import (closed mid-way) left its staging folder behind
-        shutil.rmtree(romimport.staging_dir(root), ignore_errors=True)
-    _imp.update(rows={}, inbox=inbox, snapshot=None, pending=False, folder=[])
-    _refresh()
+    if not _imp["busy"]:  # (an import still going on in the background keeps its list)
+        shutil.rmtree(romimport.staging_dir(root), ignore_errors=True)  # a half-finished import's staging folder
+        _imp.update(rows={}, inbox=inbox, snapshot=None, pending=False, folder=[])
+        _refresh()
     return {"inbox": inbox, "delete": bool(cfg.get("import_delete_originals")), "home": os.path.expanduser("~"),
             "systems": [{"code": c, "label": romimport.label(c)} for c in romimport.system_choices(root)],
             **_listed()}
@@ -271,11 +271,12 @@ def import_run(job, delete=False):
             step(f"Importing {r.name} …")
             romimport.import_one(r, root, _imp["inbox"], step, stop, delete)
             event("progress", {"job": job, "row": {"id": i, "override": r.override, **romimport.shown(r)}})
+        done = [r for _, r in items if r.status.startswith("Imported")]
+        scraped = scrape_imported(job, done, stop)
     finally:
         _imp["busy"] = False
-    done = [r for _, r in items if r.status.startswith("Imported")]
     return {**_listed(), "imported": len(done), "systems": romimport.imported_systems(done), "stopped": stop(),
-            "scraped": scrape_imported(job, done, stop)}
+            "scraped": scraped}
 
 
 def scrape_imported(job, rows, stop):
