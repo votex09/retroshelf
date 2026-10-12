@@ -1,12 +1,13 @@
 """Import ROMs → Sources: folders to copy games from, such as a home server's share (lib/sources.py). The window
 lists a source like a store and copies the games the user queues into the ROMs folder as a job ("progress" events
 carry each game's state by its key)."""
-import os, re, time
+import os, re
 
 import artwork
 import launchbox as lb
 import romimport
 import sources
+import tool_files
 from rpc import ctx, event, method, stopped
 
 sources.CACHE = os.path.join(ctx["data_dir"], "cache", "sources")
@@ -61,7 +62,7 @@ def _mark():
 
 @method
 def source_open(job, path, refresh=False):
-    """Open a source: its saved list, or a fresh look through it (the first time, or refresh) -> {"scanned", systems}."""
+    """Open a source: its saved list, or a fresh look through it (the first time, or refresh) -> {systems, total}."""
     if not os.path.isdir(path):
         raise FileNotFoundError(f"Can't reach {path}: is the share mounted?")
     listing = None if refresh else sources.cached(path)
@@ -75,8 +76,7 @@ def source_open(job, path, refresh=False):
         ctx["cfg"]["source_last"] = path
         ctx["save_cfg"]()
     systems = sorted({g["system"] for g in listing["games"] if g["system"]}, key=lambda s: romimport.label(s).lower())
-    return {"scanned": "Looked through " + time.strftime("%Y-%m-%d %H:%M", time.localtime(listing["scanned"])),
-            "systems": [[s, romimport.label(s)] for s in systems], "total": len(listing["games"])}
+    return {"systems": [[s, romimport.label(s)] for s in systems], "total": len(listing["games"])}
 
 
 @method
@@ -142,4 +142,5 @@ def source_copy(job, keys):
                            "total": len(keys) * 1000})
     _mark()
     systems = romimport.imported_systems(done)
-    return {"states": states, "copied": len(done), "systems": systems, "stopped": stop()}
+    return {"states": states, "copied": len(done), "systems": systems, "stopped": stop(),
+            "scraped": tool_files.scrape_imported(job, done, stop)}

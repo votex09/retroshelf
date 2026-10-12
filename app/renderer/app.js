@@ -17,7 +17,7 @@ const S = {
   marked: new Set(),
   undo: [],
   pad: false,       // a gamepad was used: show its buttons in the hints
-  opts: { light: false, play_videos: true, stream_videos: false, gamepad: true, animations: true, show_details: true, check_updates: true },  // ☰ → Settings (settings.js)
+  opts: { light: false, play_videos: true, stream_videos: false, gamepad: true, animations: true, show_details: true, check_updates: true, scrape_imports: true },  // ☰ → Settings (settings.js)
 };
 
 // ---------- small things ----------

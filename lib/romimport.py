@@ -1232,6 +1232,7 @@ def import_one(row, roms_root, inbox, report=lambda text=None, fraction=None: No
     try:
         results = import_row(row, roms_root, report, cancelled, delete_originals)
         good = [x for _, x in results if not isinstance(x, Exception)]
+        row.placed = good
         bad = [x for _, x in results if isinstance(x, Exception)]
         systems = sorted({os.path.basename(os.path.dirname(p[0])) for p in good if p})
         if good and not bad:

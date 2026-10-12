@@ -17,6 +17,7 @@ const OPTION_LABELS = [
   ["stream_videos", "Gameplay from YouTube when there's no clip", "plays the top YouTube gameplay video in YouTube's own player (needs the internet)"],
   ["gamepad", "Use a gamepad", "a Steam Deck's or Xbox-style pad moves through the lists"],
   ["animations", "Animations", "lists slide, numbers roll and the focus ring glides"],
+  ["scrape_imports", "Scrape imported games", "games added by Import (or copied from a source) get LaunchBox artwork and text when they have none"],
   ["check_updates", "Check for updates when RetroShelf starts", "new versions download by themselves and go in when you restart"],
 ];
 

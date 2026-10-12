@@ -2,6 +2,7 @@
 (games thrown in the import folder, or added from anywhere, filed into the ROMs folder by system)."""
 import os, shutil, threading
 
+import autoscrape
 import compress
 import romimport
 import scraper
@@ -273,7 +274,20 @@ def import_run(job, delete=False):
     finally:
         _imp["busy"] = False
     done = [r for _, r in items if r.status.startswith("Imported")]
-    return {**_listed(), "imported": len(done), "systems": romimport.imported_systems(done), "stopped": stop()}
+    return {**_listed(), "imported": len(done), "systems": romimport.imported_systems(done), "stopped": stop(),
+            "scraped": scrape_imported(job, done, stop)}
+
+
+def scrape_imported(job, rows, stop):
+    """LaunchBox text and artwork for games just imported (☰ → Settings → Scrape imported games). -> a line, or ""."""
+    if not rows or not ctx["cfg"].get("scrape_imports", True) or stop():
+        return ""
+    try:
+        return autoscrape.scrape_new([p for r in rows for p in getattr(r, "placed", [])], _roms(),
+                                     ctx["cfg"]["platform_overrides"],
+                                     lambda m: event("progress", {"job": job, "message": m, "done": 0, "total": 0}), stop)
+    except Exception as e:  # the games are in; only the scraping went wrong
+        return f"Scraping failed: {e}"
 
 
 @method
