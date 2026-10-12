@@ -17,7 +17,7 @@ const S = {
   marked: new Set(),
   undo: [],
   pad: false,       // a gamepad was used: show its buttons in the hints
-  opts: { light: false, play_videos: true, stream_videos: false, gamepad: true, animations: true, show_details: true, check_updates: true, scrape_imports: true },  // ☰ → Settings (settings.js)
+  opts: { light: false, play_videos: true, stream_videos: false, gamepad: true, animations: true, show_details: true, check_updates: true, scrape_imports: true, notify_issues: true },  // ☰ → Settings (settings.js)
 };
 
 // ---------- small things ----------
@@ -777,59 +777,125 @@ function runJob(method, params, onProgress) {
 }
 
 // ---------- the ☰ menu ----------
-// Tool windows add themselves: registerTool({ cmd, group: the submenu (system, library, get), label, sub: its
+// Tool windows add themselves: registerTool({ cmd, group: the submenu (console, library, get), label, sub: its
 // tooltip, key, system: needs an open system, anywhere: needs no ROMs folder either, open })
 const TOOLS = [];
 function registerTool(t) { TOOLS.push(t); }
 
-// The ☰ menu: a short list, with the rest one level down (registerTool's group puts a tool in one).
+// The ☰ menu: a short list, with the rest one level or two down. A submenu lists its items in order: a { cmd } of its
+// own, "tool:<cmd>" for a registered tool, { group } for a submenu, null for a line; tools it doesn't name go last.
 const MENU = [
   { cmd: "review", label: "Review one at a time…", key: "Ctrl+R", need: "system" },
-  { group: "moved", label: "Moved games" },
-  { group: "system", label: "This system" },
   { group: "library", label: "Library" },
+  { group: "moved", label: "Moved games" },
   { group: "get", label: "Get games" },
   null,
   { cmd: "settings", label: "Settings…" },
   { cmd: "keys", label: "Keyboard and gamepad" },
 ];
 const GROUPS = {
+  library: { label: "Library", items: [
+    { group: "console", label: "This console" },
+    "tool:import",
+    null,
+    "tool:health", "tool:dupes", "tool:storage",
+    null,
+    { cmd: "change-roms", label: "Change ROMs folder…" },
+    { cmd: "launchbox", label: "Download LaunchBox data", sub: "ratings, genres and descriptions" },
+    "tool:setup"] },
+  console: { label: "This console", parent: "library", items: [
+    { cmd: "rescan", label: "Rescan", key: "F5", need: "system" },
+    { cmd: "priority", label: "Region priority…", need: "system" },
+    null,
+    "tool:scrape", "tool:rename", "tool:compress",
+    null,
+    { cmd: "collection", label: "Save as an ES-DE collection…", need: "system" }] },
   moved: { label: "Moved games", items: [
     { cmd: "holding", label: "Holding folder…", sub: "see, restore or delete moved games", need: "roms" },
     { cmd: "moves", label: "Restore a move…", sub: "undo a whole Move", need: "roms" },
     { cmd: "export", label: "Export move list…", need: "moving" },
     { cmd: "change-holding", label: "Change holding folder…", need: "roms" }] },
-  system: { label: "This system", items: [
-    { cmd: "rescan", label: "Rescan", key: "F5", need: "system" },
-    { cmd: "priority", label: "Region priority…", need: "system" },
-    { cmd: "collection", label: "Save as an ES-DE collection…", need: "system" }] },
-  library: { label: "Library", items: [
-    { cmd: "change-roms", label: "Change ROMs folder…" },
-    { cmd: "launchbox", label: "Download LaunchBox data", sub: "ratings, genres and descriptions" }] },
   get: { label: "Get games", items: [] },
+  issues: { label: "Things to fix", items: [] },  // (filled from S.issues)
 };
+
+function menuItems(group) {
+  if (group === "issues") return S.issues.map((i) => ({ cmd: i.cmd, label: i.text, sub: "open the window that fixes it" }));
+  const tool = (t) => ({ cmd: t.cmd, label: t.label, sub: t.sub, key: t.key,
+    need: t.anywhere ? null : t.system ? "system" : "roms" });
+  const named = new Set(GROUPS[group].items.filter((it) => typeof it === "string").map((it) => it.slice(5)));
+  const items = GROUPS[group].items.map((it) => typeof it === "string" ? TOOLS.find((t) => t.cmd === it.slice(5)) && tool(TOOLS.find((t) => t.cmd === it.slice(5))) : it)
+    .filter((it) => it !== undefined);
+  items.push(...TOOLS.filter((t) => (t.group || "library") === group && !named.has(t.cmd)).map(tool));
+  return items.map((it) => it?.cmd === "launchbox" ? { ...it, label: S.overview?.launchbox ? "Update LaunchBox data" : "Download LaunchBox data" } : it);
+}
 
 function openMenu(group = null) {
   const m = $("menu");
   const can = (it) => it.need === "system" ? Boolean(S.sys) : it.need === "roms" ? Boolean(S.overview?.roms)
     : it.need === "moving" ? S.games.some((g) => g.move) : true;
   const item = (it) => !it ? "<hr>" : it.group
-    ? `<button data-group="${it.group}">${esc(it.label)}<span class="sub-arrow">›</span></button>`
+    ? `<button data-group="${it.group}"${it.count ? ' class="has-issues"' : ""}>${esc(it.label)}${it.count ? `<span class="badge">${it.count}</span>` : ""}<span class="sub-arrow">›</span></button>`
     : `<button data-cmd="${it.cmd}"${can(it) ? "" : " disabled"}${it.sub ? ` title="${esc(it.sub)}"` : ""}>${esc(it.label)}${it.key ? `<kbd>${esc(it.key)}</kbd>` : ""}</button>`;
-  let items = MENU;
-  if (group) {
-    const tools = TOOLS.filter((t) => (t.group || "library") === group).map((t) => ({ cmd: t.cmd, label: t.label, sub: t.sub, key: t.key,
-      need: t.anywhere ? null : t.system ? "system" : "roms" }));
-    items = group === "system" ? [...GROUPS.system.items, ...tools] : group === "library" ? [...tools, null, ...GROUPS.library.items]
-      : [...GROUPS[group].items, ...tools];
-    items = items.map((it) => it?.cmd === "launchbox" ? { ...it, label: S.overview?.launchbox ? "Update LaunchBox data" : "Download LaunchBox data" } : it);
-  }
+  const items = group ? menuItems(group)
+    : S.issues.length ? [{ group: "issues", label: "Things to fix", count: issueCount() }, null, ...MENU] : MENU;
   m.innerHTML = (group ? `<button class="menu-back" data-back="1">‹ ${esc(GROUPS[group].label)}</button><hr>` : "") + items.map(item).join("");
   m.dataset.group = group || "";
   m.hidden = false;
 }
 
+// ---------- things to fix ----------
+// Duplicates, health check problems, a nearly full ROMs drive and a missing RetroDECK / ES-DE are looked for quietly
+// after start, every hour, and when a window that fixes one closes. ☰ carries the count, the menu opens with Things to
+// fix, and a toast says when something new turns up. ☰ → Settings → Tell me about things to fix turns it off.
+S.issues = [];
+const ISSUES_EVERY = 60 * 60 * 1000;
+const FIXERS = new Set(["health", "dupes", "storage", "setup", "import", "compress", "holding", "moves", "change-roms"]);
+let issuesRunning = null, issuesTold = {}, recheckIssues = false;
+const issueCount = () => S.issues.length;
+function showIssues() {
+  const b = $("menu-btn"), n = issueCount();
+  b.querySelector(".badge")?.remove();
+  if (n) b.insertAdjacentHTML("beforeend", `<span class="badge">${n}</span>`);
+  b.title = n ? `More: ${n} thing${n === 1 ? "" : "s"} to fix` : "More";
+}
+async function checkIssues() {
+  if (!S.opts.notify_issues) { S.issues = []; showIssues(); return; }
+  if (issuesRunning) return;
+  issuesRunning = runJob("issues_scan", {}, () => {});
+  try {
+    const r = await issuesRunning.done;
+    if (r.stopped) return;
+    S.issues = r.issues;
+    showIssues();
+    // tell about what's new or grown since the last toast (not the setup window's own subject while it's open)
+    const fresh = S.issues.filter((i) => (issuesTold[i.kind] || 0) < i.count && !(i.kind === "frontend" && !S.overview?.roms));
+    issuesTold = Object.fromEntries(S.issues.map((i) => [i.kind, Math.max(i.count, issuesTold[i.kind] || 0)]));
+    if (fresh.length) toast(`Things to fix: ${fresh.map((i) => i.text).join(", ")}. See ☰ → Things to fix.`);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    issuesRunning = null;
+  }
+}
+function watchIssues() {
+  setTimeout(checkIssues, 4000);
+  setInterval(checkIssues, ISSUES_EVERY);
+}
+// A window that can fix something closed: look again.
+function sheetClosedForIssues() {
+  if (recheckIssues) { recheckIssues = false; setTimeout(checkIssues, 500); }
+}
+
+// Back out of a submenu to the one it's in, on the submenu's own entry. -> that entry
+function menuBack() {
+  const g = $("menu").dataset.group;
+  openMenu(GROUPS[g]?.parent || null);
+  return $("menu").querySelector(`[data-group="${g}"]`);
+}
+
 function menuCommand(cmd) {
+  if (FIXERS.has(cmd)) recheckIssues = true;
   const run = {
     holding: openHolding, moves: openMoves, priority: openPriority, export: exportMoves, rescan,
     review: openReview, collection: () => openCollection(),
@@ -1010,7 +1076,7 @@ async function start() {
     const b = e.target.closest("button");
     if (!b) return;
     if (b.dataset.group) { openMenu(b.dataset.group); return; }
-    if (b.dataset.back) { const g = $("menu").dataset.group; openMenu(); $("menu").querySelector(`[data-group="${g}"]`)?.focus(); return; }
+    if (b.dataset.back) { menuBack()?.focus(); return; }
     if (b.dataset.cmd) { closePopovers(); menuCommand(b.dataset.cmd); }
   });
   for (const name of LISTS) $(name).addEventListener("contextmenu", (e) => rowMenu(name, e));
@@ -1026,8 +1092,9 @@ async function start() {
     S.overview = await call("startup");
     applyOptions(await call("settings"));
     watchForUpdates();
+    watchIssues();
     if (S.overview.roms) call("import_waiting").then((n) => n && setTimeout(() =>
-      toast(`${plural(n, "item")} waiting in the import folder: ☰ → Import ROMs (Ctrl+I) files them.`), 1200)).catch(() => {});
+      toast(`${plural(n, "item")} waiting in the import folder: ☰ → Library → Import ROMs (Ctrl+I) files them.`), 1200)).catch(() => {});
     showOverview();
     summary.roms = S.overview.roms;
     summary.systems = S.overview.systems.filter((s) => s.games > 0).length;

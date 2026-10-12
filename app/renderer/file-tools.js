@@ -2,7 +2,7 @@
 // call, runJob, sheet, setProgress …; the work is in app/helper/tool_files.py.)
 "use strict";
 
-registerTool({ cmd: "compress", group: "system", label: "Compress games…", sub: "disc images to CHD / RVZ, originals held", system: true, open: () => openCompress() });
+registerTool({ cmd: "compress", group: "console", label: "Compress games…", sub: "disc images to CHD / RVZ, originals held", system: true, open: () => openCompress() });
 registerTool({ cmd: "import", group: "library", key: "Ctrl+I", label: "Import ROMs…", sub: "file new games into the ROMs folder, or copy them from a home server", system: false, open: () => openImport() });
 
 // Clicking a row picks it (again: unpicks it). rows: the .trow elements with data-id; sel: a Set of ids.
@@ -34,7 +34,7 @@ async function openCompress() {
     <div class="job-progress"><div class="progress-bar"><div id="c-bar"></div></div><div class="progress-text" id="c-status"></div></div>
     <div class="sheet-tools">
       <label class="check" title="Reads the new file back through the tool and compares it with what was written. It takes about as long again; without it, a game is replaced as soon as it's written."><input type="checkbox" id="c-verify"${info.verify ? " checked" : ""}> Check each new file before it replaces the original</label>
-      <label class="check" title="Originals go to ${esc(info.holding)}, where ☰ → Holding folder deletes them for good (or Restore a move puts them back)."><input type="checkbox" id="c-delete"${info.delete ? " checked" : ""}> Delete the originals (instead of moving them to the holding folder)</label>
+      <label class="check" title="Originals go to ${esc(info.holding)}, where ☰ → Moved games → Holding folder deletes them for good (or Restore a move puts them back)."><input type="checkbox" id="c-delete"${info.delete ? " checked" : ""}> Delete the originals (instead of moving them to the holding folder)</label>
     </div>
     <div class="sheet-foot"><span class="grow" id="c-sum"></span><button class="ghost" id="c-close">Close</button><button class="primary" id="c-go" disabled>Compress</button></div>`,
   "", () => {
@@ -108,7 +108,7 @@ async function openCompress() {
       const listed = new Set(C.info.rows.map((x) => x.key));
       C.sel = new Set([...C.sel].filter((k) => listed.has(k)));
       fill();
-      if (r.games) toast(`Compressed ${plural(r.games, "game")}, saving ${human(r.saved)}.${r.held ? " The originals are in the holding folder (☰ → Holding folder)." : ""}`);
+      if (r.games) toast(`Compressed ${plural(r.games, "game")}, saving ${human(r.saved)}.${r.held ? " The originals are in the holding folder (☰ → Moved games → Holding folder)." : ""}`);
       if (r.problems.length) failures(`${r.problems.length === 1 ? "A problem" : `${r.problems.length} problems`} while compressing`, r.problems);
     } catch (e) {
       if ($("c-status")) $("c-status").textContent = `Failed: ${e.message}`;

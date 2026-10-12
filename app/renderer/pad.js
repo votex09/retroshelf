@@ -287,9 +287,7 @@ function back() {
   }
   if (layer === $("sheet")) { closeSheet(); return; }
   if (layer === $("menu") && $("menu").dataset.group) {
-    const group = $("menu").dataset.group;
-    openMenu();
-    setCursor($("menu").querySelector(`[data-group="${group}"]`));
+    setCursor(menuBack());
     return;
   }
   if (layer !== document.body) { closePopovers(); return; }
