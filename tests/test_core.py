@@ -1536,7 +1536,12 @@ class Compress(unittest.TestCase):
             with open(path, "w") as f:
                 f.write(text)
             os.chmod(path, 0o755)
-        with mock.patch.dict(os.environ, {"PATH": bin_dir + os.pathsep + "/usr/bin:/bin"}), \
+        # only what the probe needs on the PATH: a chdman installed on this machine mustn't be found first
+        tools = os.path.join(self.tmp, "tools")
+        os.makedirs(tools)
+        for n in ("sh", "sed", "head"):
+            os.symlink(shutil.which(n), os.path.join(tools, n))
+        with mock.patch.dict(os.environ, {"PATH": bin_dir + os.pathsep + tools}), \
                 mock.patch.object(compress, "RD_COMPONENTS", comps), \
                 mock.patch.object(shutil, "which", lambda n: os.path.join(bin_dir, n) if n == "flatpak" else None):
             tool = compress.find_tool("chdman")
