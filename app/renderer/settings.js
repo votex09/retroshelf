@@ -1,4 +1,4 @@
-// ☰ → Settings and the help sheets: Keyboard and gamepad, How patterns work. (Uses app.js and sheets.js.)
+// ☰ → Settings and the help sheets: Help (keyboard and gamepad), How patterns work. (Uses app.js and sheets.js.)
 "use strict";
 
 // The options change how the window behaves right away: see S.opts in app.js.
@@ -66,7 +66,7 @@ async function openSettings() {
         <button class="ghost" id="o-old">Bring settings over from the old RetroShelf…</button></div>
       <p class="dim" id="o-update"></p>
     </div>
-    <div class="sheet-foot"><button class="ghost" id="o-keys">Keyboard and gamepad</button><span class="grow"></span><button class="primary" id="o-close">Close</button></div>`,
+    <div class="sheet-foot"><button class="ghost" id="o-keys">Help</button><span class="grow"></span><button class="primary" id="o-close">Close</button></div>`,
   "small form-sheet");
   if (p) {
     $("o-platform").value = !p.override ? "auto" : p.current;
@@ -149,7 +149,7 @@ function openKeys() {
     : `<span>${esc(what)}</span>${padGlyph(pad)}<span class="keys">${keys.split(" / ").map((x) => `<kbd>${esc(x)}</kbd>`)
       .join(" ")}</span>`).join("");
   sheet(`
-    <div class="sheet-head"><h2>Keyboard and gamepad</h2></div>
+    <div class="sheet-head"><h2>Help</h2></div>
     <div class="form help">
       <div class="controls">${rows}</div>
       <p class="note">Keyboard only: type a few letters to jump to a game, Shift+↑ ↓ or Ctrl+A to select several, Home / End for the

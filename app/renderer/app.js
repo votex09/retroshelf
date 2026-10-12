@@ -791,7 +791,7 @@ const MENU = [
   { group: "get", label: "Get games" },
   null,
   { cmd: "settings", label: "Settings…" },
-  { cmd: "keys", label: "Keyboard and gamepad" },
+  { cmd: "keys", label: "Help" },
 ];
 const GROUPS = {
   library: { label: "Library", items: [
