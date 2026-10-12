@@ -165,29 +165,56 @@ def plan(system, units, exts=None):
 
 # ---------- the tools ----------
 class Tool:
-    """argv(folder) -> the command's start; flatpak tools get to see folder."""
+    """argv(folder) -> the command's start; flatpak tools get to see folder. libs: LD_LIBRARY_PATH inside the
+    Flatpak, for RetroDECK's components (their libraries aren't where the runtime looks)."""
 
-    def __init__(self, name, where, exe=None, app=None, command=None):
-        self.name, self.where, self.exe, self.app, self.command = name, where, exe, app, command
+    def __init__(self, name, where, exe=None, app=None, command=None, libs=None):
+        self.name, self.where, self.exe, self.app, self.command, self.libs = name, where, exe, app, command, libs
 
     def argv(self, folder):
         if self.app:
             return [shutil.which("flatpak") or "flatpak", "run", f"--filesystem={folder}",
+                    *([f"--env=LD_LIBRARY_PATH={self.libs}"] if self.libs else []),
                     f"--command={self.command}", self.app]
         return list(self.exe) if isinstance(self.exe, (list, tuple)) else [self.exe]
 
 
+# RetroDECK 0.10 keeps each emulator in /app/retrodeck/components/<name>/ (chdman in mame/bin), off the PATH, and
+# runs it through that folder's component_launcher.sh, which sets LD_LIBRARY_PATH to RetroDECK's shared libraries.
+RD_COMPONENTS = "/app/retrodeck/components"
+_PROBE = ('p=$(command -v {n}) || for f in {c}/*/bin/{n}; do [ -x "$f" ] && p=$f && break; done; '
+          '[ -n "$p" ] || exit 1; echo "$p"; '
+          'sed -n "s/^export LD_LIBRARY_PATH=//p" "${{p%/bin/*}}/component_launcher.sh" 2>/dev/null | head -n 1')
+
+
+def _launcher_libs(line):
+    """component_launcher.sh's LD_LIBRARY_PATH value -> the same path with RetroDECK's variables filled in, or None."""
+    line = line.strip().strip('"').strip("'")
+    for var in ("rd_shared_libs", "DEFAULT_LD_LIBRARY_PATH"):
+        line = line.replace("${%s}" % var, "$" + var)
+    line = line.replace("$rd_shared_libs", RD_COMPONENTS + "/shared-libs").replace("$DEFAULT_LD_LIBRARY_PATH", "")
+    dirs = [d for d in line.split(":") if d and "$" not in d]
+    return ":".join(dirs) or None
+
+
 def _flatpak_command(app, command):
+    """-> (the command's path inside the Flatpak, LD_LIBRARY_PATH for it or None), or None when it isn't there."""
     exe = shutil.which("flatpak")
     if not exe:
-        return False
+        return None
     try:
         if subprocess.run([exe, "info", app], capture_output=True, timeout=30).returncode:
-            return False
-        return subprocess.run([exe, "run", "--command=sh", app, "-c", f"command -v {command}"], capture_output=True,
-                              timeout=60).returncode == 0
+            return None
+        probe = _PROBE.format(n=command, c=RD_COMPONENTS)
+        p = subprocess.run([exe, "run", "--command=sh", app, "-c", probe], capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
-        return False
+        return None
+    lines = p.stdout.splitlines()
+    if p.returncode or not lines or not lines[0].startswith("/"):
+        return None
+    path = lines[0].strip()
+    libs = _launcher_libs(lines[1]) if len(lines) > 1 and path.startswith(RD_COMPONENTS + "/") else None
+    return path, libs
 
 
 def _windows_dirs(*rels):
@@ -215,8 +242,10 @@ def find_tool(name):
         return None
     apps = [RETRODECK] if name == "chdman" else [RETRODECK, DOLPHIN]
     for app in apps:
-        if _flatpak_command(app, names[0]):
-            return Tool(name, "RetroDECK" if app == RETRODECK else "Dolphin (Flatpak)", app=app, command=names[0])
+        found = _flatpak_command(app, names[0])
+        if found:
+            return Tool(name, "RetroDECK" if app == RETRODECK else "Dolphin (Flatpak)", app=app, command=found[0],
+                        libs=found[1])
     return None
 
 

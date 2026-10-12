@@ -43,6 +43,23 @@ def use_system_certificates():
 
 use_system_certificates()
 
+
+def use_system_libraries():
+    """The bundled helper starts with LD_LIBRARY_PATH pointing at its own libraries (PyInstaller's doing), and every
+    program it runs would inherit that: flatpak or chdman on SteamOS then loads Ubuntu's older libssl / libexpat and
+    fails, so RetroDECK's tools look missing. This process has already loaded what it needs; give the programs it runs
+    back the path it was started with."""
+    if not getattr(sys, "frozen", False) or sys.platform != "linux":
+        return
+    orig = os.environ.pop("LD_LIBRARY_PATH_ORIG", None)
+    if orig:
+        os.environ["LD_LIBRARY_PATH"] = orig
+    else:
+        os.environ.pop("LD_LIBRARY_PATH", None)
+
+
+use_system_libraries()
+
 import esde_collections  # noqa: E402
 import hiding  # noqa: E402
 import holding  # noqa: E402
