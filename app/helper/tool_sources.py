@@ -41,8 +41,9 @@ def source_list():
 
 
 @method
-def source_add(path, user="", password="", secret=None):
-    """Save a folder, or a web address (with a login: password to check it now, secret to keep)."""
+def source_add(path, user="", password="", secret=None, keep=False):
+    """Save a folder, or a web address (with a login: password to check it now, secret to keep; keep: the password
+    box was left empty, so the secret already kept for this address and user stays)."""
     web = websource.is_url(path)
     path = websource.normalize(path) if web else path
     problem = sources.problem(path, _roms(), (user, password) if web and user else None)
@@ -50,6 +51,9 @@ def source_add(path, user="", password="", secret=None):
         raise ValueError(problem)
     if web:
         logins = ctx["cfg"].setdefault("source_logins", {})
+        old = logins.get(path) or {}
+        if user and keep and old.get("user") == user:
+            secret = old.get("secret")
         if user:
             logins[path] = {"user": user, "secret": secret}
             _src.update(path=None)  # (opened again with the new login)

@@ -572,17 +572,23 @@ async function openSources() {
     $("s-url").focus();
   };
   async function addWeb() {
-    const url = $("s-url").value.trim(), user = $("s-user").value.trim(), pass = $("s-pass").value;
+    const url = $("s-url").value.trim(), user = $("s-user").value.trim();
+    let pass = $("s-pass").value;
     if (!url) { $("s-err").textContent = "Type the address of the folder listing, like https://myserver.local/roms/"; return; }
     const btn = $("overlay-box").querySelector(".btns .primary");
     btn.disabled = true;
     $("s-err").textContent = "Looking at it …";
     try {
-      const secret = user && pass ? await rs.encrypt(pass) : null;
-      C.saved = await call("source_add", { path: url, user, password: pass, secret });
-      if (user) SRC_PW.set(C.saved.last, pass); else SRC_PW.delete(C.saved.last);
+      // the same address and user name with the password box left empty: the password kept for it is used
+      const same = (a) => a.toLowerCase().replace(/\/+$/, "");
+      const old = C.saved.sources.find((x) => x.web && same(x.path) === same(url) && x.login?.user === user);
+      const kept = user && !pass && old;
+      if (kept) pass = await password(old.path);
+      const secret = user && pass && !kept ? await rs.encrypt(pass) : null;
+      C.saved = await call("source_add", { path: url, user, password: pass, secret, keep: Boolean(kept) });
+      if (user && !kept) SRC_PW.set(C.saved.last, pass); else if (!user) SRC_PW.delete(C.saved.last);
       closeOverlay();
-      if (user && pass && !secret) toast("This system can't keep the password safely, so it's only kept until RetroShelf closes");
+      if (user && pass && !secret && !kept) toast("This system can't keep the password safely, so it's only kept until RetroShelf closes");
       open(C.saved.last, true);
     } catch (e) {
       if ($("s-err")) { $("s-err").textContent = e.message; btn.disabled = false; }
