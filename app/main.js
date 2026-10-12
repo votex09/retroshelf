@@ -7,6 +7,7 @@ const fs = require("fs");
 const path = require("path");
 const { Helper } = require("./helper");
 const { Updates } = require("./updates");
+const { MenuEntry } = require("./menu-entry");
 
 const smoke = process.argv.includes("--smoke");
 
@@ -124,6 +125,8 @@ ipcMain.handle("secret:decrypt", (_e, data) => {
 
 // ---------- updates (updates.js) ----------
 const updates = new Updates(app, (state) => win?.webContents.send("update", state));
+// An update renamed the AppImage (its name has the version): the menu entry follows it.
+updates.onMoved = (from, to) => { try { menuEntry.moved(from, to); } catch (e) { console.error(`Menu entry: ${e.message}`); } };
 ipcMain.handle("update:check", (_e, auto) => updates.check(Boolean(auto)));
 ipcMain.handle("update:install", () => { closeOK = true; return updates.install(); });
 
@@ -132,14 +135,12 @@ let jobRunning = false, closeOK = false;
 ipcMain.on("app:busy", (_e, on) => { jobRunning = Boolean(on); });
 ipcMain.on("app:quit", () => { closeOK = true; app.quit(); });
 
-// ---------- the app menu entry (Linux AppImage: it has no installer to add one) ----------
+// ---------- the app menu entry (Linux AppImage: it has no installer to add one; menu-entry.js) ----------
 const DESKTOP = path.join(process.env.XDG_DATA_HOME || path.join(app.getPath("home"), ".local", "share"));
-const desktopFile = path.join(DESKTOP, "applications", "retroshelf.desktop");
+const menuEntry = new MenuEntry(DESKTOP, path.join(__dirname, "renderer", "icon-256.png"));
 ipcMain.handle("desktop:status", () => {
   if (process.platform !== "linux" || !process.env.APPIMAGE) return { can: false };
-  let text = "";
-  try { text = fs.readFileSync(desktopFile, "utf8"); } catch {}
-  return { can: true, installed: text.includes(process.env.APPIMAGE) };
+  return { can: true, installed: menuEntry.read().includes(process.env.APPIMAGE) };
 });
 ipcMain.handle("desktop:install", () => {
   if (process.platform === "win32") {  // the old app's Start menu shortcut, pointed at this app (the installer's own has the same name)
@@ -152,15 +153,7 @@ ipcMain.handle("desktop:install", () => {
   }
   const exe = process.env.APPIMAGE;
   if (process.platform !== "linux" || !exe) return "only the AppImage can add itself";
-  const icon = path.join(DESKTOP, "icons", "hicolor", "256x256", "apps", "retroshelf.png");
-  fs.mkdirSync(path.dirname(icon), { recursive: true });
-  fs.copyFileSync(path.join(__dirname, "renderer", "icon-256.png"), icon);
-  fs.mkdirSync(path.dirname(desktopFile), { recursive: true });
-  const quote = (a) => `"${a.replace(/["`$\\]/g, (c) => "\\" + c)}"`;
-  fs.writeFileSync(desktopFile, ["[Desktop Entry]", "Type=Application", "Name=RetroShelf", "GenericName=ROM library manager",
-    "Comment=Prune, scrape, rename and install games for ES-DE / RetroDECK", `Exec=${quote(exe)} %U`, `Icon=${icon}`,
-    "Terminal=false", "Categories=Game;", "Keywords=ROM;ES-DE;RetroDECK;emulation;LaunchBox;NoPayStation;",
-    "StartupWMClass=RetroShelf", ""].join("\n"));
+  menuEntry.write(exe);
   return "";
 });
 
@@ -193,6 +186,9 @@ if (!app.requestSingleInstanceLock()) {
     // file: page, so its requests say where they come from: the project's page.
     session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["https://www.youtube-nocookie.com/*"] }, (d, done) =>
       done({ requestHeaders: { ...d.requestHeaders, Referer: "https://github.com/votex09/retroshelf" } }));
+    if (process.platform === "linux" && process.env.APPIMAGE && !smoke) {  // an entry left naming an older AppImage
+      try { menuEntry.mend(process.env.APPIMAGE); } catch (e) { console.error(`Menu entry: ${e.message}`); }
+    }
     startHelper();
     createWindow();
   });

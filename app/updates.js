@@ -34,6 +34,7 @@ class Updates {
     this.log = log;
     this.status = { state: "idle", version: "", url: RELEASES, self: selfUpdating(app) };
     this.updater = null;
+    this.onMoved = null;  // onMoved(old AppImage, new one), set by main.js
   }
 
   set(fields) {
@@ -74,6 +75,9 @@ class Updates {
       autoUpdater.autoInstallOnAppQuit = true;
       autoUpdater.on("download-progress", (p) => this.set({ state: "downloading", percent: Math.round(p.percent) }));
       autoUpdater.on("update-downloaded", (info) => this.set({ state: "ready", version: info.version }));
+      // (Linux: the new AppImage went in under its own name, the old one is gone)
+      const was = process.env.APPIMAGE;
+      autoUpdater.on("appimage-filename-updated", (to) => this.onMoved?.(was, to));
       autoUpdater.on("error", (e) => {
         this.log(`Update failed: ${e.message}`);
         if (this.status.state !== "ready") this.set({ state: "error", message: e.message });
