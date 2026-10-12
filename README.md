@@ -154,7 +154,9 @@ rename can be undone, and games only go for good when you delete them from the h
   window opens again.
 - While a system's games are being compressed or scraped, its games can't be moved, hidden, renamed or put back
   from the holding folder (RetroShelf says why): both would be rewriting the same files and gamelist.
-- The main window's footer shows the one running (and how many are waiting). Selecting it opens its window again,
+- **Health check**, **Find duplicates** and **Storage overview** keep looking when you close them too, alongside
+  the others (they only read), and show what they found when you open them again.
+- The main window's footer shows the one running (and how many more are going or waiting). Selecting it opens its window again,
   where **Stop** ends it, leaving the game it's on as it was.
 - Closing RetroShelf while one runs asks first: keep going, quit when everything's done, or stop and quit.
 

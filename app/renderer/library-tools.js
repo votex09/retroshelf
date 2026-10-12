@@ -21,25 +21,34 @@ async function showInMain(system, key) {
   if (i >= 0) select(i, false);
 }
 
-// The "Look again" button of a sheet that looks through the library: Stop while it's looking.
-// run() -> the answer, or null when it was already looking (that click stops it instead).
-function looker(btnId, label, method, params, onProgress) {
-  const lk = { job: null };
+// The "Look again" button of a sheet that looks through the library: Stop while it's looking. Looking goes on when
+// the window closes (jobs.js, alongside the other jobs: it only reads); the window picks it up when it opens, or
+// takes the answer that came while it was closed (take()).
+// run() -> the answer ({stopped: true} if it was stopped), or null when it was already looking (that click stops it).
+const LOOKED = {};  // kind -> an answer nobody has seen yet
+function looker(btnId, label, method, params, onProgress, { kind, window, open }) {
+  const lk = { job: null, closed: false };
   lk.run = async () => {
     if (lk.job) { lk.job.stop(); $(btnId).disabled = true; return null; }
     $(btnId).textContent = "Stop";
-    lk.job = runJob(method, params(), onProgress);
+    lk.job = bgFind(kind) || bgRun({ kind, label: `${window}: looking …`, window, open, method, params: params(), alongside: true,
+      stopNote: "", finish(r) { if (!this.view) LOOKED[kind] = r; } });  // (this: the job)
+    lk.job.view = onProgress;
+    if (lk.job.message) onProgress({ message: lk.job.message, done: lk.job.count, total: lk.job.total });
     try {
       return await lk.job.done;
+    } catch (e) {
+      if (e.cancelled) return { stopped: true };
+      throw e;
     } finally {
       lk.job = null;
-      if ($(btnId)) { $(btnId).disabled = false; $(btnId).textContent = label; }
+      if (!lk.closed) { $(btnId).disabled = false; $(btnId).textContent = label; }
     }
   };
-  lk.stop = () => lk.job?.stop();
+  lk.take = () => { const r = LOOKED[kind]; delete LOOKED[kind]; return r; };
+  lk.close = () => { lk.closed = true; if (lk.job) lk.job.view = null; };
   return lk;
 }
-
 const share = (f) => `<span class="share"><i style="width:${Math.round(100 * Math.max(0, Math.min(1, f)))}%"></i></span>`;
 
 // ---------- Storage overview ----------
@@ -54,8 +63,9 @@ async function openStorage() {
     <div class="sheet-foot"><span class="grow" id="st-status"></span>
       <button class="ghost" id="st-again">Add up again</button><button class="ghost" id="st-close">Close</button>
       <button class="primary" id="st-open">Open in the main window</button></div>`,
-  "storage-sheet", () => look.stop(), storageKeys);
-  const look = looker("st-again", "Add up again", "storage_scan", () => ({}), (p) => ($("st-status").textContent = p.message));
+  "storage-sheet", () => look.close(), storageKeys);
+  const look = looker("st-again", "Add up again", "storage_scan", () => ({}), (p) => ($("st-status").textContent = p.message),
+    { kind: "storage", window: "Storage overview", open: openStorage });
   $("st-systems").innerHTML = `<div class="none">Adding up …</div>`;
 
   function fillSystems() {
@@ -105,8 +115,8 @@ async function openStorage() {
     if (look.job) { look.run(); return; }
     $("st-status").textContent = "Adding up …";
     try {
-      const r = await look.run();
-      if (!$("st-systems")) return;
+      const r = look.take() || await look.run();  // (an answer that came while the window was closed)
+      if (!r || look.closed) return;  // (a window opened again has its own)
       if (r.stopped) { $("st-status").textContent = "Stopped."; return; }
       T.systems = r.systems;
       const has = (c) => T.systems.some((s) => s.code === c);
@@ -146,8 +156,9 @@ async function openHealth() {
     <div class="tool-progress"><div class="progress-text" id="hc-status"></div><div class="progress-bar"><div id="hc-bar"></div></div></div>
     <div class="sheet-foot"><span class="grow" id="hc-sum"></span><button class="ghost" id="hc-close">Close</button>
       <button class="primary" id="hc-fix" title="Fixes the selected problems that can be fixed, or all of them when nothing is selected. It says what it will do first.">Fix</button></div>`,
-  "", () => { look.stop(); if (S.sys && H.touched.has(S.sys.system)) return rescanQuietly(); });
-  const look = looker("hc-again", "Look again", "health_scan", () => ({ system: $("hc-scope").value || null }), (p) => setProgress("hc-bar", "hc-status", p));
+  "", () => { look.close(); if (S.sys && H.touched.has(S.sys.system)) return rescanQuietly(); });
+  const look = looker("hc-again", "Look again", "health_scan", () => ({ system: $("hc-scope").value || null }), (p) => setProgress("hc-bar", "hc-status", p),
+    { kind: "health", window: "Health check", open: openHealth });
   const chosen = () => {
     const ids = H.sel.size ? [...H.sel] : H.problems.map((p) => p.id);
     return ids.filter((i) => H.problems[i].fix && !H.state[i]);
@@ -182,8 +193,8 @@ async function openHealth() {
     $("hc-status").textContent = "Looking …";
     $("hc-fix").disabled = true;
     try {
-      const r = await look.run();
-      if (!$("hc-table")) return;
+      const r = look.take() || await look.run();  // (an answer that came while the window was closed)
+      if (!r || look.closed) return;  // (a window opened again has its own)
       $("hc-bar").style.width = "0";
       if (r.stopped) { $("hc-status").textContent = "Stopped."; summary(); return; }
       Object.assign(H, { problems: r.problems, kinds: r.kinds, sel: new Set(), state: {} });
@@ -244,8 +255,9 @@ async function openDupes() {
       <button class="ghost" id="du-again">Look again</button><button class="ghost" id="du-keep">Keep this copy</button>
       <button class="ghost" id="du-close">Close</button>
       <button class="primary" id="du-go" title="For the selected sets, or every set when none is selected: the copies not kept move to the holding folder (Restore a move… puts them back).">Move the extra copies</button></div>`,
-  "", () => { look.stop(); if (D.moved) return rescanQuietly(); });
-  const look = looker("du-again", "Look again", "dupes_scan", () => ({}), (p) => setProgress("du-bar", "du-status", p));
+  "", () => { look.close(); if (D.moved) return rescanQuietly(); });
+  const look = looker("du-again", "Look again", "dupes_scan", () => ({}), (p) => setProgress("du-bar", "du-status", p),
+    { kind: "dupes", window: "Find duplicates", open: openDupes });
   const extra = (s) => s.copies.reduce((n, c, i) => n + (i === s.keep ? 0 : c.size), 0);
   const chosen = () => {
     const ids = [...new Set([...D.sel].map((id) => Number(id.slice(1).split("-")[0])))];
@@ -283,8 +295,8 @@ async function openDupes() {
     $("du-status").textContent = "Looking …";
     $("du-go").disabled = $("du-keep").disabled = true;
     try {
-      const r = await look.run();
-      if (!$("du-table")) return;
+      const r = look.take() || await look.run();  // (an answer that came while the window was closed)
+      if (!r || look.closed) return;  // (a window opened again has its own)
       $("du-bar").style.width = "0";
       if (r.stopped) { $("du-status").textContent = "Stopped."; summary(); return; }
       Object.assign(D, { sets: r.sets, holding: r.holding, same: r.same_drive, sel: new Set(), done: new Set() });
