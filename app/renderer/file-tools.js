@@ -25,7 +25,8 @@ async function openCompress() {
       [["OK", closeOverlay, true]]);
     return;
   }
-  const C = { info, sel: new Set(), results: new Map(), tool: null, job: null, ran: false };
+  const sys = S.sys.system, going = bgFind(`compress:${sys}`);
+  const C = { info, sel: new Set(going?.keys || []), results: going?.results || new Map(), tool: null, job: null };
   sheet(`
     <div class="sheet-head"><h2>Compress ${esc(name)} games to ${info.format}</h2>
       <p>${info.ext === ".chd" ? "Disc images become CHD files (MAME's compressed format)" : "Disc images become RVZ files (Dolphin's compressed format)"}: usually a third to a half smaller, and read by the emulators RetroDECK and ES-DE use for this system. Each new file is written next to the game and checked before it replaces anything; playlists (.m3u), ES-DE's gamelist entry and artwork follow it. Pick games to compress only those.</p></div>
@@ -37,10 +38,7 @@ async function openCompress() {
       <label class="check" title="Originals go to ${esc(info.holding)}, where ☰ → Moved games → Holding folder deletes them for good (or Restore a move puts them back)."><input type="checkbox" id="c-delete"${info.delete ? " checked" : ""}> Delete the originals (instead of moving them to the holding folder)</label>
     </div>
     <div class="sheet-foot"><span class="grow" id="c-sum"></span><button class="ghost" id="c-close">Close</button><button class="primary" id="c-go" disabled>Compress</button></div>`,
-  "", () => {
-    if (C.job) { C.job.stop(); C.job.done.finally(() => rescanQuietly().catch(oops)); }  // what's done is still logged
-    else if (C.ran) rescanQuietly();
-  });
+  "", () => { C.closed = true; if (C.job) C.job.view = null; });  // (compressing keeps going: see jobs.js)
   const chosen = () => {
     const picked = C.info.rows.filter((r) => C.sel.has(r.key));
     return picked.length ? picked : C.info.rows;
@@ -72,51 +70,61 @@ async function openCompress() {
   $("c-verify").onchange = saveOpts;
   $("c-delete").onchange = saveOpts;
   $("c-close").onclick = closeSheet;
-  const askStop = async () => {  // closing while it works (Close, Esc, a click outside) asks first
-    if (!await confirmBox({ title: "Compress games", ok: "Stop", message: "Stop compressing?", detail: "The game being compressed now stays as it was." })) return;
-    sheetBusy = null;
-    closeSheet();
-  };
   $("c-go").onclick = async () => {
-    if (C.job) { C.job.stop(); $("c-go").disabled = true; $("c-status").textContent = "Stopping after the tool lets go …"; return; }
+    if (C.job) { C.job.stop(); $("c-go").disabled = true; $("c-status").textContent = C.job.started ? "Stopping after the tool lets go …" : "Stopped."; return; }
     const keys = chosen().map((r) => r.key), size = chosen().reduce((n, r) => n + r.size, 0);
     if (!keys.length) return;
     const del = $("c-delete").checked;
     const where = del ? "The originals are deleted once each new file is in place." :
       `The originals move to\n${C.info.holding}/` + (C.info.same_drive ? "\n(on the same drive: the space comes back when you delete them there)." : "");
     if (!await confirmBox({ title: "Compress games", ok: "Compress", message: `Compress ${plural(keys.length, "game")} (${human(size)})?`,
-      detail: `${where}\n\nBig discs take a few minutes each.` })) return;
+      detail: `${where}\n\nBig discs take a few minutes each. It goes on in the background if you close this window.` })) return;
+    const results = new Map(), what = `${name} games`;
+    bgRun({ kind: `compress:${sys}`, label: `Compressing ${what} …`, window: "Compress games", keys, results,
+      open: async () => {  // (on its own system)
+        if (S.sys?.system !== sys) { await flushDecide(); loadSystem(await call("open_system", { system: sys })); }
+        await openCompress();
+      },
+      method: "compress_games", params: { keys, verify: $("c-verify").checked, delete: del },
+      stopNote: "Stopping now leaves the game being compressed as it was. The ones already compressed stay compressed.",
+      progress: (p) => { if (p.key != null) results.set(p.key, { text: p.result, tag: p.tag }); },
+      finish: async (r) => {  // the main window has the new files (when it's on that system)
+        if (S.sys?.system === sys) await rescanQuietly();
+        if (r.games) toast(`Compressed ${plural(r.games, "game")} of ${name}, saving ${human(r.saved)}.${r.held ? " The originals are in the holding folder (☰ → Moved games → Holding folder)." : ""}`);
+        else if (!r.problems.length) toast(`${r.stopped ? "Stopped. " : ""}Nothing was compressed.`);
+        if (r.problems.length && !$("c-table")) toast(`${r.problems.length === 1 ? "A problem" : `${r.problems.length} problems`} while compressing ${what}: ${r.problems[0]}`, { error: true });
+      } });
+    follow().catch(oops);
+  };
+  async function follow() {  // compressing (just started, or still going from before the window closed)
+    C.job = bgFind(`compress:${sys}`);
     $("c-go").textContent = "Stop";
-    $("c-status").textContent = "Starting …";
-    sheetBusy = askStop;
-    C.job = runJob("compress_games", { keys, verify: $("c-verify").checked, delete: del }, (p) => {
-      if (p.key == null) { setProgress("c-bar", "c-status", p); return; }
-      C.results.set(p.key, { text: p.result, tag: p.tag });
+    $("c-go").disabled = false;
+    $("c-status").textContent = C.job.message || "Starting …";
+    $("c-bar").style.width = `${C.job.total ? (100 * C.job.count) / C.job.total : 0}%`;
+    C.job.view = (p) => {
+      if (p.key == null) { setProgress("c-bar", "c-status", { total: C.job.total, done: C.job.count, message: p.message || C.job.message }); return; }
       if ($("c-table")) fill();
-    });
-    try {
-      const r = await C.job.done;
-      C.ran = true;
-      if (!$("c-table")) return;
-      sheetBusy = null;
-      $("c-bar").style.width = "0";
-      $("c-status").textContent = (r.stopped ? "Stopped. " : "") + (r.games ? `Compressed ${plural(r.games, "game")}, saving ${human(r.saved)}.` : "Nothing was compressed.");
+    };
+    let r;
+    try { r = await C.job.done; } catch (e) {
       C.job = null;
-      await rescanQuietly();  // the main window has the new files; and so does the list
-      C.info = await call("compress_info");
-      C.ran = false;
-      const listed = new Set(C.info.rows.map((x) => x.key));
-      C.sel = new Set([...C.sel].filter((k) => listed.has(k)));
-      fill();
-      if (r.games) toast(`Compressed ${plural(r.games, "game")}, saving ${human(r.saved)}.${r.held ? " The originals are in the holding folder (☰ → Moved games → Holding folder)." : ""}`);
-      if (r.problems.length) failures(`${r.problems.length === 1 ? "A problem" : `${r.problems.length} problems`} while compressing`, r.problems);
-    } catch (e) {
-      if ($("c-status")) $("c-status").textContent = `Failed: ${e.message}`;
+      if (!C.closed) { $("c-status").textContent = e.cancelled ? "Stopped." : `Failed: ${e.message}`; summary(); }
+      return;
     }
     C.job = null;
-    if ($("c-go")) { sheetBusy = null; summary(); }
-  };
+    if (C.closed) return;  // (a window opened again has its own)
+    $("c-bar").style.width = "0";
+    $("c-status").textContent = (r.stopped ? "Stopped. " : "") + (r.games ? `Compressed ${plural(r.games, "game")}, saving ${human(r.saved)}.` : "Nothing was compressed.");
+    C.info = await call("compress_info");
+    if (C.closed) return;
+    const listed = new Set(C.info.rows.map((x) => x.key));
+    C.sel = new Set([...C.sel].filter((k) => listed.has(k)));
+    fill();
+    if (r.problems.length) failures(`${r.problems.length === 1 ? "A problem" : `${r.problems.length} problems`} while compressing`, r.problems);
+  }
   fill();
+  if (going) follow().catch(oops);
   try {
     C.tool = await call("compress_tool");
     if (!$("c-tool")) return;
@@ -127,71 +135,17 @@ async function openCompress() {
 }
 
 // ---------- Import ROMs ----------
-// Importing and copying from a source go on when the window closes: one at a time, shown in the main window's footer
-// (#bg-job, which opens the window again) until it's done. The window picks it back up when it opens.
-const BG = { kind: null, job: null, message: "", done: 0, total: 0, view: null, quitAfter: false };
+// Importing and copying from a source are background jobs (jobs.js): they go on when the window closes, and the
+// window picks them back up when it opens.
 const SRC_Q = { queue: [], states: new Map(), qsel: new Set() };  // the Sources queue, kept while the window's closed
-function bgStart(kind, method, params, finish) {
-  Object.assign(BG, { kind, message: "", done: 0, total: 0 });
-  BG.job = runJob(method, params, (p) => {
-    if (p.key && p.state) SRC_Q.states.set(p.key, p.state);
-    if (p.message) BG.message = p.message;
-    if (p.total) { BG.done = p.done; BG.total = p.total; }
-    bgShow();
-    BG.view?.(p);
-  });
-  const job = BG.job;
-  job.done.then(async (r) => {
-    BG.job = BG.kind = null;
-    bgShow();
-    if (BG.quitAfter) { rs.quit(); return; }
-    if (finish(r)) {  // games went in: new system folders show up, and the open system's new games
-      S.overview = await call("startup");
-      if (S.sys && r.systems.includes(S.sys.system)) await rescanQuietly();
-    }
-  }, (e) => {
-    BG.job = BG.kind = null;
-    bgShow();
-    if (BG.quitAfter) { rs.quit(); return; }
-    if (!BG.view) toast(`${kind === "sources" ? "Copying" : "Importing"} failed: ${e.message}`, { error: true });
-  }).catch(oops);
-  bgShow();
-  return job;
+async function gamesAdded(r) {  // new system folders show up, and the open system's new games
+  S.overview = await call("startup");
+  if (S.sys && r.systems.includes(S.sys.system)) await rescanQuietly();
 }
-function bgShow() {
-  const b = $("bg-job");
-  b.hidden = !BG.job;
-  rs.setBusy(Boolean(BG.job));
-  if (!BG.job) return;
-  const text = (BG.quitAfter ? "Quits when done · " : "") +
-    (BG.message || (BG.kind === "sources" ? "Adding games to your library …" : "Importing …"));
-  b.querySelector(".bg-text").textContent = text;
-  b.title = `${text}\nOpen Import ROMs`;
-  b.querySelector(".progress-bar > span").style.width = `${BG.total ? (100 * BG.done) / BG.total : 0}%`;
+function openImportAt(page) {
+  try { localStorage.setItem("import-page", page); } catch { /* fine */ }
+  return openImport();
 }
-$("bg-job").onclick = () => {
-  try { localStorage.setItem("import-page", BG.kind === "sources" ? "sources" : "folder"); } catch { /* fine */ }
-  openImport().catch(oops);
-};
-// Closing the window while it works: keep going, quit once it's done, or stop it (losing only the game it's on).
-rs.onCloseAsked(() => {
-  if (!BG.job) { rs.quit(); return; }
-  const copy = BG.kind === "sources";
-  overlay(`<h2>${copy ? "Games are still being copied into your library" : "An import is still going"}</h2>
-    <p>${esc(BG.message)}</p>
-    <p class="lines">${copy ? "Stopping now leaves out the game being copied. The ones already copied stay in your library; the rest of the queue isn't copied."
-    : "Stopping now leaves the game being imported where it was. The ones already imported stay in your library; the rest aren't imported."}</p>`, [
-    ["Keep going", closeOverlay],
-    ["Quit when it's done", () => { closeOverlay(); BG.quitAfter = true; bgShow(); toast("RetroShelf closes when it's done"); }, true],
-    ["Stop and quit", () => { closeOverlay(); BG.quitAfter = true; BG.job.stop(); bgShow(); }],
-  ]);
-  overlayCancel = closeOverlay;
-});
-const bgBusy = (kind) => {  // the other page's job is still going
-  if (!BG.job || BG.kind === kind) return false;
-  toast(BG.kind === "sources" ? "Wait for the copying from the source to finish" : "Wait for the import to finish", { error: true });
-  return true;
-};
 // Two pages: the import folder, and sources (folders to copy games from, like a home server's share).
 function importTabs(on) {
   return `<div class="head-row import-tabs"><h2>Import ROMs</h2>
@@ -236,9 +190,9 @@ async function openImport(stay) {
     <div class="sheet-foot">
       <label class="check" title="Games in the import folder are always moved out of it. Games added with Add files / Add a folder are copied, leaving the originals, unless this is ticked."><input type="checkbox" id="i-delete"${info.delete ? " checked" : ""}> Also delete the originals of games added from other folders</label>
       <span class="grow"></span><button class="ghost" id="i-close">Close</button><button class="primary" id="i-go">Add to Library</button></div>`,
-  "", () => {  // (an import keeps going: see BG)
+  "", () => {  // (an import keeps going: see jobs.js)
     clearInterval(I.timer);
-    BG.view = null;
+    if (I.job) I.job.view = null;
   }, folderKeys);
   // Start (F10) is the Add to Library / Stop button
   function folderKeys() { return false; }
@@ -319,16 +273,19 @@ async function openImport(stay) {
   $("i-close").onclick = closeSheet;
   $("i-go").onclick = () => {
     if (I.job) { I.job.stop(); $("i-go").disabled = true; $("i-status").textContent = "Stopping …"; return; }
-    if (!I.list.ready || bgBusy("folder")) return;
-    bgStart("folder", "import_run", { delete: $("i-delete").checked }, (r) => {
-      if (r.imported) toast(`Imported ${plural(r.imported, "game")}${r.systems.length ? ` into ${r.systems.join(", ")}` : ""}.`);
-      return r.imported > 0;
-    });
+    if (!I.list.ready) return;
+    bgRun({ kind: "folder", label: "Importing …", window: "Import ROMs", open: () => openImportAt("folder"),
+      method: "import_run", params: { delete: $("i-delete").checked },
+      stopNote: "Stopping now leaves the game being imported where it was. The ones already imported stay in your library; the rest aren't imported.",
+      finish: async (r) => {
+        if (r.imported) toast(`Imported ${plural(r.imported, "game")}${r.systems.length ? ` into ${r.systems.join(", ")}` : ""}.`);
+        if (r.imported > 0) await gamesAdded(r);
+      } });
     follow().catch(oops);
   };
   async function follow() {  // the import going on (just started, or still going from before the window closed)
-    I.job = BG.job;
-    BG.view = (p) => {
+    I.job = bgFind("folder");
+    I.job.view = (p) => {
       if (!$("i-table")) return;
       if (p.row) {
         I.list.rows = I.list.rows.map((r) => (r.id === p.row.id ? p.row : r));
@@ -339,12 +296,12 @@ async function openImport(stay) {
       }
     };
     buttons();
-    $("i-bar").style.width = `${BG.total ? (100 * BG.done) / BG.total : 0}%`;
-    if (BG.message) $("i-status").textContent = BG.message;
+    $("i-bar").style.width = `${I.job.total ? (100 * I.job.count) / I.job.total : 0}%`;
+    if (I.job.message) $("i-status").textContent = I.job.message;
     let r;
     try { r = await I.job.done; } catch (e) {
       I.job = null;
-      if ($("i-status")) { buttons(); $("i-status").textContent = `Failed: ${e.message}`; }
+      if ($("i-status")) { buttons(); $("i-status").textContent = e.cancelled ? "Stopped." : `Failed: ${e.message}`; }
       return;
     }
     I.job = null;
@@ -359,7 +316,7 @@ async function openImport(stay) {
     I.watching = true;
     try { const list = await call("import_watch"); if (list) await scan(list); } catch (e) { console.error(e); } finally { I.watching = false; }
   }, 2000);
-  if (BG.kind === "folder") { show(info); follow().catch(oops); } else await scan(info);
+  if (bgFind("folder")) { show(info); follow().catch(oops); } else await scan(info);
 }
 
 // ----- sources: folders to copy games from (a home server's share mounted here, another drive …) -----
@@ -396,7 +353,7 @@ async function openSources() {
     </div>`,
   "stores-sheet nps", () => {
     C.art.stop();
-    BG.view = null;  // (a copy keeps going: see BG)
+    if (C.job) C.job.view = null;  // (a copy keeps going: see jobs.js)
   }, srcKeys);
   C.art = artBox("c-media", (row) => call("source_art", { key: row.key }),
     (row) => ({ title: row.name.replace(/\s*[([][^)\]]*[)\]]/g, ""), console: row.label }));
@@ -423,7 +380,7 @@ async function openSources() {
       if (path !== C.path || !$("c-table")) return;
       const keep = $("c-system").value;
       $("c-system").innerHTML = `<option value="">All systems</option>` + r.systems.map(([c, l]) => `<option value="${esc(c)}"${c === keep ? " selected" : ""}>${esc(l)}</option>`).join("");
-      status(!r.total ? "No games found in this source." : C.job ? BG.message : "");
+      status(!r.total ? "No games found in this source." : C.job ? C.job.message : "");
       await rows();
     } catch (e) { if (path === C.path) status(`Couldn't open it: ${e.message}`); }
     if ($("c-refresh")) $("c-refresh").disabled = !C.path || !!C.job;
@@ -497,22 +454,25 @@ async function openSources() {
     if (C.job) { C.job.stop(); $("c-start").disabled = true; $("c-start").textContent = "Stopping…"; return; }
     const keys = Q.queue.filter((q) => Q.states.get(q.key) === "Queued").map((q) => q.key);
     if (!keys.length) { status("The queue is empty: pick games and press Add to queue."); return; }
-    if (bgBusy("sources")) return;
-    bgStart("sources", "source_copy", { keys }, (r) => {
-      for (const [k, v] of Object.entries(r.states)) Q.states.set(k, v);
-      if (r.copied) toast(`Copied ${plural(r.copied, "game")} into your library.`);
-      return r.copied > 0;
-    });
+    bgRun({ kind: "sources", label: "Adding games to your library …", window: "Import ROMs", open: () => openImportAt("sources"),
+      method: "source_copy", params: { keys },
+      stopNote: "Stopping now leaves out the game being copied. The ones already copied stay in your library; the rest of the queue isn't copied.",
+      progress: (p) => { if (p.key && p.state) Q.states.set(p.key, p.state); },
+      finish: async (r) => {
+        for (const [k, v] of Object.entries(r.states)) Q.states.set(k, v);
+        if (r.copied) toast(`Copied ${plural(r.copied, "game")} into your library.`);
+        if (r.copied > 0) await gamesAdded(r);
+      } });
     follow().catch(oops);
   }
   async function follow() {  // the copy going on (just started, or still going from before the window closed)
-    C.job = BG.job;
+    C.job = bgFind("sources");
     $("c-start").textContent = "Stop";
     fillSources();
     fillQueue();
-    $("c-bar").style.width = `${BG.total ? (100 * BG.done) / BG.total : 0}%`;
-    if (BG.message) status(BG.message);
-    BG.view = (p) => {
+    $("c-bar").style.width = `${C.job.total ? (100 * C.job.count) / C.job.total : 0}%`;
+    if (C.job.message) status(C.job.message);
+    C.job.view = (p) => {
       if (!$("c-queue")) return;
       if (p.key && p.state) {
         const cell = document.querySelector(`#c-queue .trow[data-key="${CSS.escape(p.key)}"] [data-state]`);
@@ -526,7 +486,7 @@ async function openSources() {
       const failed = Object.values(r.states).filter((v) => v.startsWith("Failed")).length;
       status(`${r.stopped ? "Stopped. " : ""}Copied ${plural(r.copied, "game")}${r.systems.length ? ` into roms/${r.systems.join(", roms/")}` : ""}` +
         (failed ? `, ${failed} failed` : "") + "." + (r.scraped ? `  ${r.scraped}.` : ""));
-    } catch (e) { status(`Failed: ${e.message}`); }
+    } catch (e) { status(e.cancelled ? "Stopped." : `Failed: ${e.message}`); }
     C.job = null;
     if (!$("c-start")) return;
     $("c-start").disabled = false;
@@ -602,7 +562,7 @@ async function openSources() {
   $("c-start").onclick = start;
   $("c-close").onclick = closeSheet;
   fillQueue();
-  if (BG.kind === "sources") follow().catch(oops);
+  if (bgFind("sources")) follow().catch(oops);
   open(pick);
   $("c-q").focus();
 }
