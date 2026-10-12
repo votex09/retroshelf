@@ -103,7 +103,8 @@ rename can be undone, and games only go for good when you delete them from the h
   source is only read.
   Games you already have (same title, any region) say **In library**. **Look again** re-reads the folder.
 - Importing and copying keep going when you close the window (B / Esc): the main window's footer shows how far
-  along it is, and selecting that opens the window again, where **Stop** (or Menu / F10) ends it after the current game.
+  along it is, and selecting that opens the window again, where **Stop** (or Menu / F10) ends it, leaving out the game it's on.
+  Closing RetroShelf while one runs asks first: keep going, quit when it's done, or stop and quit.
 - Imported and copied games are scraped with LaunchBox right away (artwork and text they don't have yet) while
   **☰ → Settings → Scrape imported games** is on, which it is by default. It needs the LaunchBox data downloaded.
 - Games unpack into a hidden staging folder first, so ES-DE never sees half a game, and the drive's free space is

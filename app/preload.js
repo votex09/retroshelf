@@ -17,4 +17,7 @@ contextBridge.exposeInMainWorld("retroshelf", {
   onHelperEvent: (fn) => ipcRenderer.on("helper:event", (_e, name, data) => fn(name, data)),
   onHelperExit: (fn) => ipcRenderer.on("helper:exit", (_e, info) => fn(info)),
   ready: (summary) => ipcRenderer.send("renderer:ready", summary),
+  setBusy: (on) => ipcRenderer.send("app:busy", on),
+  quit: () => ipcRenderer.send("app:quit"),
+  onCloseAsked: (fn) => ipcRenderer.on("app:close-asked", () => fn()),
 });
