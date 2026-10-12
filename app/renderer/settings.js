@@ -3,6 +3,7 @@
 
 // The options change how the window behaves right away: see S.opts in app.js.
 function applyOptions(o) {
+  if (o.bindings) useBindings(o.bindings);
   for (const k of Object.keys(S.opts)) if (k in o) S.opts[k] = o[k];
   document.body.classList.toggle("light", S.opts.light);
   document.body.classList.toggle("still", !S.opts.animations);
@@ -146,7 +147,7 @@ const CONTROLS = [
 function openKeys() {
   const pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(Boolean).map((g) => g.id.replace(/\s*\(.*$/, ""));
   const rows = CONTROLS.map(([what, pad, keys]) => pad === undefined ? `<div class="controls-head">${esc(what)}</div>`
-    : `<span>${esc(what)}</span>${padGlyph(pad)}<span class="keys">${keys.split(" / ").map((x) => `<kbd>${esc(x)}</kbd>`)
+    : `<span>${esc(what)}</span>${padGlyph(pad)}<span class="keys">${keys.split(" / ").map((x) => `<kbd>${esc(showKeys(x))}</kbd>`)
       .join(" ")}</span>`).join("");
   sheet(`
     <div class="sheet-head"><h2>Help</h2></div>
@@ -159,8 +160,10 @@ function openKeys() {
         : "No gamepad found yet: plug one in (or press a button). On a Steam Deck, Steam keeps the built-in controls while it runs; other pads work.")
         : "The gamepad is off in ☰ → Settings."}</p>
     </div>
-    <div class="sheet-foot"><span class="grow"></span><button class="primary" id="k-close">Close</button></div>`, "wide form-sheet");
+    <div class="sheet-foot"><button class="ghost" id="k-change">Change buttons and keys…</button><span class="grow"></span>
+      <button class="primary" id="k-close">Close</button></div>`, "wide form-sheet");
   $("k-close").onclick = closeSheet;
+  $("k-change").onclick = () => openBindings();
 }
 
 function openPatternHelp() {
