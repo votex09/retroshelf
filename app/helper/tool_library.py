@@ -4,6 +4,7 @@ window can fix or move them by their ids."""
 import os
 
 import dupes
+import frontend
 import health
 import library
 import nps
@@ -13,7 +14,8 @@ import storage
 from rules import unit_key
 from rpc import ctx, method, progress, stopped
 
-found = {"problems": [], "sets": [], "done": set()}  # the last health check and duplicates search
+found = {"problems": [], "sets": [], "done": set()}
+LOW_SPACE = 0.05, 2 << 30  # the ROMs drive is nearly full: under 5% free, or under 2 GB  # the last health check and duplicates search
 
 
 def _root():
@@ -140,3 +142,36 @@ def dupes_resolve(keep):
                 problems.append(f"move log (Restore won't know about this move): {e}")
     return {"moved": sum(len(v) for v in moves.values()), "sets": sorted(picked), "systems": sorted(moves),
             "problems": problems}
+
+
+# ---------- Things to fix ----------
+@method
+def issues_scan(job):
+    """Everything the other checks would find, for the header's "things to fix". Looks quietly: a check that fails
+    is left out. -> {"issues": [{"kind", "count", "text", "cmd": the menu command that fixes it}]}"""
+    cfg, out, stop = ctx["cfg"], [], stopped(job)
+    quiet = lambda text, fraction: None
+    if not frontend.frontend_installed(cfg.get("esde_bases", ())):
+        out.append({"kind": "frontend", "count": 1, "cmd": "setup",
+                    "text": "ES-DE isn't installed" if frontend.is_windows() else "RetroDECK / ES-DE isn't installed"})
+    root = cfg["roms_root"]
+    if not root or not os.path.isdir(root):
+        return {"issues": out}
+    d = storage.drive(root)
+    if d and d[1] and (d[0] < LOW_SPACE[0] * d[1] or d[0] < LOW_SPACE[1]):
+        out.append({"kind": "storage", "count": 1, "cmd": "storage",
+                    "text": f"The ROMs drive is nearly full: {frontend.human_size(d[0])} free"})
+    try:
+        n = len(health.scan(root, None, quiet, stop))
+        if n:
+            out.append({"kind": "health", "count": n, "cmd": "health",
+                        "text": f"{n} library problem{'s' if n != 1 else ''}"})
+        n = len(dupes.find(root, unit_key, quiet, stop))
+        if n:
+            out.append({"kind": "dupes", "count": n, "cmd": "dupes",
+                        "text": f"{n} duplicate game{'s' if n != 1 else ''}"})
+    except InterruptedError:
+        return {"stopped": True}
+    except OSError:
+        pass
+    return {"issues": out}

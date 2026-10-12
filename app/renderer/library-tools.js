@@ -3,7 +3,7 @@
 "use strict";
 
 registerTool({ cmd: "storage", group: "library", label: "Storage overview…", sub: "space per system, and the biggest games", system: false, open: () => openStorage() });
-registerTool({ cmd: "health", group: "library", label: "Library health check…", sub: "missing tracks, stray files and artwork", system: false, open: () => openHealth() });
+registerTool({ cmd: "health", group: "library", label: "Health check…", sub: "missing tracks, stray files and artwork", system: false, open: () => openHealth() });
 registerTool({ cmd: "dupes", group: "library", label: "Find duplicates…", sub: "games kept twice, identical copies", system: false, open: () => openDupes() });
 
 // Put the main window on a system, and on one of its games (emptying the search box if that hides it).

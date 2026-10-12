@@ -77,7 +77,7 @@ rename can be undone, and games only go for good when you delete them from the h
 **Storage overview**
 - **Library → Storage overview…** (or click the free-space figure at the top) shows how much each system takes:
   its games, its ES-DE media (artwork, videos, manuals), and how much of it is disc images that
-  **☰ → This system → Compress games** could shrink. Pick a system to see its biggest games. Double-click a system or a
+  **☰ → Library → This console → Compress games** could shrink. Pick a system to see its biggest games. Double-click a system or a
   game to go to it in the main window.
 
 **Import ROMs**
@@ -109,7 +109,7 @@ rename can be undone, and games only go for good when you delete them from the h
 **LaunchBox metadata**
 - Downloads the free LaunchBox Games Database once and matches your games to it automatically.
 - Right-click a game to pick its LaunchBox entry by hand when the match is missing or wrong.
-- **☰ → This system → Scrape metadata…** fills ES-DE text (description, developer, release date, genre, rating …) and images (covers,
+- **☰ → Library → This console → Scrape metadata…** fills ES-DE text (description, developer, release date, genre, rating …) and images (covers,
   screenshots, title screens, marquees, 3D boxes …). It only fills gaps and never overwrites what's already there.
 
 **Gameplay videos**
@@ -125,7 +125,7 @@ rename can be undone, and games only go for good when you delete them from the h
   search in your browser instead. **☰ → Settings → Play gameplay videos** turns videos off.
 
 **Rename files**
-- **☰ → This system → Rename files…** renames ROMs to a pattern, by default the No-Intro order:
+- **☰ → Library → This console → Rename files…** renames ROMs to a pattern, by default the No-Intro order:
   `{title} ({region}) ({lang}) ({rev}) {tags}`. This also strips set numbers like `0012 - `.
 - Live preview, conflict detection, and undo.
 - Games you matched by hand, and scene-style names like `Final_Fantasy_IV_Complete_Collection_US.chd`, take
@@ -137,7 +137,7 @@ rename can be undone, and games only go for good when you delete them from the h
   ROM set file name, so renaming them would stop them starting.
 
 **Compress games**
-- **☰ → This system → Compress games…** turns disc images into the compressed formats the emulators read, usually a third
+- **☰ → Library → This console → Compress games…** turns disc images into the compressed formats the emulators read, usually a third
   to a half smaller: CD games (PlayStation, Saturn, Sega CD, Dreamcast, PC Engine CD, Neo Geo CD, 3DO, PC-FX) and
   PS2 discs become `.chd`, GameCube and Wii discs become `.rvz`. Select games to do only those.
 - Each new file is written next to the game and checked before anything is replaced. `.m3u` playlists, ES-DE's
@@ -145,8 +145,14 @@ rename can be undone, and games only go for good when you delete them from the h
   (or are deleted, if you tick that), where **Restore a move…** can still put them back.
 - Uses chdman (from RetroDECK or MAME) and dolphin-tool (from RetroDECK or Dolphin), found by themselves.
 
+**Things to fix**
+- A little after RetroShelf starts, then every hour and whenever a window that fixes something closes, it quietly
+  looks for duplicates, health check problems, a nearly full ROMs drive (under 5% or 2 GB free) and a missing
+  RetroDECK / ES-DE. ☰ shows how many it found, **☰ → Things to fix** lists them (each opens the window that fixes
+  it), and a short message says when something new turns up. **☰ → Settings → Tell me about things to fix** turns it off.
+
 **Library health check**
-- **☰ → Library → Library health check…** looks through every system folder (or just the current one) for what stops
+- **☰ → Library → Health check…** looks through every system folder (or just the current one) for what stops
   games starting: `.cue` / `.gdi` sheets and `.m3u` playlists naming files that aren't there, and raw `.bin`
   images with no `.cue`, and games on several discs with no `.m3u` playlist (one is written, and the separate
   discs are hidden in ES-DE so the game shows once). It also finds what takes space for nothing: empty game files, unfinished downloads,

@@ -16,8 +16,8 @@ function setProgress(barId, textId, p) {
 }
 
 // ---------- Scrape metadata ----------
-registerTool({ cmd: "scrape", group: "system", label: "Scrape metadata…", sub: "LaunchBox text and artwork for ES-DE", system: true, open: () => openScrape() });
-registerTool({ cmd: "rename", group: "system", label: "Rename files…", sub: "to No-Intro style names, undoable", system: true, open: () => openRename() });
+registerTool({ cmd: "scrape", group: "console", label: "Scrape metadata…", sub: "LaunchBox text and artwork for ES-DE", system: true, open: () => openScrape() });
+registerTool({ cmd: "rename", group: "console", label: "Rename files…", sub: "to No-Intro style names, undoable", system: true, open: () => openRename() });
 
 async function openScrape() {
   await flushDecide();
