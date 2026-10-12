@@ -15,6 +15,7 @@ def settings():
     cfg = ctx["cfg"]
     out = {k: bool(cfg.get(k, k != "stream_videos")) for k in OPTIONS}
     out["light"] = cfg.get("theme") == "light"  # the Tk version's setting, so it carries over
+    out["bindings"] = cfg.get("bindings") or {"pad": {}, "keys": {}}
     sc = ctx["current"]["sc"]
     if sc:
         overrides = cfg["platform_overrides"]
@@ -33,6 +34,17 @@ def set_option(name, value):
         ctx["cfg"][name] = bool(value)
     else:
         raise ValueError(f"No option {name!r}")
+    ctx["save_cfg"]()
+    return settings()
+
+
+@method
+def set_bindings(pad, keys):
+    """☰ → Help → Change buttons and keys. pad: {button: the pad button that does its work}, keys: {default key:
+    the key that does its work}; only the changed ones. -> settings()"""
+    def clean(d, conv):
+        return {conv(k): conv(v) for k, v in (d or {}).items() if conv(k) != conv(v)}
+    ctx["cfg"]["bindings"] = {"pad": clean(pad, lambda x: str(int(x))), "keys": clean(keys, str)}
     ctx["save_cfg"]()
     return settings()
 

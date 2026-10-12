@@ -836,7 +836,7 @@ function openMenu(group = null) {
     : it.need === "moving" ? S.games.some((g) => g.move) : true;
   const item = (it) => !it ? "<hr>" : it.group
     ? `<button data-group="${it.group}"${it.count ? ' class="has-issues"' : ""}>${esc(it.label)}${it.count ? `<span class="badge">${it.count}</span>` : ""}<span class="sub-arrow">›</span></button>`
-    : `<button data-cmd="${it.cmd}"${can(it) ? "" : " disabled"}${it.sub ? ` title="${esc(it.sub)}"` : ""}>${esc(it.label)}${it.key ? `<kbd>${esc(it.key)}</kbd>` : ""}</button>`;
+    : `<button data-cmd="${it.cmd}"${can(it) ? "" : " disabled"}${it.sub ? ` title="${esc(it.sub)}"` : ""}>${esc(it.label)}${it.key ? `<kbd>${esc(showKeys(it.key))}</kbd>` : ""}</button>`;
   const items = group ? menuItems(group)
     : S.issues.length ? [{ group: "issues", label: "Things to fix", count: issueCount() }, null, ...MENU] : MENU;
   m.innerHTML = (group ? `<button class="menu-back" data-back="1">‹ ${esc(GROUPS[group].label)}</button><hr>` : "") + items.map(item).join("");
@@ -1009,7 +1009,7 @@ async function setMatch(key, gid, clear = false) {
 function hints() {
   document.body.classList.toggle("pad", S.pad);
   const h = typeof uiHints === "function" ? uiHints() : [];  // (pad.js)
-  const html = h.map((x) => `<span class="hint">${x[0] === "key" ? `<span class="glyph key">${esc(x[1])}</span>${esc(x[2])}`
+  const html = h.map((x) => `<span class="hint">${x[0] === "key" ? `<span class="glyph key">${esc(showKeys(x[1]))}</span>${esc(x[2])}`
     : `${padGlyph(x[0])}${esc(x[1])}`}</span>`).join("");
   if ($("hints").innerHTML !== html) $("hints").innerHTML = html;
 }

@@ -513,7 +513,7 @@ const LIST_KEYS = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowR
   4: "Tab", 5: "Tab", 6: "PageUp", 7: "PageDown" };
 const REPEATS = new Set([12, 13, 14, 15, 6, 7]);
 const STICK_LEFT = 101, STICK_RIGHT = 102;  // (not real buttons: the right stick pushed left / right)
-const held = {};
+const held = {}, rawHeld = new Set(), swallowed = new Set();
 
 function padButton(b, repeat) {
   if (osk.shown()) { osk.pad(b); return; }
@@ -590,11 +590,11 @@ function pollPads(now) {
   if (!S.opts.gamepad || !document.hasFocus()) return;  // (not while another app, ES-DE say, has the pad)
   // Every connected pad's buttons together: a second pad (an idle controller, Steam's virtual one beside the Deck's
   // own) mustn't count as letting go of what the first one holds, or the button would fire again every frame.
-  const pressed = new Set();
+  const pressed = new Set(), raw = new Set();
   let stick = 0;
   for (const pad of navigator.getGamepads ? navigator.getGamepads() : []) {
     if (!pad) continue;
-    pad.buttons.forEach((btn, i) => { if (btn?.pressed && i <= 15) pressed.add(i); });
+    pad.buttons.forEach((btn, i) => { if (btn?.pressed && i <= 15) raw.add(i); });
     if (pad.axes[1] < -0.55) pressed.add(12);
     if (pad.axes[1] > 0.55) pressed.add(13);
     if (pad.axes[0] < -0.65) pressed.add(14);
@@ -603,6 +603,13 @@ function pollPads(now) {
     if ((pad.axes[2] || 0) < -0.6) pressed.add(STICK_LEFT);  // the right stick across: the other game list
     if ((pad.axes[2] || 0) > 0.6) pressed.add(STICK_RIGHT);
   }
+  // Change buttons and keys (bindings.js) waiting for a button: the next new press is the answer, and does nothing else
+  const fresh = [...raw].filter((i) => !rawHeld.has(i));
+  rawHeld.clear(); for (const i of raw) rawHeld.add(i);
+  for (const i of swallowed) if (!raw.has(i)) swallowed.delete(i);
+  // (the answer is ignored until let go: under its new job it would press the Change button again)
+  if (capture && fresh.length && PAD_BINDABLE.includes(fresh[0])) { swallowed.add(fresh[0]); capture(fresh[0], "pad"); return; }
+  for (const i of raw) { const job = swallowed.has(i) ? null : padRole(i); if (job !== null) pressed.add(job); }  // (your own buttons)
   if (Math.abs(stick) > 0.25 && $("overlay").hidden) padScroll(stick * 18);
   for (const b of pressed) {
     if (!(b in held)) {
@@ -653,6 +660,7 @@ const GLYPHS = (() => {
     menu: pill(`<path d="M9.5 8h11M9.5 12h11M9.5 16h11" ${ink}/>`, "Menu"),
     dpad: dpad("udlr", "D-pad"), "dpad-lr": dpad("lr", "D-pad left and right"), "dpad-ud": dpad("ud", "D-pad up and down"),
     rs: svg(24, 24, stick("R", 12, 12), "Right stick"), r3: svg(24, 24, stick("R3", 12, 12), "R3"),
+    l3: svg(24, 24, stick("L3", 12, 12), "L3"),
     "rs-lr": svg(36, 24, stick("R", 18, 12) + tri("1 12 5.5 8 5.5 16", GLYPH_ON) + tri("35 12 30.5 8 30.5 16", GLYPH_ON),
       "Right stick left and right"),
     "rs-ud": svg(24, 32, stick("R", 12, 16) + tri("12 0.5 8 4.6 16 4.6", GLYPH_ON) + tri("12 31.5 8 27.4 16 27.4", GLYPH_ON),
@@ -660,8 +668,11 @@ const GLYPHS = (() => {
   };
 })();
 
+// A button's glyph is the one doing its work now (☰ → Help → Change buttons and keys).
+const GLYPH_JOB = { a: 0, b: 1, x: 2, y: 3, l1: 4, r1: 5, l2: 6, r2: 7, view: 8, menu: 9, r3: 11 };
 function padGlyph(id) {
-  return `<span class="glyph pad">${id.split("/").map((g) => GLYPHS[g]).join("")}</span>`;
+  const now = (g) => (g in GLYPH_JOB ? PAD_GLYPH[padButtonFor(GLYPH_JOB[g])] : g);
+  return `<span class="glyph pad">${id.split("/").map((g) => GLYPHS[now(g)]).join("")}</span>`;
 }
 
 // Everything the keys or buttons do right now, for the hints along the bottom (app.js's hints()): a button and what

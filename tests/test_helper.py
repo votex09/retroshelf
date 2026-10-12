@@ -311,6 +311,15 @@ print(json.dumps({"found": found, "plan": plan, "fixed": h.health_fix(ids), "aga
         self.assertEqual(out["again"]["problems"], [])
         self.assertNotIn("Chrono Trigger (USA).sfc", os.listdir(os.path.join(self.roms, "snes")))
 
+    def test_bindings(self):
+        out = session(self.data, """
+h.startup()
+first = h.settings()["bindings"]
+h.set_bindings({"0": 1, "1": 0, "2": "2"}, {"Ctrl+Z": "U", "F5": "F5"})
+print(json.dumps({"first": first, "then": h.settings()["bindings"]}))""")
+        self.assertEqual(out["first"], {"pad": {}, "keys": {}})
+        self.assertEqual(out["then"], {"pad": {"0": "1", "1": "0"}, "keys": {"Ctrl+Z": "U"}})  # (unchanged ones dropped)
+
     def test_things_to_fix(self):
         for d in ("snes", "sfc"):  # the same game in two folders: a duplicate
             os.makedirs(os.path.join(self.roms, d), exist_ok=True)
