@@ -72,7 +72,7 @@ async function openStorage() {
     const total = T.systems.reduce((n, s) => n + s.total, 0) || 1;
     $("st-systems").innerHTML = `<div class="trow head"><span>System</span><span class="num">Games</span><span class="num">Games' size</span>
       <span class="num" title="ES-DE's artwork, videos and manuals for the system">Media</span><span class="num">Total</span><span></span>
-      <span class="num" title="Disc images Tools → Compress games would turn into .chd / .rvz (usually a third to a half smaller)">Could compress</span></div>` +
+      <span class="num" title="Disc images ☰ → Library → This console → Compress games would turn into .chd / .rvz (usually a third to a half smaller)">Could compress</span></div>` +
       (T.systems.length ? T.systems.map((s) => `<div class="trow${s.code === T.sel ? " on" : ""}" data-code="${esc(s.code)}">
         <span class="nm" title="${esc(s.label)}">${esc(s.label)}</span><span class="num">${s.games.toLocaleString()}</span>
         <span class="num">${human(s.size)}</span><span class="num">${s.media ? human(s.media) : "—"}</span><span class="num">${human(s.total)}</span>
@@ -125,7 +125,7 @@ async function openStorage() {
       $("st-systems").querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
       const sum = (f) => T.systems.reduce((n, s) => n + s[f], 0), comp = sum("compressible");
       $("st-status").textContent = `${plural(T.systems.length, "system")}: ${human(sum("size"))} of games and ${human(sum("media"))} of media.` +
-        (comp ? ` ${human(comp)} of disc images could be compressed (Tools → Compress games).` : "");
+        (comp ? ` ${human(comp)} of disc images could be compressed (☰ → Library → This console → Compress games).` : "");
       const d = r.drive;
       $("st-drive").textContent = d && d.total ? `The drive with your ROMs: ${human(d.free)} free of ${human(d.total)} (${Math.round(100 * (d.total - d.free) / d.total)}% used)` : "";
       $("st-drive-bar").style.width = d && d.total ? `${100 * (d.total - d.free) / d.total}%` : "0";

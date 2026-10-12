@@ -2,14 +2,16 @@
 
 # RetroShelf
 
-A desktop tool for tidying up an [ES-DE](https://es-de.org/) / [RetroDECK](https://retrodeck.net/) game library on
-Linux or Windows. Point it at your `roms` folder, pick a system, and it helps you decide what to keep, fills in metadata and
-artwork, gives your files consistent names, and installs PS3 / PS Vita / PSP games through NoPayStation.
+A desktop app for tidying up an [ES-DE](https://es-de.org/) / [RetroDECK](https://retrodeck.net/) game library on
+Linux, Steam Deck or Windows. Point it at your `roms` folder, pick a system, and it helps you decide what to keep, fills
+in metadata and artwork, gives your files consistent names, imports games from archives or a home server, and installs
+PS3 / PS Vita / PSP games through NoPayStation and free homebrew from several stores. It works with a mouse, a keyboard
+or a gamepad, and fits a Steam Deck's screen.
 
 Nothing is deleted unless you ask: pruned games are moved to a holding folder outside `roms`, every move and
 rename can be undone, and games only go for good when you delete them from the holding folder.
 
-![RetroShelf main window with a SNES library, Chrono Trigger's details, filters, and the games to keep and move](docs/screenshots/main.png)
+![RetroShelf's main window with a SNES library: the Keeping and Moving lists, three filters switched on, and Chrono Trigger's details](docs/screenshots/main.png)
 
 ## Features
 
@@ -55,14 +57,14 @@ rename can be undone, and games only go for good when you delete them from the h
   leaves them out of its menus (it marks them hidden in its gamelist, and turns off ES-DE's "Show hidden games"
   if it's on). Hidden games stay in Keeping, like played ones, and show "hidden in ES-DE"; right-click →
   **Show in ES-DE again** undoes it.
-- **Library → Save as an ES-DE collection…** (or right-click → **Add to an ES-DE collection…**) puts the Keeping
+- **☰ → Library → This console → Save as an ES-DE collection…** (or right-click → **Add to an ES-DE collection…**) puts the Keeping
   list, the Moving list or the selected games into an ES-DE custom collection, new or existing ("Best of SNES",
   "Party games" …). ES-DE then shows it next to the systems; RetroShelf turns it on in ES-DE's settings when ES-DE
   isn't running.
 - Each system remembers its patterns, filters and flips, so it opens the way you left it.
 - Multi-file games (cue/bin, multi-disc + m3u) are treated as one game and moved together.
-- **Library → Restore a move…** puts a whole batch of moved games back, including RPCS3 / Vita3K data that went with them.
-- **Library → Holding folder…** lists everything you've moved out, with artwork and details. Put games back one by one,
+- **☰ → Moved games → Restore a move…** puts a whole batch of moved games back, including RPCS3 / Vita3K data that went with them.
+- **☰ → Moved games → Holding folder…** lists everything you've moved out, with artwork and details. Put games back one by one,
   or delete them for good (with their ES-DE artwork and gamelist entries) to free the space.
 - A details panel shows the selected game's artwork, LaunchBox description, year, developer,
   rating and genres, plus a button that searches YouTube for gameplay videos. Artwork and videos always fill the
@@ -76,13 +78,13 @@ rename can be undone, and games only go for good when you delete them from the h
   (quick flicks add up into one longer glide). **☰ → Settings → Animations** turns them off.
 
 **Storage overview**
-- **Library → Storage overview…** (or click the free-space figure at the top) shows how much each system takes:
+- **☰ → Library → Storage overview…** shows how much each system takes:
   its games, its ES-DE media (artwork, videos, manuals), and how much of it is disc images that
-  **☰ → Library → This console → Compress games** could shrink. Pick a system to see its biggest games. Double-click a system or a
+  **Compress games** could shrink. Pick a system to see its biggest games. Double-click a system or a
   game to go to it in the main window.
 
 **Import ROMs**
-- **Import ROMs…** (top bar, or **Library → Import ROMs…**) is a bucket for games in whatever form you have them:
+- **☰ → Library → Import ROMs…** (Ctrl+I) is a bucket for games in whatever form you have them:
   zip / 7z / rar archives, disc images, loose ROMs, folders full of them. Put them in the `import` folder next to
   your `roms` folder (RetroShelf notices new files while the window is open), or add them from anywhere with
   **Add files…** / **Add a folder…** (which says how many games it found in the folder before listing them).
@@ -238,22 +240,38 @@ rename can be undone, and games only go for good when you delete them from the h
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/holding.png" alt="Holding folder window with a moved game's cover and
-      description"><br><sub><b>Holding folder</b>: review moved games, put them back or delete them for good.</sub></td>
-    <td width="50%"><img src="docs/screenshots/rename.png" alt="Rename preview turning set-numbered names into
-      No-Intro names"><br><sub><b>Rename files</b>: preview No-Intro style names before anything changes.</sub></td>
+    <td width="50%"><img src="docs/screenshots/review.png" alt="Review one at a time showing Super Metroid, with
+      Keep and Move buttons and Steam Deck button hints"><br><sub><b>Review one at a time</b>: keep or move each game,
+      here with a gamepad's buttons.</sub></td>
+    <td width="50%"><img src="docs/screenshots/import.png" alt="Import ROMs listing a zip, a cue sheet and loose ROMs
+      with the system found for each"><br><sub><b>Import ROMs</b>: each game's system is worked out before anything
+      moves.</sub></td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/screenshots/light.png" alt="Main window in light mode with a genre filter
-      active"><br><sub><b>Light mode</b>, with a genre filter moving the fighting games.</sub></td>
+    <td width="50%"><img src="docs/screenshots/holding.png" alt="Holding folder window listing ten moved games"><br>
+      <sub><b>Holding folder</b>: put moved games back or delete them for good.</sub></td>
+    <td width="50%"><img src="docs/screenshots/rename.png" alt="Rename preview turning set-numbered and scene-style
+      names into No-Intro names"><br><sub><b>Rename files</b>: preview No-Intro style names before anything
+      changes.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/storage.png" alt="Storage overview with each system's size and its
+      biggest games"><br><sub><b>Storage overview</b>: what each system takes and what could be compressed.</sub></td>
+    <td width="50%"><img src="docs/screenshots/light.png" alt="Main window in the light theme with the Genres filter
+      open and Fighting picked"><br><sub><b>Light theme</b>, with a genre filter moving the fighting games.</sub></td>
   </tr>
 </table>
 
-<sub>Screenshots use a small demo library; artwork and descriptions come from the LaunchBox Games Database.</sub>
+<sub>Screenshots use a small demo library with descriptions from the LaunchBox Games Database. It has no scraped
+artwork, so the games show RetroShelf's stand-in covers; with ES-DE's media they show their box art.</sub>
 
 ## Requirements
 
-The app needs nothing else installed. The rest of this section is for the older Tk version.
+The app needs nothing else installed: Python and everything RetroShelf uses are inside, and it plays ES-DE's video
+clips itself. PS Vita installs need Vita3K (the RetroDECK flatpak or a standalone build); compressing games uses the
+chdman and dolphin-tool that come with RetroDECK.
+
+The rest of this section is for the older Tk version.
 
 - **Linux:** Python 3.9 or newer and Tk (`tkinter`). Most desktop distros ship both; on Debian / Ubuntu run
   `sudo apt install python3-tk`.
@@ -359,14 +377,16 @@ SNES and PlayStation games, a small offline LaunchBox database, and `HOME` point
 tests/run.sh                        # whole suite (uses xvfb-run when there's no display)
 py -m unittest discover -s tests -t . -v   # the same on Windows
 tests/run.sh -v tests.test_app      # just the end-to-end window tests
-tests/sandbox.py --run              # open RetroShelf on a throwaway library to try changes by hand
+tests/sandbox.py --run              # open the Tk RetroShelf on a throwaway library to try changes by hand
 tests/sandbox.py --screenshot a.png # same, headless: saves a screenshot (needs xvfb and ImageMagick)
+(cd app && npm install && npm run smoke)   # the app: start it, check the window and helper work together, quit
 ```
 
 The tests need Python with Tk (`python3-tk`); the window tests also need a display or `xvfb-run`. CI runs them
 on both Linux and Windows.
 
-RetroShelf is being moved to Electron, in `app/` (see [app/README.md](app/README.md)). It isn't released yet.
+The app is built with Electron, in `app/` (see [app/README.md](app/README.md)); the work itself is done by the Python
+code in `lib/`, which both versions share.
 
 ## Credits
 
@@ -374,4 +394,4 @@ RetroShelf is being moved to Electron, in `app/` (see [app/README.md](app/README
 - Package lists: [NoPayStation](https://nopaystation.com/)
 - Homebrew: [Homebrew Hub](https://hh.gbdev.io), [itch.io](https://itch.io), [PDRoms](https://pdroms.de); free arcade
   ROMs: [MAMEDEV](https://www.mamedev.org/roms/)
-- Theme: [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme) (MIT, bundled in `vendor/`)
+- Theme of the older Tk version: [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme) (MIT, bundled in `vendor/`)
