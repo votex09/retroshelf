@@ -143,8 +143,12 @@ rename can be undone, and games only go for good when you delete them from the h
   ROM set file name, so renaming them would stop them starting.
 
 **Background jobs**
-- Importing, copying from a source, **Compress games** and **Scrape metadata** keep going when you close their window,
-  so you can carry on using RetroShelf. They run one at a time; one started while another runs waits its turn.
+- Importing, copying from a source, **Compress games**, **Scrape metadata**, NoPayStation and homebrew store downloads,
+  and downloading the LaunchBox data keep going when you close their window, so you can carry on using RetroShelf.
+  They run one at a time; one started while another runs waits its turn. A NoPayStation queue is kept for when the
+  window opens again.
+- While a system's games are being compressed or scraped, its games can't be moved, hidden, renamed or put back
+  from the holding folder (RetroShelf says why): both would be rewriting the same files and gamelist.
 - The main window's footer shows the one running (and how many are waiting). Selecting it opens its window again,
   where **Stop** ends it, leaving the game it's on as it was.
 - Closing RetroShelf while one runs asks first: keep going, quit when everything's done, or stop and quit.

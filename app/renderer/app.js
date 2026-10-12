@@ -514,21 +514,21 @@ function stateLine(g) {
     : `<b class="keep">Keeping</b>${why ? ` · ${esc(why === "flipped by hand" ? why : `protected: ${why}`)}` : ""}`;
 }
 
-async function downloadLaunchbox() {
-  const btn = $("lb-download");
-  if (btn) btn.disabled = true;
-  if (!btn) busy("Downloading LaunchBox data…");
-  try {
-    await call("download_launchbox");
-    closeOverlay();
-    S.overview.launchbox = true;
-    if (S.sys) await openSystem(S.sys.system);
-    toast("LaunchBox data downloaded");
-  } catch (e) {
-    closeOverlay();
-    oops(e);
-    if ($("lb-download")) $("lb-download").disabled = false;
-  }
+// In the background (jobs.js): the rest of the app is usable meanwhile.
+function downloadLaunchbox() {
+  if (bgFind("launchbox")) { toast("LaunchBox data is already downloading"); return; }
+  if ($("lb-download")) $("lb-download").disabled = true;
+  const job = bgRun({ kind: "launchbox", label: "Downloading LaunchBox data …", window: "LaunchBox data",
+    open: () => toast(job.message || job.label), method: "download_launchbox", params: {},
+    stopNote: "Stopping now leaves the LaunchBox data as it was.",
+    finish: async (r) => {
+      if (r.stopped) { toast("Stopped: the LaunchBox data is as it was"); if ($("lb-download")) $("lb-download").disabled = false; return; }
+      S.overview.launchbox = true;
+      if (S.sys) await openSystem(S.sys.system);
+      toast("LaunchBox data downloaded");
+    } });
+  job.done.catch(() => { if ($("lb-download")) $("lb-download").disabled = false; });
+  if (!job.started) toast("LaunchBox data downloads once the job that's running is done");
 }
 
 // ---------- filters ----------
@@ -1057,8 +1057,6 @@ async function start() {
     if (name === "progress") { jobListeners.get(data.job)?.(data); return; }
     if (name !== "launchbox") return;
     if ($("lb-progress")) $("lb-progress").textContent = data.message;
-    const h2 = document.querySelector("#overlay-box h2");
-    if (h2 && !$("overlay").hidden) h2.textContent = data.message;
   });
   $("system-btn").onclick = (e) => { e.stopPropagation(); toggleSystems(); };
   $("change-roms").onclick = () => { closePopovers(); pickRoms().then((ok) => ok && toggleSystems()).catch(oops); };

@@ -76,11 +76,13 @@ function artBox(id, load, video) {
 // ---------- NoPayStation ----------
 const npsSize = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(2)} GB` : `${(n / 1048576).toFixed(1)} MB`);
 const NPS_OWNED = ["Installed", "Have as ROM", "Have (other region)"];
+const NPS_Q = {};  // per system: the queue and how each one went, kept while the window's closed (downloading goes on)
 
 async function openNps(system) {
   const info = await call("nps_info", { system });
+  const Q = (NPS_Q[info.system] ||= { queue: [], states: new Map() }), kind = `nps:${info.system}`;
   const N = { info, kind: info.kinds[0], loaded: new Set(), list: null, sel: new Set(), anchor: null, sort: "name", desc: false,
-    queue: [], states: new Map(), qsel: new Set(), qanchor: null, job: null, installed: false, timer: null, seq: 0 };
+    queue: Q.queue, states: Q.states, qsel: new Set(), qanchor: null, job: null, timer: null, seq: 0, closed: false };
   sheet(`
     <div class="sheet-head"><div class="head-row"><h2>NoPayStation  ·  ${esc(info.console)}</h2><span class="grow"></span>
       <span class="muted small-text" id="n-age"></span><button class="ghost small" id="n-refresh">Refresh lists</button></div>
@@ -112,9 +114,9 @@ async function openNps(system) {
       <span class="grow"></span><button class="ghost" id="n-close">Close</button><button class="primary" id="n-start">Start</button>
     </div>`,
   "stores-sheet nps", () => {
-    N.job?.stop();
+    N.closed = true;
+    if (N.job) N.job.view = null;  // (downloading keeps going: see jobs.js)
     N.art.stop();
-    if (N.installed && S.sys?.system === info.system) rescanQuietly();
   }, npsKeys);
   N.art = artBox("n-media", (row) => call("nps_art", { system: info.system, name: row.name, region: row.region }),
     (row) => ({ title: row.name.split("  ·  ")[0], console: info.console_name }));
@@ -210,7 +212,7 @@ async function openNps(system) {
     for (const q of N.queue.filter((q) => keys.has(q.key))) {
       const st = N.states.get(q.key) || "";
       if (st === "Queued" || st === "Done" || st.startsWith("Failed")) {
-        N.queue = N.queue.filter((j) => j !== q);
+        N.queue = Q.queue = N.queue.filter((j) => j !== q);
         N.states.delete(q.key);
         N.qsel.delete(q.key);
       }
@@ -244,23 +246,38 @@ async function openNps(system) {
         message: `About ${npsSize(room.need)} is needed but only ${npsSize(room.free)} is free in ${room.dir}`, detail: "Start anyway?" })) return;
     } catch (e) { oops(e); return; }
     const others = N.queue.filter((q) => !keys.includes(q.key)).map((q) => N.states.get(q.key) || "");
+    bgRun({ kind, label: `Downloading ${info.console} games …`, window: "NoPayStation", open: () => openNps(info.system),
+      method: "nps_run", params: { system: info.system, keys, others },
+      stopNote: "Stopping now leaves the game being downloaded unfinished; the rest of the queue stays queued.",
+      progress: (p) => { if (p.key && p.state) Q.states.set(p.key, p.state); },
+      finish: async (r) => {
+        for (const [k, v] of Object.entries(r.states)) Q.states.set(k, v);
+        if (r.installed && S.sys?.system === info.system) await rescanQuietly();
+        if (!$("n-queue")) toast(`NoPayStation: ${r.summary}`);
+      } });
+    follow().catch(oops);
+  }
+  async function follow() {  // downloading (just started, or still going from before the window closed)
+    N.job = bgFind(kind);
     $("n-start").textContent = "Stop";
+    $("n-start").disabled = false;
     $("n-system").disabled = $("n-refresh").disabled = true;
-    $("n-bar").style.width = "0%";
-    N.job = runJob("nps_run", { system: info.system, keys, others }, (p) => {
+    $("n-bar").style.width = `${N.job.total ? (100 * N.job.count) / N.job.total : 0}%`;
+    if (N.job.message) status(N.job.message);
+    N.job.view = (p) => {
       if (p.key && p.state) setState(p.key, p.state);
       if (p.message) status(p.message);
-      if ($("n-bar")) $("n-bar").style.width = `${(100 * p.done) / p.total}%`;
-    });
+      if (p.total) $("n-bar").style.width = `${(100 * p.done) / p.total}%`;
+    };
     try {
       const r = await N.job.done;
-      for (const [k, v] of Object.entries(r.states)) N.states.set(k, v);
-      N.installed ||= r.installed;
-      status(r.summary);
-      if (!r.stopped && $("n-bar")) $("n-bar").style.width = "100%";
-    } catch (e) { status(`Failed: ${e.message}`); }
+      if (!N.closed) {
+        status(r.summary);
+        if (!r.stopped) $("n-bar").style.width = "100%";
+      }
+    } catch (e) { if (!N.closed) status(e.cancelled ? "Stopped." : `Failed: ${e.message}`); }
     N.job = null;
-    if (!$("n-start")) return;
+    if (N.closed) return;  // (a window opened again has its own)
     $("n-start").disabled = $("n-system").disabled = $("n-refresh").disabled = false;
     $("n-start").textContent = "Start";
     fillQueue();
@@ -360,6 +377,7 @@ async function openNps(system) {
   fillQueue();
   showHave();
   load();
+  if (bgFind(kind)) follow().catch(oops);
   $("n-q").focus();
 }
 
@@ -400,7 +418,8 @@ async function openStore(store) {
     </div>`,
   "stores-sheet", () => {
     clearInterval(W.watching);
-    W.job?.stop();
+    W.closed = true;
+    if (W.job) W.job.view = null;  // (a download keeps going: see jobs.js)
     if (W.waiting.count) call("store_stop_waiting", { store }).catch(oops);
   }, storeKeys);
   const status = (text) => { if ($("w-status")) $("w-status").textContent = text; };
@@ -490,18 +509,26 @@ async function openStore(store) {
     if (W.job) { W.job.stop(); $("w-install").disabled = true; $("w-install").textContent = "Stopping…"; return; }
     if (!g?.can_install) return;
     if (g.confirm && !await confirmBox({ title: `Install ${g.title}`, ok: "Install", message: g.confirm })) return;
+    bgRun({ kind: `store:${store}`, label: `Downloading ${g.title} …`, window: info.heading, open: () => openStore(store),
+      method: "store_install", params: { store, code: W.code, key: g.key },
+      stopNote: `Stopping now drops the half-downloaded ${g.title}.`,
+      finish: (r) => { if (!r.stopped) filed(r); } });
+    follow().catch(oops);
+  }
+  async function follow() {  // a download (just started, or still going from before the window closed)
+    W.job = bgFind(`store:${store}`);
     $("w-install").textContent = "Stop";
+    $("w-install").disabled = false;
     $("w-barbox").hidden = false;
-    $("w-bar").style.width = "0%";
-    status(`Downloading ${g.title} …`);
-    W.job = runJob("store_install", { store, code: W.code, key: g.key }, (p) => setProgress("w-bar", "w-status", p));
+    const shown = () => setProgress("w-bar", "w-status", { total: W.job.total, done: W.job.count, message: W.job.message || W.job.label });
+    shown();
+    W.job.view = shown;
     try {
       const r = await W.job.done;
-      if (r.stopped) status("Stopped.");
-      else filed(r);
-    } catch (e) { status(`${g.title}: ${e.message}`); }
+      if (r.stopped && !W.closed) status("Stopped.");
+    } catch (e) { if (!W.closed) status(e.cancelled ? "Stopped." : e.message); }
     W.job = null;
-    if (!$("w-install")) return;
+    if (W.closed) return;  // (a window opened again has its own)
     $("w-barbox").hidden = true;
     $("w-install").textContent = "Install";
     W.game = null;
@@ -590,6 +617,7 @@ async function openStore(store) {
   browseTip();
   details();
   W.watching = setInterval(watch, STORE_WATCH_MS);
+  if ($("w-install") && bgFind(`store:${store}`)) follow().catch(oops);
   $("w-q").focus();
   load().catch((e) => status(`Couldn't load the list: ${e.message}`));
 }

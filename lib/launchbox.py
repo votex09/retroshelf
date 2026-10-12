@@ -116,7 +116,8 @@ def resolve_platform(system, fullname, overrides=None):
     return idx.get(pnorm(fullname))
 
 
-def update(zip_path=None, progress=print):
+def update(zip_path=None, progress=print, stop=lambda: False):
+    """Download (or read zip_path) and rebuild the cache. False when stop() said to stop first (nothing changed)."""
     os.makedirs(CACHE, exist_ok=True)
     tmp = None
     try:
@@ -128,6 +129,8 @@ def update(zip_path=None, progress=print):
             with urllib.request.urlopen(req, timeout=60) as r:
                 total, done, step = int(r.headers.get("Content-Length") or 0), 0, 0
                 while chunk := r.read(1 << 20):
+                    if stop():
+                        return False
                     tmp.write(chunk)
                     done += len(chunk)
                     if done >> 24 > step:
@@ -150,6 +153,8 @@ def update(zip_path=None, progress=print):
                 if depth != 1:
                     continue
                 if el.tag == "Game":
+                    if stop():
+                        return False
                     gid, plat = el.findtext("DatabaseID"), el.findtext("Platform")
                     if gid and plat:
                         rating = el.findtext("CommunityRating")
@@ -197,6 +202,7 @@ def update(zip_path=None, progress=print):
     write_json(META, {"updated": stamp, "platforms": sorted(by_plat), "platform_alts": plat_alts, "details": True},
                indent=0)
     progress(f"LaunchBox data updated: {len(by_plat)} platforms, {len(game_plat)} games")
+    return True
 
 
 def has_details():

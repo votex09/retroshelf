@@ -7,7 +7,7 @@ import compress
 import romimport
 import scraper
 import shelf
-from rpc import ctx, event, method, progress, stopped
+from rpc import ctx, event, method, progress, stopped, working_on
 
 FORMATS = {".chd": "CHD", ".rvz": "RVZ"}
 
@@ -81,11 +81,12 @@ def compress_games(job, keys, verify=True, delete=False):
     keys = [k for k in keys if k in plan]
     holding = None if delete else os.path.join(shelf.holding_root(ctx["cfg"]), "to_delete", sc.system)
     report, stop = progress(job), stopped(job)
-    res = compress.run([(k, j) for k in keys for j in plan[k]], tool, sc.folder,
-                       {k: list(sc.units[k]["paths"]) for k in keys}, scraper.gamelist_path(sc.roms_root, sc.system),
-                       os.path.join(scraper.media_root(sc.roms_root), sc.system), holding, verify,
-                       lambda key, text, tag: event("progress", {"job": job, "key": key, "result": text, "tag": tag}),
-                       lambda text, fraction: report(text, round(fraction * 1000), 1000), stop)
+    with working_on(job, sc.system, f"Compressing {ctx['current']['fullname'] or sc.system} games"):
+        res = compress.run([(k, j) for k in keys for j in plan[k]], tool, sc.folder,
+                           {k: list(sc.units[k]["paths"]) for k in keys}, scraper.gamelist_path(sc.roms_root, sc.system),
+                           os.path.join(scraper.media_root(sc.roms_root), sc.system), holding, verify,
+                           lambda key, text, tag: event("progress", {"job": job, "key": key, "result": text, "tag": tag}),
+                           lambda text, fraction: report(text, round(fraction * 1000), 1000), stop)
     games = len(dict.fromkeys(res["keys"]))
     if res["moves"]:
         moves = os.path.join(ctx["data_dir"], "moves.json")

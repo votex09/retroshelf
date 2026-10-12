@@ -9,7 +9,7 @@ answers and events to the window, long jobs with progress and Stop, and what the
     def scrape(job, ...):              # a long job: the window passes a job id it made up
         report = progress(job)         # report(message, done, total) -> a "progress" event {job, message, done, total}
         stop = stopped(job)            # stop() -> True once the window called cancel(job)"""
-import json, sys, threading
+import contextlib, json, sys, threading
 
 # The window speaks UTF-8 whatever the system's own encoding is (Windows': cp1252), so names like "Pokémon" and
 # messages with "→" get through even when the helper isn't started with PYTHONIOENCODING=utf-8.
@@ -50,6 +50,27 @@ def progress(job):
 
 def stopped(job):
     return lambda: job in _cancelled
+
+
+# Jobs that rewrite a system's files and gamelist (compressing, scraping) run in the background: while one does,
+# nothing else may change that system (moving, hiding, renaming, restoring …), or the last writer would win.
+_busy = {}  # job -> (system, what it's doing)
+
+
+@contextlib.contextmanager
+def working_on(job, system, what):
+    _busy[job] = (system, what)
+    try:
+        yield
+    finally:
+        _busy.pop(job, None)
+
+
+def need_free(*systems):
+    """Raise when a background job is working on one of these systems."""
+    for system, what in list(_busy.values()):
+        if system in systems:
+            raise RuntimeError(f"{what} is still going. Wait for it to finish, or stop it from the bar at the bottom.")
 
 
 @method

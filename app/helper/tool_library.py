@@ -12,7 +12,7 @@ import scraper
 import shelf
 import storage
 from rules import unit_key
-from rpc import ctx, method, progress, stopped
+from rpc import ctx, method, need_free, progress, stopped
 
 found = {"problems": [], "sets": [], "done": set()}  # the last health check and duplicates search
 LOW_SPACE = 0.05, 2 << 30  # the ROMs drive is nearly full: under 5% free, or under 2 GB
@@ -89,6 +89,7 @@ def health_fix(ids):
     root = _root()
     done, failed, touched = {}, {}, set()
     with ctx["state_lock"]:
+        need_free(*{found["problems"][i].system for i in ids if 0 <= i < len(found["problems"])})
         for i in ids:
             if not 0 <= i < len(found["problems"]):
                 continue
@@ -131,6 +132,7 @@ def dupes_resolve(keep):
             found["sets"][sid].keep = k
             picked[sid] = found["sets"][sid]
     with ctx["state_lock"]:
+        need_free(*{c.system for s in picked.values() for c in s.copies})
         moves, problems = dupes.resolve(list(picked.values()), root, shelf.holding_root(ctx["cfg"]),
                                         scraper.es_de_running())
         found["done"].update(picked)
