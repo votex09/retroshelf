@@ -69,6 +69,15 @@ def retrodeck_installed():
         return False
 
 
+def frontend_installed(known=()):
+    """Is there an ES-DE to play the games with: RetroDECK, ES-DE on its own (its ~/ES-DE folder, or es-de on the
+    PATH), or on Windows a portable ES-DE RetroShelf knows of or can find?"""
+    if is_windows():
+        return bool(esde_installs(known))
+    return (os.path.isdir(os.path.join(os.path.expanduser("~"), "ES-DE")) or bool(shutil.which("es-de"))
+            or retrodeck_installed())
+
+
 def install_retrodeck(log, cancelled=lambda: False):
     """Add Flathub for this user (if needed) and install RetroDECK from it. log(line) gets flatpak's output.
     Raises RuntimeError when flatpak fails, InterruptedError when cancelled."""

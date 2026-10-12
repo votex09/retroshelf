@@ -18,6 +18,7 @@ const OPTION_LABELS = [
   ["gamepad", "Use a gamepad", "a Steam Deck's or Xbox-style pad moves through the lists"],
   ["animations", "Animations", "lists slide, numbers roll and the focus ring glides"],
   ["scrape_imports", "Scrape imported games", "games added by Import (or copied from a source) get LaunchBox artwork and text when they have none"],
+  ["notify_issues", "Tell me about things to fix", "duplicates, library problems, a nearly full drive or no RetroDECK / ES-DE: ☰ shows how many, and Things to fix lists them"],
   ["check_updates", "Check for updates when RetroShelf starts", "new versions download by themselves and go in when you restart"],
 ];
 
@@ -83,6 +84,7 @@ async function openSettings() {
     b.onchange = async () => {
       try { applyOptions(await call("set_option", { name: b.dataset.opt, value: b.checked })); } catch (e) { oops(e); }
       if (b.dataset.opt === "play_videos" && !b.checked) stopVideo();
+      if (b.dataset.opt === "notify_issues") checkIssues();
     };
   }
   if (lastUpdate) $("o-update").textContent = updateText(lastUpdate);

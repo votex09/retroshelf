@@ -23,6 +23,7 @@ function closeSheet() {
   const fn = onSheetClose;
   onSheetClose = sheetKeys = null;
   if (fn) Promise.resolve().then(fn).catch(oops);
+  sheetClosedForIssues();
 }
 
 // The windows' tables and side panels move like the main window's lists: rows that are still there after a redraw

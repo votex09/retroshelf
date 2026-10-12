@@ -311,6 +311,25 @@ print(json.dumps({"found": found, "plan": plan, "fixed": h.health_fix(ids), "aga
         self.assertEqual(out["again"]["problems"], [])
         self.assertNotIn("Chrono Trigger (USA).sfc", os.listdir(os.path.join(self.roms, "snes")))
 
+    def test_things_to_fix(self):
+        for d in ("snes", "sfc"):  # the same game in two folders: a duplicate
+            os.makedirs(os.path.join(self.roms, d), exist_ok=True)
+            with open(os.path.join(self.roms, d, "Earthbound (USA).sfc"), "w") as f:
+                f.write("x" * 100)
+        out = session(self.data, """
+import frontend, storage
+h.startup()
+frontend.frontend_installed = lambda known=(): False
+first = h.issues_scan("j1")
+frontend.frontend_installed = lambda known=(): True
+storage.drive = lambda root: (1 << 30, 100 << 30)
+print(json.dumps({"first": first, "then": h.issues_scan("j2")}))""")
+        self.assertEqual([(i["kind"], i["count"], i["cmd"]) for i in out["first"]["issues"]],
+                         [("frontend", 1, "setup"), ("health", 2, "health"), ("dupes", 1, "dupes")])
+        self.assertEqual(out["first"]["issues"][1]["text"], "2 library problems")
+        self.assertEqual([i["kind"] for i in out["then"]["issues"]], ["storage", "health", "dupes"])
+        self.assertIn("1.0 GB free", out["then"]["issues"][0]["text"])
+
     def test_find_duplicates(self):
         game = os.path.join(self.roms, "snes", "Chrono Trigger (USA).sfc")
         with open(game, "w") as f:

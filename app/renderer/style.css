@@ -661,3 +661,11 @@ body.light .unmute { background: rgba(255, 255, 255, .85); }
 .src-left #c-q { flex: 1; }
 .nps-side.src-side { padding-top: 18px; padding-bottom: 14px; }
 .src-side .nps-queue { flex: 1 1 0; min-height: 120px; }
+
+/* Things to fix: a count on ☰ and on the menu's first entry */
+#menu-btn { position: relative; }
+#menu-btn .badge { position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--danger); color: #fff; font: 600 11px/18px system-ui, sans-serif; text-align: center; pointer-events: none; }
+.menu .badge { position: absolute; right: 30px; top: 7px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--danger); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.menu .has-issues { color: var(--danger); font-weight: 600; }

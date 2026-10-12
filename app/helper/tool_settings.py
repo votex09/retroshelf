@@ -6,7 +6,7 @@ import handoff
 import launchbox as lb
 from rpc import ctx, method
 
-OPTIONS = ("play_videos", "stream_videos", "gamepad", "animations", "show_details", "check_updates", "scrape_imports")
+OPTIONS = ("play_videos", "stream_videos", "gamepad", "animations", "show_details", "check_updates", "scrape_imports", "notify_issues")
 
 
 @method
