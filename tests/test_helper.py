@@ -526,6 +526,10 @@ rpc.event = lambda name, data=None: None
 h.startup()
 info = h.import_info()
 scanned = h.import_scan()
+import tool_files
+tool_files._imp["busy"] = True  # reopening the window while an import goes on keeps its list
+reopened = h.import_info()
+tool_files._imp["busy"] = False
 h.import_set_system([r["id"] for r in scanned["rows"] if r["name"] == "mystery.zip"], "fbneo")
 done = h.import_run("j1")
 try:
@@ -538,13 +542,14 @@ added = h.import_add_folder()
 with open({os.path.join(inbox, "Metroid (USA).gba")!r}, "wb") as f:
     f.write(b"M" * 64)
 watch = [h.import_watch(), h.import_watch()]
-print(json.dumps({{"info": info, "scanned": scanned, "done": done, "inside": inside, "folder": folder,
+print(json.dumps({{"info": info, "scanned": scanned, "reopened": reopened, "done": done, "inside": inside, "folder": folder,
                   "added": added, "watch": watch}}))""")
         self.assertEqual(out["info"]["inbox"], inbox)
         self.assertTrue(all(r["status"] == "Checking …" for r in out["info"]["rows"]))
         self.assertEqual({r["name"]: r["system"] for r in out["scanned"]["rows"]},
                          {"Gran Turismo 4 (USA).7z": "PlayStation 2", "mystery.zip": "?", "Tetris (World).gb": "Game Boy"})
         self.assertEqual((out["scanned"]["ready"], out["scanned"]["unknown"]), (2, 1))
+        self.assertEqual(out["reopened"]["rows"], out["scanned"]["rows"])
         self.assertEqual((out["done"]["imported"], out["done"]["systems"]), (3, ["fbneo", "gb", "ps2"]))
         for rel in ("ps2/Gran Turismo 4 (USA).iso", "fbneo/mystery.zip", "gb/Tetris (World).gb"):
             self.assertTrue(os.path.exists(os.path.join(self.roms, *rel.split("/"))), rel)

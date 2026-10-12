@@ -99,8 +99,11 @@ rename can be undone, and games only go for good when you delete them from the h
   tracks and the `.cue` itself too), since the name inside is often a scene name; packs of several games keep theirs.
 - **Sources** (the second tab) lists games kept in another folder, like a home server's share mounted on this
   computer: add the folder once with **Add source…**, browse its games by system with box art and a gameplay video,
-  queue them (A / Space) and **Copy to library**. They're unpacked and filed like imports; the source is only read.
+  queue them (A / Space) and **Add to Library** (or press Menu / F10). They're unpacked and filed like imports; the
+  source is only read.
   Games you already have (same title, any region) say **In library**. **Look again** re-reads the folder.
+- Importing and copying keep going when you close the window (B / Esc): the main window's footer shows how far
+  along it is, and selecting that opens the window again, where **Stop** (or Menu / F10) ends it after the current game.
 - Imported and copied games are scraped with LaunchBox right away (artwork and text they don't have yet) while
   **☰ → Settings → Scrape imported games** is on, which it is by default. It needs the LaunchBox data downloaded.
 - Games unpack into a hidden staging folder first, so ES-DE never sees half a game, and the drive's free space is

@@ -249,6 +249,12 @@ h1 { font-size: 21px; margin: 0 0 4px; line-height: 1.2; }
 
 /* ---------- footer ---------- */
 footer { display: flex; align-items: center; gap: 16px; padding: 12px 18px; }
+/* an import or a source copy still going on with the Import window closed (file-tools.js's bgShow) */
+.bg-job { display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-width: 240px; max-width: 340px; padding: 6px 12px; font-size: 12px; }
+.bg-job[hidden] { display: none; }
+.bg-job .bg-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.bg-job .progress-bar { display: block; height: 4px; margin: 0; }
+.bg-job .progress-bar > span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width .3s var(--ease); }
 .hints { display: flex; gap: 6px 14px; color: var(--muted); font-size: 13px; animation: rise .4s var(--ease); flex-wrap: wrap; min-width: 0; }
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
 .hint { display: flex; align-items: center; gap: 6px; white-space: nowrap; }

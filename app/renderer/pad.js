@@ -302,6 +302,14 @@ function gameMenu() {
   rowMenu(S.active, { target: row || $(S.active), clientX: r.left + 40, clientY: r.top + r.height / 2, preventDefault() {} });
 }
 
+// A window with a main job (Import's Add to Library, NoPayStation's Start) gives it to Menu (F10) instead of ☰:
+// its keys handler's start(), named by startText().
+function sheetStart() {
+  if (topLayer() !== $("sheet") || !sheetKeys?.start) return false;
+  sheetKeys.start();
+  return true;
+}
+
 function startMenu() {
   if (!$("menu").hidden) { closePopovers(); return; }
   closePopovers();
@@ -446,7 +454,7 @@ document.addEventListener("keydown", (e) => {
   syncCursor();
   const layer = topLayer(), dir = NAV[e.key];
   if (e.key === "Escape") { e.preventDefault(); back(); return; }
-  if (e.key === "F10" && !e.shiftKey) { e.preventDefault(); startMenu(); return; }  // (Menu on a pad)
+  if (e.key === "F10" && !e.shiftKey) { e.preventDefault(); sheetStart() || startMenu(); return; }  // (Menu on a pad)
   if (ownsAll()) {
     e.preventDefault();
     if (e.key === "PageUp" || e.key === "PageDown") padScroll(e.key === "PageDown" ? 1 : -1, true);
@@ -529,7 +537,7 @@ function padButton(b, repeat) {
   syncCursor(!repeat);
   const layer = topLayer(), dir = DIRS[b];
   if (ownsAll()) { ownButton(b); return; }
-  if (b === 9) { startMenu(); return; }
+  if (b === 9) { sheetStart() || startMenu(); return; }
   if ((b === 4 || b === 5) && inBox(layer)) { nextArea(b === 5 ? 1 : -1); return; }
   if (layer === document.body && !P.cur) {  // the lists
     if (b === 1) { back(); return; }
@@ -722,6 +730,7 @@ function uiHints() {
     h.push(...around);
     if (P.cur?.closest("#details")) h.push(pad ? ["rs-ud", "Scroll"] : k("PgUp PgDn", "Scroll"));
   }
+  if (layer === $("sheet") && sheetKeys?.start) h.push(pad ? ["menu", sheetKeys.startText()] : k("F10", sheetKeys.startText()));
   if (inBox(layer) && !ownsAll() && sheetAreas(layer).length > 1) h.push(pad ? ["l1/r1", "Next area"] : k("F6", "Next area"));
   if (ownsAll()) { if (scrollsIn(layer)) h.push(pad ? ["l2/r2", "Scroll details"] : k("PgUp PgDn", "Scroll details")); }
   else if (onRow() && scrollsIn(layer)) h.push(pad ? ["l2/r2", "Page"] : k("PgUp PgDn", "Page"));  // (not when it all fits)

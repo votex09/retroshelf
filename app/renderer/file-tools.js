@@ -127,6 +127,53 @@ async function openCompress() {
 }
 
 // ---------- Import ROMs ----------
+// Importing and copying from a source go on when the window closes: one at a time, shown in the main window's footer
+// (#bg-job, which opens the window again) until it's done. The window picks it back up when it opens.
+const BG = { kind: null, job: null, message: "", done: 0, total: 0, view: null };
+const SRC_Q = { queue: [], states: new Map(), qsel: new Set() };  // the Sources queue, kept while the window's closed
+function bgStart(kind, method, params, finish) {
+  Object.assign(BG, { kind, message: "", done: 0, total: 0 });
+  BG.job = runJob(method, params, (p) => {
+    if (p.key && p.state) SRC_Q.states.set(p.key, p.state);
+    if (p.message) BG.message = p.message;
+    if (p.total) { BG.done = p.done; BG.total = p.total; }
+    bgShow();
+    BG.view?.(p);
+  });
+  const job = BG.job;
+  job.done.then(async (r) => {
+    BG.job = BG.kind = null;
+    bgShow();
+    if (finish(r)) {  // games went in: new system folders show up, and the open system's new games
+      S.overview = await call("startup");
+      if (S.sys && r.systems.includes(S.sys.system)) await rescanQuietly();
+    }
+  }, (e) => {
+    BG.job = BG.kind = null;
+    bgShow();
+    if (!BG.view) toast(`${kind === "sources" ? "Copying" : "Importing"} failed: ${e.message}`, { error: true });
+  }).catch(oops);
+  bgShow();
+  return job;
+}
+function bgShow() {
+  const b = $("bg-job");
+  b.hidden = !BG.job;
+  if (!BG.job) return;
+  const text = BG.message || (BG.kind === "sources" ? "Adding games to your library …" : "Importing …");
+  b.querySelector(".bg-text").textContent = text;
+  b.title = `${text}\nOpen Import ROMs`;
+  b.querySelector(".progress-bar > span").style.width = `${BG.total ? (100 * BG.done) / BG.total : 0}%`;
+}
+$("bg-job").onclick = () => {
+  try { localStorage.setItem("import-page", BG.kind === "sources" ? "sources" : "folder"); } catch { /* fine */ }
+  openImport().catch(oops);
+};
+const bgBusy = (kind) => {  // the other page's job is still going
+  if (!BG.job || BG.kind === kind) return false;
+  toast(BG.kind === "sources" ? "Wait for the copying from the source to finish" : "Wait for the import to finish", { error: true });
+  return true;
+};
 // Two pages: the import folder, and sources (folders to copy games from, like a home server's share).
 function importTabs(on) {
   return `<div class="head-row import-tabs"><h2>Import ROMs</h2>
@@ -136,7 +183,6 @@ function importTabs(on) {
 function wireImportTabs(on) {
   const go = (page) => async () => {
     if (page === on) return;
-    if (sheetBusy) { toast("Stop the copying or importing first", { error: true }); return; }
     closeSheet();
     try { localStorage.setItem("import-page", page); } catch { /* fine */ }
     (page === "sources" ? openSources : openImport)(true).catch(oops);
@@ -154,7 +200,7 @@ async function openImport(stay) {
   const I = { list: info, inbox: info.inbox, sel: new Set(), job: null, scanning: 0, watching: false, timer: null };
   sheet(`
     <div class="sheet-head">${importTabs("folder")}
-      <p>Put games in the import folder (or add them from anywhere): ROM files, disc images and zip / 7z / rar archives, as they are. RetroShelf works out which system each one is for, unpacks it, and files it into your ROMs folder in a form the emulators read. Check the systems below, change any that are wrong, then press Import.</p></div>
+      <p>Put games in the import folder (or add them from anywhere): ROM files, disc images and zip / 7z / rar archives, as they are. RetroShelf works out which system each one is for, unpacks it, and files it into your ROMs folder in a form the emulators read. Check the systems below, change any that are wrong, then press Add to Library. It keeps going if you close this window.</p></div>
     <div class="sheet-tools">
       <span>Import folder</span><span class="dim inbox-path" id="i-inbox" title="Files put here are moved into your ROMs folder when imported. RetroShelf notices new ones while this window is open."></span>
       <button class="ghost small" id="i-open">Open folder</button><button class="ghost small" id="i-change">Change…</button>
@@ -171,11 +217,15 @@ async function openImport(stay) {
     <div class="job-progress"><div class="progress-bar"><div id="i-bar"></div></div><div class="progress-text" id="i-status"></div></div>
     <div class="sheet-foot">
       <label class="check" title="Games in the import folder are always moved out of it. Games added with Add files / Add a folder are copied, leaving the originals, unless this is ticked."><input type="checkbox" id="i-delete"${info.delete ? " checked" : ""}> Also delete the originals of games added from other folders</label>
-      <span class="grow"></span><button class="ghost" id="i-close">Close</button><button class="primary" id="i-go">Import</button></div>`,
-  "", () => {
+      <span class="grow"></span><button class="ghost" id="i-close">Close</button><button class="primary" id="i-go">Add to Library</button></div>`,
+  "", () => {  // (an import keeps going: see BG)
     clearInterval(I.timer);
-    if (I.job) { I.job.stop(); I.job.done.then(imported).catch(() => {}); }
-  });
+    BG.view = null;
+  }, folderKeys);
+  // Start (F10) is the Add to Library / Stop button
+  function folderKeys() { return false; }
+  folderKeys.start = () => $("i-go").click();
+  folderKeys.startText = () => (I.job ? "Stop" : "Add to Library");
   function fill() {
     const rows = I.list.rows;
     for (const id of I.sel) if (!rows.some((r) => r.id === id)) I.sel.delete(id);
@@ -190,7 +240,7 @@ async function openImport(stay) {
   }
   function buttons() {
     const n = I.list.ready;
-    $("i-go").textContent = I.job ? "Stop" : n ? `Import ${plural(n, "game")}` : "Import";
+    $("i-go").textContent = I.job ? "Stop" : n ? `Add ${plural(n, "game")} to Library` : "Add to Library";
     if (!I.job) $("i-go").disabled = !n || I.scanning > 0;
     for (const id of ["i-files", "i-folder", "i-remove", "i-set", "i-change"]) $(id).disabled = !!I.job;
     if (I.job) return;
@@ -208,11 +258,6 @@ async function openImport(stay) {
     I.scanning++;
     buttons();
     try { show(await call("import_scan")); } finally { I.scanning--; if ($("i-table")) buttons(); }
-  }
-  async function imported(r) {  // after a run: new system folders show up, and the open system's new games
-    if (!r.imported) return;
-    S.overview = await call("startup");
-    if (S.sys && r.systems.includes(S.sys.system)) await rescanQuietly();
   }
   wireImportTabs("folder");
   pickRows($("i-table"), I.sel, Number, () => { fill(); syncSystem(); });
@@ -254,16 +299,18 @@ async function openImport(stay) {
   };
   $("i-delete").onchange = () => call("import_options", { delete: $("i-delete").checked }).catch(oops);
   $("i-close").onclick = closeSheet;
-  const askStop = async () => {  // closing while it works (Close, Esc, a click outside) asks first
-    if (!await confirmBox({ title: "Import ROMs", ok: "Stop", message: "Stop importing?", detail: "The game being imported now is left where it was." })) return;
-    sheetBusy = null;
-    closeSheet();
-  };
-  $("i-go").onclick = async () => {
+  $("i-go").onclick = () => {
     if (I.job) { I.job.stop(); $("i-go").disabled = true; $("i-status").textContent = "Stopping …"; return; }
-    if (!I.list.ready) return;
-    sheetBusy = askStop;
-    I.job = runJob("import_run", { delete: $("i-delete").checked }, (p) => {
+    if (!I.list.ready || bgBusy("folder")) return;
+    bgStart("folder", "import_run", { delete: $("i-delete").checked }, (r) => {
+      if (r.imported) toast(`Imported ${plural(r.imported, "game")}${r.systems.length ? ` into ${r.systems.join(", ")}` : ""}.`);
+      return r.imported > 0;
+    });
+    follow().catch(oops);
+  };
+  async function follow() {  // the import going on (just started, or still going from before the window closed)
+    I.job = BG.job;
+    BG.view = (p) => {
       if (!$("i-table")) return;
       if (p.row) {
         I.list.rows = I.list.rows.map((r) => (r.id === p.row.id ? p.row : r));
@@ -272,39 +319,37 @@ async function openImport(stay) {
         $("i-bar").style.width = `${p.total ? (100 * p.done) / p.total : 0}%`;
         if (p.message) $("i-status").textContent = p.message;
       }
-    });
+    };
     buttons();
-    try {
-      const r = await I.job.done;
+    $("i-bar").style.width = `${BG.total ? (100 * BG.done) / BG.total : 0}%`;
+    if (BG.message) $("i-status").textContent = BG.message;
+    let r;
+    try { r = await I.job.done; } catch (e) {
       I.job = null;
-      if (!$("i-table")) { await imported(r); return; }
-      sheetBusy = null;
-      $("i-bar").style.width = "0";
-      show(r);
-      if (r.imported) {
-        $("i-status").textContent = `${r.stopped ? "Stopped. " : ""}Imported ${r.imported.toLocaleString()} — they're in your ROMs folder now.${r.scraped ? `  ${r.scraped}.` : ""}`;
-        toast(`Imported ${plural(r.imported, "game")}${r.systems.length ? ` into ${r.systems.join(", ")}` : ""}.`);
-        await imported(r);
-      }
-    } catch (e) {
-      I.job = null;
-      if ($("i-status")) { sheetBusy = null; buttons(); $("i-status").textContent = `Failed: ${e.message}`; }
+      if ($("i-status")) { buttons(); $("i-status").textContent = `Failed: ${e.message}`; }
+      return;
     }
-  };
+    I.job = null;
+    if (!$("i-table")) return;
+    $("i-bar").style.width = "0";
+    show(r);
+    if (r.imported) $("i-status").textContent = `${r.stopped ? "Stopped. " : ""}Imported ${r.imported.toLocaleString()} — they're in your ROMs folder now.${r.scraped ? `  ${r.scraped}.` : ""}`;
+  }
   // new files in the import folder show up while the window is open
   I.timer = setInterval(async () => {
     if (I.watching || I.job || I.scanning) return;
     I.watching = true;
     try { const list = await call("import_watch"); if (list) await scan(list); } catch (e) { console.error(e); } finally { I.watching = false; }
   }, 2000);
-  await scan(info);
+  if (BG.kind === "folder") { show(info); follow().catch(oops); } else await scan(info);
 }
 
 // ----- sources: folders to copy games from (a home server's share mounted here, another drive …) -----
 async function openSources() {
   if (!S.overview?.roms) { toast("Pick your ROMs folder first", { error: true }); return; }
   const saved = await call("source_list");
-  const C = { saved, path: null, list: null, sel: null, queue: [], states: new Map(), qsel: new Set(), job: null, seq: 0, timer: null, copied: false };
+  const C = { saved, path: null, list: null, sel: null, job: null, seq: 0, timer: null };
+  const Q = SRC_Q;
   const pick = (saved.sources.find((x) => x.path === saved.last) || saved.sources[0])?.path || null;
   sheet(`
     <div class="src-layout">
@@ -321,7 +366,7 @@ async function openSources() {
           <label class="check"><input type="checkbox" id="c-hide"> Hide ones I have</label>
         </div>
         <div class="nps-main"><div class="results-line" id="c-res"></div><div class="table nps-rows src-rows" id="c-table"></div></div>
-        <div class="sheet-foot"><span class="grow"></span><button class="ghost" id="c-close">Close</button><button class="primary" id="c-start">Copy to library</button></div>
+        <div class="sheet-foot"><span class="grow"></span><button class="ghost" id="c-close">Close</button><button class="primary" id="c-start">Add to Library</button></div>
       </div>
       <aside class="nps-side src-side">
         <div class="nps-pick"><div class="nps-media" id="c-media" hidden></div><div id="c-pick"></div></div>
@@ -333,8 +378,7 @@ async function openSources() {
     </div>`,
   "stores-sheet nps", () => {
     C.art.stop();
-    C.job?.stop();
-    if (C.copied) call("startup").then((o) => { S.overview = o; return S.sys ? rescanQuietly() : null; }).catch(oops);
+    BG.view = null;  // (a copy keeps going: see BG)
   }, srcKeys);
   C.art = artBox("c-media", (row) => call("source_art", { key: row.key }),
     (row) => ({ title: row.name.replace(/\s*[([][^)\]]*[)\]]/g, ""), console: row.label }));
@@ -344,7 +388,8 @@ async function openSources() {
       ? C.saved.sources.map((x) => `<option value="${esc(x.path)}"${x.path === C.path ? " selected" : ""}>${esc(x.label)}${x.here ? "" : "  (can't reach it)"}</option>`).join("")
       : `<option value="">No sources yet: press Add source</option>`;
     $("c-source").title = C.path || "";
-    $("c-forget").disabled = $("c-refresh").disabled = !C.path;
+    $("c-forget").disabled = $("c-refresh").disabled = !C.path || !!C.job;  // (not while copying from it)
+    $("c-source").disabled = $("c-add").disabled = !!C.job;
   }
   async function open(path, refresh = false) {
     C.path = path;
@@ -360,17 +405,17 @@ async function openSources() {
       if (path !== C.path || !$("c-table")) return;
       const keep = $("c-system").value;
       $("c-system").innerHTML = `<option value="">All systems</option>` + r.systems.map(([c, l]) => `<option value="${esc(c)}"${c === keep ? " selected" : ""}>${esc(l)}</option>`).join("");
-      status(r.total ? "" : "No games found in this source.");
+      status(!r.total ? "No games found in this source." : C.job ? BG.message : "");
       await rows();
     } catch (e) { if (path === C.path) status(`Couldn't open it: ${e.message}`); }
-    if ($("c-refresh")) $("c-refresh").disabled = !C.path;
+    if ($("c-refresh")) $("c-refresh").disabled = !C.path || !!C.job;
   }
   async function rows() {
     if (!C.path) return;
     const n = ++C.seq;
     try {
       const r = await call("source_rows", { system: $("c-system").value, query: $("c-q").value, hide_have: $("c-hide").checked,
-        queued: Object.fromEntries(C.states) });
+        queued: Object.fromEntries(Q.states) });
       if (n !== C.seq || !$("c-table")) return;
       C.list = r;
       fillRows();
@@ -402,70 +447,72 @@ async function openSources() {
   function enqueue(key) {
     const row = C.list?.rows.find((x) => x.key === key);
     if (!row) return;
-    const st = C.states.get(key);
+    const st = Q.states.get(key);
     if (st && !st.startsWith("Failed")) return;
-    if (!C.queue.some((q) => q.key === key)) C.queue.push(row);
-    C.states.set(key, "Queued");
+    if (!Q.queue.some((q) => q.key === key)) Q.queue.push(row);
+    Q.states.set(key, "Queued");
     fillQueue();
     rows();
   }
   function dequeue(keys) {
     for (const k of keys) {
-      if (C.states.get(k) === "Copying") continue;
-      C.queue = C.queue.filter((q) => q.key !== k);
-      C.states.delete(k);
-      C.qsel.delete(k);
+      if (Q.states.get(k) === "Copying") continue;
+      Q.queue = Q.queue.filter((q) => q.key !== k);
+      Q.states.delete(k);
+      Q.qsel.delete(k);
     }
     fillQueue();
     rows();
   }
   function fillQueue() {
     if (!$("c-queue")) return;
-    $("c-queue").innerHTML = C.queue.length ? C.queue.map((q) => `<div class="trow${C.qsel.has(q.key) ? " on" : ""}" data-key="${esc(q.key)}">
+    $("c-queue").innerHTML = Q.queue.length ? Q.queue.map((q) => `<div class="trow${Q.qsel.has(q.key) ? " on" : ""}" data-key="${esc(q.key)}">
       <span class="nm" title="${esc(q.key)}">${esc(q.name)}</span><span class="num">${human(q.size)}</span>
-      <span class="dim ${stateClass(C.states.get(q.key) || "")}" data-state>${esc(C.states.get(q.key) || "")}</span></div>`).join("")
+      <span class="dim ${stateClass(Q.states.get(q.key) || "")}" data-state>${esc(Q.states.get(q.key) || "")}</span></div>`).join("")
       : `<div class="none">Nothing queued yet.</div>`;
-    const pending = C.queue.filter((q) => C.states.get(q.key) === "Queued");
+    const pending = Q.queue.filter((q) => Q.states.get(q.key) === "Queued");
     $("c-qhead").textContent = pending.length ? `Queue: ${pending.length} waiting` : "Queue";
     $("c-qsize").textContent = pending.length ? human(pending.reduce((n, q) => n + q.size, 0)) : "";
-    $("c-remove").disabled = !C.queue.length || !!C.job;
+    $("c-remove").disabled = !Q.queue.length || !!C.job;
   }
-  async function start() {
+  function start() {
     if (C.job) { C.job.stop(); $("c-start").disabled = true; $("c-start").textContent = "Stopping…"; return; }
-    const keys = C.queue.filter((q) => C.states.get(q.key) === "Queued").map((q) => q.key);
+    const keys = Q.queue.filter((q) => Q.states.get(q.key) === "Queued").map((q) => q.key);
     if (!keys.length) { status("The queue is empty: pick games and press Add to queue."); return; }
+    if (bgBusy("sources")) return;
+    bgStart("sources", "source_copy", { keys }, (r) => {
+      for (const [k, v] of Object.entries(r.states)) Q.states.set(k, v);
+      if (r.copied) toast(`Copied ${plural(r.copied, "game")} into your library.`);
+      return r.copied > 0;
+    });
+    follow().catch(oops);
+  }
+  async function follow() {  // the copy going on (just started, or still going from before the window closed)
+    C.job = BG.job;
     $("c-start").textContent = "Stop";
-    $("c-source").disabled = $("c-add").disabled = $("c-forget").disabled = $("c-refresh").disabled = $("c-remove").disabled = true;
-    $("c-bar").style.width = "0%";
-    sheetBusy = async () => {
-      if (!await confirmBox({ title: "Import ROMs", ok: "Stop", message: "Stop copying?", detail: "The game being copied now is left out." })) return;
-      sheetBusy = null;
-      closeSheet();
-    };
-    C.job = runJob("source_copy", { keys }, (p) => {
+    fillSources();
+    fillQueue();
+    $("c-bar").style.width = `${BG.total ? (100 * BG.done) / BG.total : 0}%`;
+    if (BG.message) status(BG.message);
+    BG.view = (p) => {
       if (!$("c-queue")) return;
       if (p.key && p.state) {
-        C.states.set(p.key, p.state);
         const cell = document.querySelector(`#c-queue .trow[data-key="${CSS.escape(p.key)}"] [data-state]`);
         if (cell) { cell.textContent = p.state; cell.className = `dim ${stateClass(p.state)}`; }
       }
       if (p.message) status(p.message);
       if (p.total) $("c-bar").style.width = `${(100 * p.done) / p.total}%`;
-    });
+    };
     try {
       const r = await C.job.done;
-      for (const [k, v] of Object.entries(r.states)) C.states.set(k, v);
-      C.copied ||= r.copied > 0;
       const failed = Object.values(r.states).filter((v) => v.startsWith("Failed")).length;
       status(`${r.stopped ? "Stopped. " : ""}Copied ${plural(r.copied, "game")}${r.systems.length ? ` into roms/${r.systems.join(", roms/")}` : ""}` +
         (failed ? `, ${failed} failed` : "") + "." + (r.scraped ? `  ${r.scraped}.` : ""));
-      if (r.copied) toast(`Copied ${plural(r.copied, "game")} into your library.`);
     } catch (e) { status(`Failed: ${e.message}`); }
     C.job = null;
-    sheetBusy = null;
     if (!$("c-start")) return;
-    $("c-start").disabled = $("c-source").disabled = $("c-add").disabled = false;
-    $("c-start").textContent = "Copy to library";
+    $("c-start").disabled = false;
+    $("c-start").textContent = "Add to Library";
     fillSources();
     fillQueue();
     rows();
@@ -478,10 +525,12 @@ async function openSources() {
       keys: [["key", "↑ ↓", "Choose"], ["key", "Space", "Pick"], ["key", "Backspace", "Take off the queue"]] }
     : { pad: [["dpad", "Choose"], ["a", "Add to queue"], ["y", "Take off the queue"]],
       keys: [["key", "↑ ↓", "Choose"], ["key", "Space", "Add to queue"], ["key", "Backspace", "Take off the queue"]] });
+  srcKeys.start = () => $("c-start").click();  // Start (F10): Add to Library / Stop
+  srcKeys.startText = () => (C.job ? "Stop" : "Add to Library");
   function srcKeys(key) {
     const queue = inQueue(P.cur);
     if (key === "Enter" || (key === " " && !queue)) { if (C.sel) enqueue(C.sel); return true; }
-    if (key === "Delete" || key === "Backspace") { dequeue(queue ? [...C.qsel] : C.sel ? [C.sel] : []); return true; }
+    if (key === "Delete" || key === "Backspace") { dequeue(queue ? [...Q.qsel] : C.sel ? [C.sel] : []); return true; }
     if (key === "ArrowDown" || key === "ArrowUp") {
       const keys = C.list?.rows.map((x) => x.key) || [];
       if (!keys.length) return false;
@@ -508,8 +557,8 @@ async function openSources() {
     const row = e.target.closest(".trow[data-key]");
     if (!row) return;
     const k = row.dataset.key;
-    if (e.ctrlKey || e.metaKey) C.qsel.has(k) ? C.qsel.delete(k) : C.qsel.add(k);
-    else C.qsel = C.qsel.has(k) && C.qsel.size === 1 ? new Set() : new Set([k]);
+    if (e.ctrlKey || e.metaKey) Q.qsel.has(k) ? Q.qsel.delete(k) : Q.qsel.add(k);
+    else Q.qsel = Q.qsel.has(k) && Q.qsel.size === 1 ? new Set() : new Set([k]);
     fillQueue();
   });
   $("c-source").onchange = (e) => open(e.target.value || null);
@@ -531,10 +580,11 @@ async function openSources() {
   $("c-system").onchange = $("c-hide").onchange = rows;
   $("c-q").oninput = () => { clearTimeout(C.timer); C.timer = setTimeout(rows, 200); };
   $("c-addq").onclick = () => enqueue(C.sel);
-  $("c-remove").onclick = () => dequeue([...C.qsel]);
-  $("c-start").onclick = () => start().catch(oops);
+  $("c-remove").onclick = () => dequeue([...Q.qsel]);
+  $("c-start").onclick = start;
   $("c-close").onclick = closeSheet;
   fillQueue();
+  if (BG.kind === "sources") follow().catch(oops);
   open(pick);
   $("c-q").focus();
 }
