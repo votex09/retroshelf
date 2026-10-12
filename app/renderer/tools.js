@@ -36,7 +36,8 @@ async function openScrape() {
     const l = keys.filter((k) => linked.has(k)).length, c = keys.filter((k) => close.has(k)).length;
     return [v, `${name}: ${plural(keys.length, "game")}, ${l.toLocaleString()} matched in LaunchBox${c ? ` (+${c} close)` : ""}`, keys];
   };
-  let job = null, ran = false;
+  const sys = S.sys.system, name = S.sys.fullname;
+  let job = bgFind(`scrape:${sys}`), closed = false;
   sheet(`
     <div class="sheet-head"><h2>Scrape ${esc(S.sys.fullname)} from LaunchBox</h2>
       <p>Fills gaps: existing images are never replaced, text only if you tick that below, and play counts, favorites and hidden flags are left alone.</p></div>
@@ -54,23 +55,38 @@ async function openScrape() {
       <div class="progress-text" id="s-status"></div>
     </div>
     <div class="sheet-foot"><span class="grow"></span><button class="ghost" id="s-close-btn">Close</button><button class="primary" id="s-start">Start</button></div>`,
-  "small wide form-sheet", () => { job?.stop(); if (ran) rescanQuietly(); });
+  "small wide form-sheet", () => { closed = true; if (job) job.view = null; });  // (scraping keeps going: see jobs.js)
   $("s-close-btn").onclick = closeSheet;
-  $("s-start").onclick = async () => {
-    if (job) { job.stop(); $("s-start").disabled = true; $("s-start").textContent = "Stopping…"; return; }
+  $("s-start").onclick = () => {
+    if (job) { job.stop(); $("s-start").disabled = true; $("s-start").textContent = job.started ? "Stopping…" : "Start"; return; }
     const scope = document.querySelector('input[name="s-scope"]:checked').value;
     const keys = scopes.find(([v]) => v === scope)[2];
     const media = [...document.querySelectorAll("[data-media]:checked")].map((b) => b.dataset.media);
     const text = $("s-text").checked, useClose = $("s-close").checked;
     if (!text && !media.length) return;
+    bgRun({ kind: `scrape:${sys}`, label: `Scraping ${name} …`, window: "Scrape metadata",
+      open: async () => {
+        if (S.sys?.system !== sys) { await flushDecide(); loadSystem(await call("open_system", { system: sys })); }
+        await openScrape();
+      },
+      method: "scrape", params: { keys, text, media, close: useClose, overwrite: $("s-over").checked },
+      stopNote: "Stopping now keeps what's been filled in so far.",
+      finish: async (r) => {
+        if (S.sys?.system === sys) await rescanQuietly();
+        if (!$("s-status")) toast(`Scraped ${name}: ${r.text} text fields, ${plural(r.images, "image")}${r.failed ? `, ${r.failed} failed` : ""}.`, { error: Boolean(r.failed) });
+      } });
+    follow(useClose).catch(oops);
+  };
+  async function follow(useClose = $("s-close").checked) {  // scraping (just started, or still going from before the window closed)
+    job = bgFind(`scrape:${sys}`);
     $("s-start").textContent = "Stop";
-    $("s-status").textContent = "Preparing…";
+    $("s-start").disabled = false;
+    setProgress("s-bar", "s-status", { total: job.total, done: job.count, message: job.message || "Preparing…" });
     $("s-status").scrollIntoView({ block: "nearest" });
-    job = runJob("scrape", { keys, text, media, close: useClose, overwrite: $("s-over").checked }, (p) => setProgress("s-bar", "s-status", p));
+    job.view = (p) => setProgress("s-bar", "s-status", { total: job.total, done: job.count, message: p.message || job.message });
     try {
       const r = await job.done;
-      ran = true;
-      if ($("s-status")) {
+      if (!closed) {  // (a window opened again has its own)
         $("s-bar").style.width = "100%";
         $("s-status").textContent = `${r.stopped ? "Stopped early. " : ""}Filled ${r.text} text fields (${r.added || 0} new gamelist entries), ` +
           `downloaded ${r.images} images. ${r.skipped} already had that image, ${r.missing} not in LaunchBox, ${r.failed} failed. ` +
@@ -78,11 +94,12 @@ async function openScrape() {
         $("s-status").scrollIntoView({ block: "nearest" });
       }
     } catch (e) {
-      if ($("s-status")) $("s-status").textContent = `Failed: ${e.message}`;
+      if (!closed) $("s-status").textContent = e.cancelled ? "Stopped." : `Failed: ${e.message}`;
     }
     job = null;
-    if ($("s-start")) { $("s-start").disabled = false; $("s-start").textContent = "Start"; }
-  };
+    if (!closed) { $("s-start").disabled = false; $("s-start").textContent = "Start"; }
+  }
+  if (job) follow().catch(oops);
 }
 
 // Right-click → Scrape this game: the scrape window's defaults (gaps only, the usual images), with no window.
@@ -114,16 +131,21 @@ async function scrapeGames(keys) {
   const text = !info.es_de_running;  // (ES-DE rewrites gamelist.xml when it quits: images only until it's closed)
   const media = info.media.filter((m) => m.default).map((m) => m.type);
   const what = one || plural(useClose ? exact.length + fuzzy.length : exact.length, "game");
-  toast(`Scraping ${what} …`);
-  try {
-    const r = await runJob("scrape", { keys, text, media, close: useClose }, () => {}).done;
-    toast(`Scraped ${what}: ${r.text} text fields, ${plural(r.images, "image")}` +
-      `${r.skipped ? ` (${r.skipped} already there)` : ""}${r.failed ? `, ${r.failed} failed` : ""}.` +
-      (text ? "" : " Text was left alone because ES-DE is running."), { error: Boolean(r.failed) });
-    await rescanQuietly();
-  } catch (e) {
-    toast(`Scraping failed: ${e.message}`, { error: true });
-  }
+  const sys = S.sys.system;
+  const job = bgRun({ kind: `scrape:${sys}`, label: `Scraping ${what} …`, window: "Scrape metadata",  // (the Scrape window shows it)
+    open: async () => {
+      if (S.sys?.system !== sys) { await flushDecide(); loadSystem(await call("open_system", { system: sys })); }
+      await openScrape();
+    },
+    method: "scrape", params: { keys, text, media, close: useClose },
+    stopNote: "Stopping now keeps what's been filled in so far.",
+    finish: async (r) => {
+      toast(`Scraped ${what}: ${r.text} text fields, ${plural(r.images, "image")}` +
+        `${r.skipped ? ` (${r.skipped} already there)` : ""}${r.failed ? `, ${r.failed} failed` : ""}.` +
+        (text ? "" : " Text was left alone because ES-DE is running."), { error: Boolean(r.failed) });
+      if (S.sys?.system === sys) await rescanQuietly();
+    } });
+  toast(job.started ? `Scraping ${what} …` : `Scraping ${what} once the job that's running is done`);
 }
 
 // ---------- Rename files ----------

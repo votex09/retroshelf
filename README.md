@@ -102,9 +102,8 @@ rename can be undone, and games only go for good when you delete them from the h
   queue them (A / Space) and **Add to Library** (or press Menu / F10). They're unpacked and filed like imports; the
   source is only read.
   Games you already have (same title, any region) say **In library**. **Look again** re-reads the folder.
-- Importing and copying keep going when you close the window (B / Esc): the main window's footer shows how far
-  along it is, and selecting that opens the window again, where **Stop** (or Menu / F10) ends it, leaving out the game it's on.
-  Closing RetroShelf while one runs asks first: keep going, quit when it's done, or stop and quit.
+- Importing and copying keep going when you close the window (B / Esc), like compressing and scraping: see
+  **Background jobs** below.
 - Imported and copied games are scraped with LaunchBox right away (artwork and text they don't have yet) while
   **☰ → Settings → Scrape imported games** is on, which it is by default. It needs the LaunchBox data downloaded.
 - Games unpack into a hidden staging folder first, so ES-DE never sees half a game, and the drive's free space is
@@ -142,6 +141,13 @@ rename can be undone, and games only go for good when you delete them from the h
   stay with it. File names inside `.cue` / `.m3u` files are updated too.
 - Arcade systems (`mame`, `arcade`, `fbneo`, `neogeo` and the like) are left alone: their emulators find games by
   ROM set file name, so renaming them would stop them starting.
+
+**Background jobs**
+- Importing, copying from a source, **Compress games** and **Scrape metadata** keep going when you close their window,
+  so you can carry on using RetroShelf. They run one at a time; one started while another runs waits its turn.
+- The main window's footer shows the one running (and how many are waiting). Selecting it opens its window again,
+  where **Stop** ends it, leaving the game it's on as it was.
+- Closing RetroShelf while one runs asks first: keep going, quit when everything's done, or stop and quit.
 
 **Compress games**
 - **☰ → Library → This console → Compress games…** turns disc images into the compressed formats the emulators read, usually a third
