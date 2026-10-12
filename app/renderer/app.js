@@ -70,7 +70,30 @@ function overlay(html, buttons = []) {
   btns?.querySelector(".primary")?.focus();
 }
 let overlayCancel = null;  // what B / Esc does in a question (confirmBox)
-const closeOverlay = () => { $("overlay").hidden = true; overlayCancel = null; };
+const closeOverlay = () => { ghostOut($("overlay")); $("overlay").hidden = true; overlayCancel = null; };
+
+// ---------- motion shared by every window ----------
+// Off with ☰ → Settings → Animations off, or the system's reduced motion (CSS covers itself with body.still).
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const moving = () => S.opts.animations !== false && !reducedMotion.matches;
+
+// Something closing (a window, a box, a menu) fades and shrinks away, as it popped in. The real one is hidden at
+// once (so nothing waits on the animation): a copy without ids plays it.
+function ghostOut(el, { scale = 0.97, ms = 170 } = {}) {
+  if (!el || el.hidden || !moving() || !el.getClientRects().length) return;
+  const ghost = el.cloneNode(true);
+  ghost.removeAttribute("id");
+  ghost.querySelectorAll("[id]").forEach((x) => x.removeAttribute("id"));
+  ghost.querySelectorAll("video, iframe").forEach((x) => x.remove());
+  ghost.classList.add("closing");
+  const r = el.getBoundingClientRect(), fixed = getComputedStyle(el).position === "fixed";
+  if (!fixed) Object.assign(ghost.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, margin: 0 });
+  document.body.appendChild(ghost);
+  const inner = ghost.querySelector(".sheet, .overlay-box") || ghost;
+  ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ms, easing: "ease-in", fill: "forwards" });
+  inner.animate([{ transform: "none" }, { transform: `translateY(6px) scale(${scale})` }], { duration: ms, easing: "ease-in", fill: "forwards" })
+    .finished.then(() => ghost.remove(), () => ghost.remove());
+}
 
 // Asks before something big. -> true for the ok button. In the window rather than a system dialog, so a gamepad can
 // answer it too (A / Enter for ok, B / Esc cancels).
@@ -529,6 +552,7 @@ function openPanel(name) {
 }
 
 function closePopovers() {
+  for (const id of ["filters", "systems-pop", "menu", "ctx"]) ghostOut($(id), { scale: 0.98, ms: 130 });
   $("filters").hidden = true;
   $("systems-pop").hidden = true;
   $("menu").hidden = true;

@@ -17,12 +17,59 @@ function sheet(html, cls = "", onClose = null, keys = null) {
 function closeSheet() {
   if ($("sheet-wrap").hidden) return;
   if (sheetBusy) { sheetBusy(); return; }
+  ghostOut($("sheet-wrap"));
   $("sheet-wrap").hidden = true;
   $("sheet").innerHTML = "";
   const fn = onSheetClose;
   onSheetClose = sheetKeys = null;
   if (fn) Promise.resolve().then(fn).catch(oops);
 }
+
+// The windows' tables and side panels move like the main window's lists: rows that are still there after a redraw
+// glide from where they were, new ones rise in (a short stagger when a table first fills), and a panel showing the
+// picked game swaps its contents in. Every window gets it without asking: this watches what they redraw.
+const rowKey = (row) => row.dataset.key ?? row.dataset.id ?? row.dataset.code ?? null;
+const SWAPS = ".nps-pick, .store-details, [id$='-pick']";
+function tableMoved(table) {
+  const rows = [...table.querySelectorAll(":scope > .trow:not(.head)")];
+  const before = table.tops, after = new Map();
+  for (const row of rows) { const k = rowKey(row); if (k != null) after.set(k, row.offsetTop); }
+  table.tops = after;
+  if (!moving()) return;
+  const view = table.scrollTop + table.clientHeight;
+  let fresh = 0;
+  for (const row of rows) {
+    if (row.offsetTop > view + 40) break;  // (only what's in sight)
+    const k = rowKey(row), was = k == null || !before ? undefined : before.get(k);
+    if (was != null) {
+      const dy = was - row.offsetTop;
+      if (dy && Math.abs(dy) < table.clientHeight * 2) {
+        row.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 260, easing: "cubic-bezier(.2,.8,.2,1)" });
+      }
+    } else if (!before || before.size === 0 || fresh < 30) {
+      const delay = before?.size ? 0 : Math.min(fresh, 14) * 18;
+      row.animate([{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }],
+        { duration: 240, delay, easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards" });
+      fresh++;
+    }
+  }
+}
+new MutationObserver((changes) => {
+  const tables = new Set(), swaps = new Set();
+  for (const c of changes) {
+    const t = c.target;
+    if (t.classList?.contains("table")) tables.add(t);
+    else if (t.matches?.(SWAPS)) swaps.add(t);
+  }
+  tables.forEach(tableMoved);
+  for (const el of swaps) {  // (only when it shows something else: a redraw of the same game stays still)
+    const what = el.querySelector("h3")?.textContent ?? el.textContent.slice(0, 80);
+    if (what === el.shows) swaps.delete(el);
+    el.shows = what;
+  }
+  if (moving()) swaps.forEach((el) => el.animate([{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }],
+    { duration: 240, easing: "cubic-bezier(.2,.8,.2,1)" }));
+}).observe($("sheet"), { childList: true, subtree: true });
 
 $("sheet-wrap").addEventListener("mousedown", (e) => { if (e.target === $("sheet-wrap")) closeSheet(); });
 

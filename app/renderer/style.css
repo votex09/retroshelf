@@ -410,8 +410,14 @@ body.still .pad-cur { transition: none; }
   display: grid; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 8px; cursor: pointer;
   grid-template-columns: 22px minmax(0, 1fr) 90px 130px 80px 140px;
 }
+.trow { transition: background .2s, box-shadow .2s; }
 .trow:hover { background: rgba(255, 255, 255, .04); }
-.trow.on { background: var(--accent-soft); }
+.trow.on { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.trow.head:hover { background: var(--surface); }
+.table { scroll-behavior: smooth; position: relative; }
+body.still .table { scroll-behavior: auto; }
+/* a closing window, box or menu (app.js ghostOut): only the copy that fades away */
+.closing, .closing * { animation: none !important; pointer-events: none !important; }
 .trow.head { position: sticky; top: 0; z-index: 1; background: var(--surface); color: var(--muted); font-size: 12px; cursor: default; }
 .trow .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trow .num { text-align: right; font-variant-numeric: tabular-nums; }
