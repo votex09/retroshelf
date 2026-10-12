@@ -282,7 +282,7 @@ async function openImport(stay) {
       $("i-bar").style.width = "0";
       show(r);
       if (r.imported) {
-        $("i-status").textContent = `${r.stopped ? "Stopped. " : ""}Imported ${r.imported.toLocaleString()} — they're in your ROMs folder now.`;
+        $("i-status").textContent = `${r.stopped ? "Stopped. " : ""}Imported ${r.imported.toLocaleString()} — they're in your ROMs folder now.${r.scraped ? `  ${r.scraped}.` : ""}`;
         toast(`Imported ${plural(r.imported, "game")}${r.systems.length ? ` into ${r.systems.join(", ")}` : ""}.`);
         await imported(r);
       }
@@ -307,28 +307,30 @@ async function openSources() {
   const C = { saved, path: null, list: null, sel: null, queue: [], states: new Map(), qsel: new Set(), job: null, seq: 0, timer: null, copied: false };
   const pick = (saved.sources.find((x) => x.path === saved.last) || saved.sources[0])?.path || null;
   sheet(`
-    <div class="sheet-head">${importTabs("sources")}
-      <p>Copy games from another folder, like a home server's share mounted here. They're filed like imports; the source is never changed.</p></div>
-    <div class="sheet-tools">
-      <select id="c-source"></select>
-      <select id="c-system"><option value="">All systems</option></select>
-      <input type="search" id="c-q" placeholder="Search" spellcheck="false">
-      <label class="check"><input type="checkbox" id="c-hide"> Hide ones I have</label>
-    </div>
-    <div class="nps-body">
-      <div class="nps-main"><div class="results-line" id="c-res"></div><div class="table nps-rows src-rows" id="c-table"></div></div>
-      <aside class="nps-side">
+    <div class="src-layout">
+      <div class="src-left">
+        <div class="sheet-head">${importTabs("sources")}
+          <p>Copy games from another folder, like a home server's share mounted here. They're filed like imports; the source is never changed.</p></div>
+        <div class="sheet-tools">
+          <select id="c-source"></select><select id="c-system"><option value="">All systems</option></select>
+          <button class="ghost small" id="c-add">Add source…</button><button class="ghost small" id="c-forget">Remove source</button>
+          <button class="ghost small" id="c-refresh">Look again</button>
+        </div>
+        <div class="sheet-tools">
+          <input type="search" id="c-q" placeholder="Search" spellcheck="false">
+          <label class="check"><input type="checkbox" id="c-hide"> Hide ones I have</label>
+        </div>
+        <div class="nps-main"><div class="results-line" id="c-res"></div><div class="table nps-rows src-rows" id="c-table"></div></div>
+        <div class="sheet-foot"><span class="grow"></span><button class="ghost" id="c-close">Close</button><button class="primary" id="c-start">Copy to library</button></div>
+      </div>
+      <aside class="nps-side src-side">
         <div class="nps-pick"><div class="nps-media" id="c-media" hidden></div><div id="c-pick"></div></div>
         <button class="ghost" id="c-addq">Add to queue</button>
         <div class="nps-qhead"><b id="c-qhead">Queue</b><span class="muted" id="c-qsize"></span><span class="grow"></span><button class="ghost small" id="c-remove">Remove</button></div>
         <div class="table nps-queue" id="c-queue"></div>
         <div class="progress-bar"><div id="c-bar"></div></div><div class="progress-text" id="c-status"></div>
       </aside>
-    </div>
-    <div class="sheet-foot">
-      <button class="ghost small" id="c-add">Add source…</button><button class="ghost small" id="c-forget">Remove source</button>
-      <button class="ghost small" id="c-refresh">Look again</button><span class="muted small-text" id="c-age"></span>
-      <span class="grow"></span><button class="ghost" id="c-close">Close</button><button class="primary" id="c-start">Copy to library</button></div>`,
+    </div>`,
   "stores-sheet nps", () => {
     C.art.stop();
     C.job?.stop();
@@ -356,7 +358,6 @@ async function openSources() {
     try {
       const r = await runJob("source_open", { path, refresh }, (p) => status(p.message)).done;
       if (path !== C.path || !$("c-table")) return;
-      $("c-age").textContent = r.scanned;
       const keep = $("c-system").value;
       $("c-system").innerHTML = `<option value="">All systems</option>` + r.systems.map(([c, l]) => `<option value="${esc(c)}"${c === keep ? " selected" : ""}>${esc(l)}</option>`).join("");
       status(r.total ? "" : "No games found in this source.");
@@ -457,7 +458,7 @@ async function openSources() {
       C.copied ||= r.copied > 0;
       const failed = Object.values(r.states).filter((v) => v.startsWith("Failed")).length;
       status(`${r.stopped ? "Stopped. " : ""}Copied ${plural(r.copied, "game")}${r.systems.length ? ` into roms/${r.systems.join(", roms/")}` : ""}` +
-        (failed ? `, ${failed} failed` : "") + ".");
+        (failed ? `, ${failed} failed` : "") + "." + (r.scraped ? `  ${r.scraped}.` : ""));
       if (r.copied) toast(`Copied ${plural(r.copied, "game")} into your library.`);
     } catch (e) { status(`Failed: ${e.message}`); }
     C.job = null;

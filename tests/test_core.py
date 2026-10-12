@@ -24,6 +24,7 @@ import launchbox as lb  # noqa: E402
 import nps  # noqa: E402
 import scraper  # noqa: E402
 import sources  # noqa: E402
+import autoscrape  # noqa: E402
 import updater  # noqa: E402
 import dialogs  # noqa: E402
 import romimport as ri  # noqa: E402
@@ -2428,6 +2429,33 @@ class Sources(unittest.TestCase):
             self.assertTrue(row.status.startswith("Imported"), row.status)
             self.assertTrue(os.path.exists(os.path.join(roms, "gba", "Pocket Hero (USA).gba")))
             self.assertTrue(os.path.exists(os.path.join(src, "Misc", "Pocket Hero (USA).zip")))
+
+
+class AutoScrape(unittest.TestCase):
+    """Games Import just filed get scraped: the .cue of a disc game, matched by title, with its regions."""
+
+    def test_scrape_new(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            roms = os.path.join(tmp, "roms")
+            placed = [[os.path.join(roms, "psx", "Crash (USA) (Track 1).bin"), os.path.join(roms, "psx", "Crash (USA).cue")],
+                      [os.path.join(roms, "psx", "Nobody Knows (Japan).chd")]]
+
+            class M:
+                def __init__(self, platform): pass
+                def match(self, title): return ("7", {}, "exact") if title == "Crash" else (None, None, None)
+                def save(self): pass
+            with mock.patch.object(autoscrape.lb, "has_details", return_value=False):
+                self.assertEqual(autoscrape.scrape_new(placed, roms, {}), "")
+            with mock.patch.object(autoscrape.lb, "has_details", return_value=True), \
+                    mock.patch.object(autoscrape.lb, "Matcher", M), \
+                    mock.patch.object(autoscrape.lb, "resolve_platform", return_value="Sony Playstation"), \
+                    mock.patch.object(autoscrape.scraper, "es_de_running", return_value=False), \
+                    mock.patch.object(autoscrape.scraper, "scrape", return_value={"images": 3}) as scrape:
+                line = autoscrape.scrape_new(placed, roms, {})
+            jobs, platform, system = scrape.call_args[0][:3]
+            self.assertEqual((platform, system), ("Sony Playstation", "psx"))
+            self.assertEqual(jobs, [(placed[0][1], "7", ("USA",))])
+            self.assertEqual(line, "Scraped 1 of 2 with LaunchBox (3 images)")
 
 if __name__ == "__main__":
     unittest.main()
