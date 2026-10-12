@@ -85,6 +85,47 @@ async function openScrape() {
   };
 }
 
+// Right-click → Scrape this game: the scrape window's defaults (gaps only, the usual images), with no window.
+async function scrapeGames(keys) {
+  await flushDecide();
+  const info = await call("scrape_info");
+  if (!info.platform) { toast("Pick a LaunchBox platform for this system first", { error: true }); return; }
+  if (!info.has_details) { toast("Download LaunchBox data again from the ☰ menu first: the scraper needs its descriptions and image lists", { error: true }); return; }
+  const linked = new Set(info.linked), close = new Set(info.close);
+  const exact = keys.filter((k) => linked.has(k)), fuzzy = keys.filter((k) => close.has(k));
+  const one = keys.length === 1 ? keys[0] : null;
+  if (!exact.length && !fuzzy.length) {
+    toast(`${one ? "This game has" : "None of these games have"} a LaunchBox match. Right-click → Set LaunchBox match… to pick one.`, { error: true });
+    return;
+  }
+  let useClose = false;
+  if (fuzzy.length) {  // close matches are a guess: ask first (Esc cancels)
+    const message = one ? "LaunchBox only has a close match for this game" : `${plural(fuzzy.length, "game")} only ${fuzzy.length === 1 ? "has" : "have"} a close LaunchBox match`;
+    const answer = await new Promise((resolve) => {
+      const done = (a) => { closeOverlay(); resolve(a); };
+      overlay(`<h2>${esc(message)}</h2><p>Close matches are usually right, but check them in the details panel (or right-click → Set LaunchBox match…) if unsure.</p>`,
+        [["Cancel", () => done(null)], ...(exact.length ? [[`Only the ${plural(exact.length, "exact match", "exact matches")}`, () => done(false)]] : []),
+          [exact.length ? "Scrape all" : "Scrape", () => done(true), true]]);
+      overlayCancel = () => done(null);
+    });
+    if (answer === null) return;
+    useClose = answer;
+  }
+  const text = !info.es_de_running;  // (ES-DE rewrites gamelist.xml when it quits: images only until it's closed)
+  const media = info.media.filter((m) => m.default).map((m) => m.type);
+  const what = one || plural(useClose ? exact.length + fuzzy.length : exact.length, "game");
+  toast(`Scraping ${what} …`);
+  try {
+    const r = await runJob("scrape", { keys, text, media, close: useClose }, () => {}).done;
+    toast(`Scraped ${what}: ${r.text} text fields, ${plural(r.images, "image")}` +
+      `${r.skipped ? ` (${r.skipped} already there)` : ""}${r.failed ? `, ${r.failed} failed` : ""}.` +
+      (text ? "" : " Text was left alone because ES-DE is running."), { error: Boolean(r.failed) });
+    await rescanQuietly();
+  } catch (e) {
+    toast(`Scraping failed: ${e.message}`, { error: true });
+  }
+}
+
 // ---------- Rename files ----------
 async function openRename() {
   await flushDecide();

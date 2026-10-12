@@ -115,6 +115,8 @@ rename can be undone, and games only go for good when you delete them from the h
 - Right-click a game to pick its LaunchBox entry by hand when the match is missing or wrong.
 - **☰ → Library → This console → Scrape metadata…** fills ES-DE text (description, developer, release date, genre, rating …) and images (covers,
   screenshots, title screens, marquees, 3D boxes …). It only fills gaps and never overwrites what's already there.
+- Right-click a game (or the marked games) → **Scrape this game** does the same for just those, with the usual images,
+  without opening the window. Close matches are scraped only after you say so.
 
 **Gameplay videos**
 - The details panel and the review window play the selected game's gameplay clip, muted and looping, a moment

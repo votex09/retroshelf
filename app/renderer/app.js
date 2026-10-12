@@ -955,6 +955,7 @@ function rowMenu(name, e) {
     null,
     ["Set LaunchBox match…", canMatch, () => openMatch(g.key)],
     ["Back to automatic match", games.length === 1 && g.manual_match, () => setMatch(g.key, null, true)],
+    [games.length > 1 ? `Scrape ${games.length} games` : "Scrape this game", Boolean(S.sys.platform && S.overview.launchbox), () => scrapeGames(keys)],
     null,
     [games.length > 1 ? `Add ${games.length} games to an ES-DE collection…` : "Add to an ES-DE collection…", true, () => openCollection(keys)],
     ["Review from here…", true, () => openReview()],
