@@ -14,8 +14,8 @@ import storage
 from rules import unit_key
 from rpc import ctx, method, progress, stopped
 
-found = {"problems": [], "sets": [], "done": set()}
-LOW_SPACE = 0.05, 2 << 30  # the ROMs drive is nearly full: under 5% free, or under 2 GB  # the last health check and duplicates search
+found = {"problems": [], "sets": [], "done": set()}  # the last health check and duplicates search
+LOW_SPACE = 0.05, 2 << 30  # the ROMs drive is nearly full: under 5% free, or under 2 GB
 
 
 def _root():

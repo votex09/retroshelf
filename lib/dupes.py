@@ -121,7 +121,24 @@ def _digest(path, size):
     return h.hexdigest()
 
 
+_full_digests = {}  # (path, size, mtime) -> sha1: the quiet hourly search (Things to fix) doesn't re-read big files
+
+
 def _full_digest(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (path, st.st_size, st.st_mtime_ns)
+    if key not in _full_digests:
+        d = _hash_file(path)
+        if d is None:
+            return None
+        _full_digests[key] = d
+    return _full_digests[key]
+
+
+def _hash_file(path):
     h = hashlib.sha1()
     try:
         with open(path, "rb") as f:
