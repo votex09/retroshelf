@@ -297,8 +297,8 @@ Download the app from the [latest release](https://github.com/votex09/retroshelf
 everything else it needs are inside.
 
 - **Linux / Steam Deck:** `RetroShelf-<version>-linux-x86_64.AppImage`. Make it executable (right-click →
-  Properties, or `chmod +x`) and run it. **☰ → Settings → Add to app menu** adds it to your application menu; on a
-  Steam Deck, add it to Steam as a non-Steam game.
+  Properties, or `chmod +x`) and run it. **☰ → Settings → Add to app menu** adds it to your application menu (updates
+  keep the entry pointing at the new file); on a Steam Deck, add it to Steam as a non-Steam game.
 - **Windows:** `RetroShelf-<version>-win-x64.exe` installs it (no administrator needed), or run
   `RetroShelf-<version>-portable.exe` from anywhere.
 
