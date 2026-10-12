@@ -65,8 +65,8 @@ class Site:
         if not url.startswith(self.base):
             raise ValueError(f"{url} isn't under {self.base}")
         req = urllib.request.Request(url, headers={"User-Agent": "RetroShelf"})
-        if self.basic:
-            req.add_header("Authorization", self.basic)
+        if self.basic:  # (not carried over a redirect: the login is only for this source's server)
+            req.add_unredirected_header("Authorization", self.basic)
         try:
             return self.opener.open(req, timeout=TIMEOUT)
         except urllib.error.HTTPError as e:

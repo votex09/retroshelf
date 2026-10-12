@@ -2575,6 +2575,39 @@ class WebSources(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(site, "roms", "snes", "Chrono Quest (USA).sfc")))
 
 
+    def test_login_stays_with_the_source(self):
+        """A redirect to another server doesn't take the login along."""
+        import http.server, threading
+        seen = []
+
+        class Elsewhere(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                seen.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b'<a href="x.gb">x.gb</a>')
+
+        other = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Elsewhere)
+
+        class Source(Elsewhere):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{other.server_address[1]}/roms/")
+                self.end_headers()
+        source = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Source)
+        for server in (other, source):
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+        site = websource.Site(f"http://127.0.0.1:{source.server_address[1]}/roms/", "ky", "pw")
+        site.listing()
+        self.assertEqual(seen, [None])
+
+
 class AutoScrape(unittest.TestCase):
     """Games Import just filed get scraped: the .cue of a disc game, matched by title, with its regions."""
 
