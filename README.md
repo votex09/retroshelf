@@ -24,7 +24,7 @@ rename can be undone, and games only go for good when you delete them from the h
 - Filter by LaunchBox rating, vote count, genre and region.
 - Played games are protected by default (play counts from ES-DE's `gamelist.xml`).
 - Double-click any game to flip it by hand, or use the keyboard or any gamepad (no Steam Input needed). Every
-  button has a key that does the same (**☰ → Keyboard and gamepad** lists them):
+  button has a key that does the same (**☰ → Help** lists them):
 
   | | Gamepad | Keyboard |
   |---|---|---|

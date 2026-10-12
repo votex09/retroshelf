@@ -1769,6 +1769,23 @@ class Dupes(unittest.TestCase):
             f.write(data if isinstance(data, bytes) else data.encode())
         return p
 
+    def test_big_copies_are_read_in_full_once(self):
+        # Things to fix searches every hour: big files already compared aren't read again until they change
+        disc = os.urandom(3 << 20)
+        a, b = self.put("psx/Big (USA).iso", disc), self.put("ps2/Big (USA).iso", disc)
+        reads = []
+        real = dupes._hash_file
+        with mock.patch.object(dupes, "PARTIAL_HASH", 2 << 20), \
+                mock.patch.object(dupes, "_hash_file", lambda p: reads.append(p) or real(p)):
+            for _ in range(2):
+                self.assertEqual([s.kind for s in dupes.find(self.roms, rs.unit_key)], ["copies"])
+            self.assertEqual(sorted(reads), sorted([a, b]))
+            with open(a, "ab") as f:
+                f.write(b"x")
+            os.utime(a, ns=(0, 0))
+            self.assertEqual(dupes.find(self.roms, rs.unit_key), [])
+        self.assertEqual(len(reads), 2)  # sizes differ now, so nothing to read in full
+
     def test_finds_keeps_the_right_one_and_moves_the_rest(self):
         disc = os.urandom(5000)
         self.put("psx/Game (USA).cue", 'FILE "Game (USA).bin" BINARY\n  TRACK 01 MODE2/2352\n')
