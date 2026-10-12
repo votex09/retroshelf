@@ -25,12 +25,21 @@ function execOf(text) {
   return line.split(/\s+/)[0] || null;
 }
 
+// The version in a RetroShelf AppImage's name (RetroShelf-2026.1012.1-linux-x86_64.AppImage) as numbers, or null.
+function versionOf(file) {
+  const m = /^RetroShelf-(\d+)\.(\d+)\.(\d+)\b.*\.AppImage$/i.exec(path.basename(file));
+  return m ? m.slice(1).map(Number) : null;
+}
+const older = (a, b) => { for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i]; return false; };
+
 // Should an entry that starts `was` be pointed at `exe` (this AppImage)? Yes when `was` is gone (an update renamed
-// it, or it was moved), or when it's another RetroShelf AppImage in the same folder (an older version left behind).
+// it, or it was moved), or when it's an older RetroShelf AppImage left in the same folder. Never backwards: running
+// an older copy kept beside a newer one leaves the entry on the newer one.
 function stale(was, exe, exists = fs.existsSync) {
   if (!was || was === exe) return false;
   if (!exists(was)) return true;
-  return path.dirname(was) === path.dirname(exe) && /^RetroShelf.*\.AppImage$/i.test(path.basename(was));
+  const a = versionOf(was), b = versionOf(exe);
+  return path.dirname(was) === path.dirname(exe) && Boolean(a && b) && older(a, b);
 }
 
 class MenuEntry {
@@ -66,4 +75,4 @@ class MenuEntry {
   }
 }
 
-module.exports = { MenuEntry, entryText, execOf, stale };
+module.exports = { MenuEntry, entryText, execOf, stale, versionOf };
