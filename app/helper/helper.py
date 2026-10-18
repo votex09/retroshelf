@@ -60,6 +60,25 @@ def use_system_libraries():
 
 use_system_libraries()
 
+
+def use_system_paths():
+    """Started from a desktop menu or an AppImage runner, PATH can be a short one. On NixOS that misses where flatpak,
+    chdman and the rest live (the system profile, the user's profiles, /run/wrappers), so they look missing: add the
+    ones that are there."""
+    if sys.platform != "linux":
+        return
+    have = os.environ.get("PATH", "").split(os.pathsep)
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+    extra = ["/run/wrappers/bin", os.path.expanduser("~/.nix-profile/bin"),
+             os.path.expanduser("~/.local/state/nix/profile/bin"), f"/etc/profiles/per-user/{user}/bin",
+             "/nix/var/nix/profiles/default/bin", "/run/current-system/sw/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    add = [d for d in extra if d not in have and os.path.isdir(d)]
+    if add:
+        os.environ["PATH"] = os.pathsep.join([x for x in have if x] + add)
+
+
+use_system_paths()
+
 import esde_collections  # noqa: E402
 import hiding  # noqa: E402
 import holding  # noqa: E402

@@ -325,7 +325,9 @@ or **Set up ES-DE…** on Windows). Pick where your games should go (your home f
 folder, each with its free space), and RetroShelf does the rest:
 
 - **Linux:** installs [RetroDECK](https://retrodeck.net) from Flathub for your user (no password needed; Flatpak
-  must be installed, which it is on Steam Deck and most desktops). RetroDECK then runs its own first-time setup,
+  must be installed, which it is on Steam Deck and most desktops; on NixOS turn on `services.flatpak.enable`).
+  RetroDECK is a big download and Flatpak shows little while it downloads, so RetroShelf says how much has been
+  written so far; if Flatpak stops making progress altogether it's stopped and its last words shown. RetroDECK then runs its own first-time setup,
   which asks where its data goes: RetroShelf tells you which button to press and copies the folder path for you.
   When the setup finishes, RetroShelf switches to the new `retrodeck/roms` folder by itself.
 - **Windows:** downloads the official portable build of [ES-DE](https://es-de.org) (its checksum is checked),
