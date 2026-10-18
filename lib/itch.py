@@ -16,7 +16,9 @@ import downloads
 from fsutil import write_json
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CACHE = os.path.join(APP_DIR, "cache", "itch")
+# next to RetroShelf, or in the Electron app's data folder (RETROSHELF_DATA): the app folder can be read-only
+# (an AppImage, a Nix build)
+CACHE = os.path.join(os.environ.get("RETROSHELF_DATA") or APP_DIR, "cache", "itch")
 BROWSE = "https://itch.io/games/price-free"
 USER_AGENT = "RetroShelf/1.0 (+https://github.com/votex09/retroshelf)"
 PAGES = 3  # feed pages per browse page (about 30 games each)
