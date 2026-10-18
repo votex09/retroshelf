@@ -16,7 +16,9 @@ import xml.etree.ElementTree as ET
 from fsutil import NO_WINDOW, is_windows, make_shortcut, shortcut_text
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CACHE = os.path.join(APP_DIR, "cache", "nps")
+# next to RetroShelf, or in the Electron app's data folder (RETROSHELF_DATA): the app folder can be read-only
+# (an AppImage, a Nix build)
+CACHE = os.path.join(os.environ.get("RETROSHELF_DATA") or APP_DIR, "cache", "nps")
 TSV_URL = "https://nopaystation.com/tsv/{}.tsv"
 USER_AGENT = "RetroShelf/1.0"
 FLATPAK = "net.retrodeck.retrodeck"

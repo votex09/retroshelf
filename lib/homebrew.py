@@ -12,7 +12,9 @@ import downloads
 from fsutil import write_json
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CACHE = os.path.join(APP_DIR, "cache", "homebrew")
+# next to RetroShelf, or in the Electron app's data folder (RETROSHELF_DATA): the app folder can be read-only
+# (an AppImage, a Nix build)
+CACHE = os.path.join(os.environ.get("RETROSHELF_DATA") or APP_DIR, "cache", "homebrew")
 API = "https://hh3.gbdev.io"
 SITE = "https://hh.gbdev.io"
 USER_AGENT = "RetroShelf/1.0"

@@ -153,6 +153,30 @@ class Renames(unittest.TestCase):
             self.assertEqual(f.read(), "y")
 
 
+class DataFolder(unittest.TestCase):
+    """Every cache goes where the Electron app keeps its data when it says so (RETROSHELF_DATA): the app's own
+    folder is read-only in an AppImage or a Nix build."""
+
+    def test_caches_follow_retroshelf_data(self):
+        import importlib
+        data = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, data, True)
+        names = ["homebrew", "itch", "mamedev", "nps", "pdroms", "launchbox", "sources"]
+        mods = [importlib.import_module(n) for n in names]
+        try:
+            with mock.patch.dict(os.environ, {"RETROSHELF_DATA": data}):
+                for m in mods:
+                    importlib.reload(m)
+                    self.assertTrue(os.path.normpath(m.CACHE).startswith(os.path.normpath(data) + os.sep), m.__name__)
+        finally:
+            with mock.patch.dict(os.environ):
+                os.environ.pop("RETROSHELF_DATA", None)
+                for m in mods:
+                    importlib.reload(m)
+        for m in mods:  # and next to RetroShelf otherwise (the Tk app)
+            self.assertFalse(os.path.normpath(m.CACHE).startswith(os.path.normpath(data)), m.__name__)
+
+
 class WriteJson(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
