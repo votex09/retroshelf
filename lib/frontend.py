@@ -78,9 +78,102 @@ def frontend_installed(known=()):
             or retrodeck_installed())
 
 
+QUIET_NOTE = 60      # seconds of silence from flatpak before saying what's still happening
+QUIET_LIMIT = 900    # seconds with no output and nothing written to disk before calling it stuck
+
+
+def _free_bytes(path):
+    try:
+        st = os.statvfs(path)
+        return st.f_bavail * st.f_frsize
+    except (OSError, AttributeError):
+        return None
+
+
+def flatpak_user_dir():
+    return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share"),
+                        "flatpak")
+
+
+def _run_flatpak(cmd, log, cancelled, quiet_note=QUIET_NOTE, quiet_limit=QUIET_LIMIT):
+    """Run one flatpak command, passing on its output as it comes (progress redraws with \r count as lines).
+    flatpak run from a pipe goes quiet while it downloads, so while it's silent this says how much has been written
+    to disk so far; silent with nothing written for quiet_limit seconds, it's stopped and its last words reported.
+    stdin is closed, so anything that would wait for an answer fails instead of waiting for ever."""
+    import queue, threading, time
+    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         start_new_session=True)
+    q = queue.Queue()
+
+    def read():
+        buf = b""
+        for chunk in iter(lambda: p.stdout.read1(4096), b""):
+            buf += chunk
+            *parts, buf = buf.replace(b"\r\n", b"\n").replace(b"\r", b"\n").split(b"\n")
+            for part in parts:
+                q.put(part)
+        q.put(buf)
+        q.put(None)
+    threading.Thread(target=read, daemon=True).start()
+    disk = flatpak_user_dir()
+    while not os.path.isdir(disk) and disk != os.path.dirname(disk):
+        disk = os.path.dirname(disk)
+    tail, last_line, heard = [], None, time.monotonic()
+    free = _free_bytes(disk)
+    start_free, noted = free, 0
+
+    def stop():  # flatpak and whatever it started (its own session, so the whole group)
+        import signal
+        for sig, wait in ((signal.SIGTERM, 10), (signal.SIGKILL, 5)):
+            try:
+                os.killpg(p.pid, sig)
+                p.wait(wait)
+                return
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+    try:
+        while True:
+            if cancelled():
+                stop()
+                raise InterruptedError("cancelled")
+            try:
+                raw = q.get(timeout=1)
+            except queue.Empty:
+                now, now_free = time.monotonic(), _free_bytes(disk)
+                if now_free is not None and free is not None and free - now_free > 1 << 20:
+                    heard, free = now, now_free  # writing to disk: still downloading
+                quiet = now - heard
+                if quiet >= quiet_limit:
+                    stop()
+                    said = "\n".join(tail[-8:]) or "(nothing)"
+                    raise RuntimeError(f"flatpak {cmd[1]} stopped making progress: nothing new from it and nothing "
+                                       f"written to disk for {int(quiet // 60)} minutes. Its last words:\n{said}")
+                if now - max(noted, heard) >= quiet_note:
+                    noted = now
+                    got = (start_free - now_free) if start_free is not None and now_free is not None else 0
+                    log(f"… still working ({human_size(got)} written so far)" if got > 1 << 20 else
+                        f"… still working, nothing new from flatpak for {int(quiet)} s")
+                continue
+            if raw is None:
+                break
+            line = raw.decode("utf-8", "replace").strip()
+            heard = time.monotonic()
+            if line and line != last_line:
+                last_line = line
+                tail = (tail + [line])[-20:]
+                log(line)
+        p.wait()
+    finally:
+        if p.poll() is None:
+            stop()
+    if p.returncode != 0:
+        said = "\n".join(tail[-8:])
+        raise RuntimeError(f"flatpak {cmd[1]} failed (exit code {p.returncode})" + (f":\n{said}" if said else ""))
+
+
 def install_retrodeck(log, cancelled=lambda: False):
     """Add Flathub for this user (if needed) and install RetroDECK from it. log(line) gets flatpak's output.
-    Raises RuntimeError when flatpak fails, InterruptedError when cancelled."""
+    Raises RuntimeError when flatpak fails or stops making progress, InterruptedError when cancelled."""
     exe = flatpak()
     if not exe:
         raise RuntimeError("Flatpak isn't installed")
@@ -88,17 +181,7 @@ def install_retrodeck(log, cancelled=lambda: False):
              [exe, "install", "--user", "--noninteractive", "-y", "flathub", RD_APP])
     for cmd in steps:
         log("$ " + " ".join(cmd[1:]))
-        with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
-                              errors="replace") as p:
-            for line in p.stdout:
-                if cancelled():
-                    p.terminate()
-                    raise InterruptedError("cancelled")
-                line = line.rstrip()
-                if line:
-                    log(line)
-        if p.returncode != 0:
-            raise RuntimeError(f"flatpak {cmd[1]} failed (exit code {p.returncode})")
+        _run_flatpak(cmd, log, cancelled)
 
 
 def launch_retrodeck():

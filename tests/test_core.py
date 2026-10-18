@@ -2658,5 +2658,62 @@ class AutoScrape(unittest.TestCase):
             self.assertEqual(jobs, [(placed[0][1], "7", ("USA",))])
             self.assertEqual(line, "Scraped 1 of 2 with LaunchBox (3 images)")
 
+@unittest.skipIf(os.name == "nt", "fake flatpak is a shell script")
+class FlatpakRuns(unittest.TestCase):
+    """Running flatpak for the RetroDECK install (frontend._run_flatpak): output as it comes, a stuck flatpak reported
+    with its last words instead of waiting for ever, stopping while it's quiet."""
+
+    def fake(self, body):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        exe = os.path.join(d, "flatpak")
+        with open(exe, "w") as f:
+            f.write("#!/bin/sh\n" + body + "\n")
+        os.chmod(exe, 0o755)
+        return exe
+
+    def run_it(self, body, cancelled=lambda: False, **kw):
+        lines = []
+        frontend._run_flatpak([self.fake(body), "install"], lines.append, cancelled, **kw)
+        return lines
+
+    def test_progress_redraws_count_as_lines(self):
+        lines = self.run_it(r"printf 'Installing 1/2\r 50%%\r100%%\nInstalling 2/2\n\nDone.'")
+        self.assertEqual(lines, ["Installing 1/2", "50%", "100%", "Installing 2/2", "Done."])
+
+    def test_failure_says_what_flatpak_said(self):
+        with self.assertRaises(RuntimeError) as e:
+            self.run_it("echo 'error: No remote refs found for flathub'; exit 1")
+        self.assertIn("exit code 1", str(e.exception))
+        self.assertIn("No remote refs found", str(e.exception))
+
+    def test_nothing_waits_for_an_answer(self):
+        with self.assertRaises(RuntimeError) as e:  # stdin is closed: a question gets no answer, not a hang
+            self.run_it("read answer || { echo 'error: no answer'; exit 3; }", quiet_limit=20)
+        self.assertIn("no answer", str(e.exception))
+
+    def test_stuck_is_reported(self):
+        import time
+        t = time.monotonic()
+        with self.assertRaises(RuntimeError) as e:
+            self.run_it("echo 'Installing app/net.retrodeck.retrodeck/x86_64/stable'; sleep 60", quiet_note=1,
+                        quiet_limit=3)
+        self.assertLess(time.monotonic() - t, 30)
+        self.assertIn("stopped making progress", str(e.exception))
+        self.assertIn("Installing app/net.retrodeck.retrodeck", str(e.exception))
+
+    def test_quiet_flatpak_is_said_to_be_working(self):
+        lines = self.run_it("sleep 3; echo done", quiet_note=1, quiet_limit=30)
+        self.assertTrue(any(x.startswith("… still working") for x in lines), lines)
+        self.assertEqual(lines[-1], "done")
+
+    def test_stopping_while_its_quiet(self):
+        import time
+        t = time.monotonic()
+        with self.assertRaises(InterruptedError):
+            self.run_it("sleep 60", cancelled=lambda: time.monotonic() - t > 1)
+        self.assertLess(time.monotonic() - t, 15)
+
+
 if __name__ == "__main__":
     unittest.main()
